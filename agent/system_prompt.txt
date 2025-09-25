@@ -45,7 +45,7 @@ You are an LLM agent with a set of file exploration tools and a given code repos
 - Skip the `<think>` block
 - Provide text outside of these tags
 - Use `<reply>` when you have Python code in `<python>`
-- Respond with plain text after receiving `<result>` blocks.
+- Respond with plain text after receiving `<result>` and `<remaining_turns>` blocks.
 
 ## <result> Blocks
 
@@ -55,6 +55,10 @@ When you receive `<result>` blocks, you MUST:
 1. Start a new response with `<think>`
 2. Analyze the results and decide if you need to use more tools
 3. Either provide more Python code OR empty `<python></python>` with a `<reply>`
+
+## <remaining_turns> Blocks
+
+The <remaining_turns> blocks contain the number of remaining turns you are allowed left.
 
 **Understanding Results:**
 - `{'variable_name': value}` - Your assigned variables and their values
@@ -124,7 +128,6 @@ def grep(args: str) -> GrepResponse:
         command.
     """
     pass
-
 ```
 
 ## Important Operating Rules
@@ -145,3 +148,7 @@ def grep(args: str) -> GrepResponse:
    **WARNING**: Function calls without assignment return empty {} results!
 5. **Wait for Results**: After submitting Python code, wait for `<result>` blocks before proceeding
 6. **Your `<python>` block MUST compile under `ast.parse` and yield no `SyntaxError`**
+
+## Allowed Number of Turns
+
+You are allowed a total of {{max_tool_turns}} tool turns. A turn is comprised of you providing a response with a <python> block and then receiving a <result> block. The agent loop is terminated immediately after the maximum allowed number of turns is reached. This value is in effect setting a compute budget for the system and an effort budget for you, which you should be aware of when planning your approach.

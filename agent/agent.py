@@ -2,9 +2,8 @@ from agent.engine import execute_sandboxed_code
 from agent.model import get_model_response, create_openai_client, create_vllm_client
 from agent.utils import (
     load_system_prompt,
-    create_memory_if_not_exists,
     extract_python_code,
-    format_results,
+    format_results_and_remaining_turns,
     extract_reply,
     extract_thoughts,
 )
@@ -124,7 +123,7 @@ class Agent:
         remaining_tool_turns = self.max_tool_turns
         while remaining_tool_turns > 0 and not reply:
             self._add_message(
-                ChatMessage(role=Role.USER, content=format_results(result[0], result[1]))
+                ChatMessage(role=Role.USER, content=format_results_and_remaining_turns(result[0], result[1], remaining_tool_turns))
             )
             response = get_model_response(
                 messages=self.messages,

@@ -1,5 +1,6 @@
 from agent.settings import (
-    SYSTEM_PROMPT_PATH
+    SYSTEM_PROMPT_PATH,
+    MAX_TOOL_TURNS,
 )
 
 
@@ -12,7 +13,9 @@ def load_system_prompt() -> str:
     """
     try:
         with open(SYSTEM_PROMPT_PATH, "r") as f:
-            return f.read()
+            system_prompt = f.read()
+            system_prompt = system_prompt.replace("{{max_tool_turns}}", str(MAX_TOOL_TURNS))
+            return system_prompt
     except FileNotFoundError:
         raise FileNotFoundError(f"System prompt file not found at {SYSTEM_PROMPT_PATH}")
 
@@ -57,13 +60,12 @@ def extract_thoughts(response: str) -> str:
     else:
         return ""
 
-
-def format_results(results: dict, error_msg: str = "") -> str:
+def format_results_and_remaining_turns(results: dict, error_msg: str = "", remaining_turns: int = 0) -> str:
     """
-    Format the results into a string.
+    Format the results into a string and add the remaining turns to the string.
     """
     return (
-        "<result>\n(" + str(results) + ", {" + error_msg + "})\n</result>"
+        "<result>\n(" + str(results) + ", {" + error_msg + "})\n</result>\n<remaining_turns>\n" + str(remaining_turns) + "\n</remaining_turns>"
         if error_msg
-        else "<result>\n" + str(results) + "\n</result>"
+        else "<result>\n" + str(results) + "\n</result>\n<remaining_turns>\n" + str(remaining_turns) + "\n</remaining_turns>"
     )
