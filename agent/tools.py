@@ -113,7 +113,10 @@ def grep(args: str) -> GrepResponse:
     Args:
         args: The arguments to pass to grep.
     Returns:
-        A GrepResponse object.
+        A GrepResponse object. This object has the fields exit_code, 
+        stdout, and stderr. stdout and stderr are the output of the 
+        grep command, and exit_code is the exit code of the grep 
+        command.
     """
     try:
         p = subprocess.run(f"grep {args}", shell=True, text=True, capture_output=True)
