@@ -148,6 +148,7 @@ def grep(args: str) -> GrepResponse:
    **WARNING**: Function calls without assignment return empty {} results!
 5. **Wait for Results**: After submitting Python code, wait for `<result>` blocks before proceeding
 6. **Your `<python>` block MUST compile under `ast.parse` and yield no `SyntaxError`**
+7. **Grep Usage**: Remember that the "args" string you provide to the grep() function is a python string, which will abide by special and escape characters and such, be mindful of this.
 
 ## Allowed Number of Turns
 
