@@ -6,6 +6,7 @@ from agent.utils import (
     format_results_and_remaining_turns,
     extract_reply,
     extract_thoughts,
+    AgentType,
 )
 from agent.settings import (
     SAVE_CONVERSATION_PATH,
@@ -30,9 +31,10 @@ class Agent:
         repo_path: str = None,
         use_vllm: bool = False,
         model: str = None,
+        agent_type: AgentType = AgentType.FINDER,
     ):
         # Load the system prompt and add it to the conversation history
-        self.system_prompt = load_system_prompt()
+        self.system_prompt = load_system_prompt(agent_type)
         self.messages: list[ChatMessage] = [
             ChatMessage(role=Role.SYSTEM, content=self.system_prompt)
         ]

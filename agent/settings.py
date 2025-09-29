@@ -21,6 +21,5 @@ VLLM_PORT = int(os.getenv("VLLM_PORT", "8000"))
 SANDBOX_TIMEOUT = 20
 
 # Path settings
-#SYSTEM_PROMPT_PATH = "agent/system_prompt.txt"
-SYSTEM_PROMPT_PATH = Path(__file__).resolve().parent / "system_prompt.txt"
+FINDER_AGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "finder_agent_prompt.txt"
 SAVE_CONVERSATION_PATH = "output/conversations/"

@@ -1,10 +1,14 @@
 from agent.settings import (
-    SYSTEM_PROMPT_PATH,
+    FINDER_AGENT_PROMPT_PATH,
     MAX_TOOL_TURNS,
 )
 
+from enum import Enum
 
-def load_system_prompt() -> str:
+class AgentType(Enum):
+    FINDER = FINDER_AGENT_PROMPT_PATH
+
+def load_system_prompt(agent_type: AgentType) -> str:
     """
     Load the system prompt from the file.
 
@@ -12,12 +16,12 @@ def load_system_prompt() -> str:
         The system prompt as a string.
     """
     try:
-        with open(SYSTEM_PROMPT_PATH, "r") as f:
+        with open(agent_type.value, "r") as f:
             system_prompt = f.read()
             system_prompt = system_prompt.replace("{{max_tool_turns}}", str(MAX_TOOL_TURNS))
             return system_prompt
     except FileNotFoundError:
-        raise FileNotFoundError(f"System prompt file not found at {SYSTEM_PROMPT_PATH}")
+        raise FileNotFoundError(f"System prompt file not found at {agent_type.value}")
 
 def extract_python_code(response: str) -> str:
     """
