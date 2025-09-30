@@ -63,24 +63,12 @@ def test_agent(repo_url: str, num_turns: int, model_name: str):
     os.makedirs(report_folder, exist_ok=True)
     agent.save_conversation(save_folder=save_folder)
 
-    # Get the reply from the response
-    reply = response.reply
-    # Parse the reply as a JSON object
-    reply = json.loads(reply)
-    # Save the reply to the report folder
-    report_name = f"report_{uuid.uuid4()}.json"
-    try:
-        with open(os.path.join(report_folder, report_name), "w") as f:
-            json.dump(reply, f)
-    except Exception as e:
-        print(f"Error saving report: {e}")
-
-    delete_repo(repo_url)
+    #delete_repo(repo_url)
     return save_folder
 
 def main():
     repo_url = "https://github.com/firstbatchxyz/mem-agent-mcp.git"
-    num_turns = 32
+    num_turns = 16
     model_name = "google/gemini-2.5-flash-preview-09-2025"
     test_agent(repo_url, num_turns, model_name)
 

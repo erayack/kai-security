@@ -18,7 +18,7 @@ def load_system_prompt(agent_type: AgentType) -> str:
     try:
         with open(agent_type.value, "r") as f:
             system_prompt = f.read()
-            system_prompt = system_prompt.replace("{{max_tool_turns}}", str(MAX_TOOL_TURNS))
+            system_prompt = system_prompt.replace("{{max_tool_turns}}", str(MAX_TOOL_TURNS - 1))
             return system_prompt
     except FileNotFoundError:
         raise FileNotFoundError(f"System prompt file not found at {agent_type.value}")
@@ -45,14 +45,6 @@ def extract_python_code(response: str) -> str:
         return ""
 
 
-def extract_reply(response: str) -> str:
-    """
-    Extract the reply from the response.
-    """
-    if "<reply>" in response and "</reply>" in response:
-        return response.split("<reply>")[1].split("</reply>")[0]
-    else:
-        return ""
 
 
 def extract_thoughts(response: str) -> str:

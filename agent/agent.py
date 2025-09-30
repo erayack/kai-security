@@ -4,7 +4,6 @@ from agent.utils import (
     load_system_prompt,
     extract_python_code,
     format_results_and_remaining_turns,
-    extract_reply,
     extract_thoughts,
     AgentType,
 )
@@ -70,21 +69,20 @@ class Agent:
         else:
             raise ValueError("Invalid message type")
 
-    def extract_response_parts(self, response: str) -> Tuple[str, str, str]:
+    def extract_response_parts(self, response: str) -> Tuple[str, str]:
         """
-        Extract the thoughts, reply and python code from the response.
+        Extract the thoughts and python code from the response.
 
         Args:
             response: The response from the agent.
 
         Returns:
-            A tuple of the thoughts, reply and python code.
+            A tuple of the thoughts and python code.
         """
         thoughts = extract_thoughts(response)
-        reply = extract_reply(response)
         python_code = extract_python_code(response)
 
-        return thoughts, reply, python_code
+        return thoughts, python_code
 
     def chat(self, message: str) -> AgentResponse:
         """
@@ -107,8 +105,8 @@ class Agent:
             use_vllm=self.use_vllm,
         )
 
-        # Extract the thoughts, reply and python code from the response
-        thoughts, reply, python_code = self.extract_response_parts(response)
+        # Extract the thoughts and python code from the response
+        thoughts, python_code = self.extract_response_parts(response)
 
         # Execute the code from the agent's response
         result = ({}, "")
@@ -123,7 +121,7 @@ class Agent:
         self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
 
         remaining_tool_turns = self.max_tool_turns
-        while remaining_tool_turns > 0 and not reply:
+        while remaining_tool_turns > 0:
             self._add_message(
                 ChatMessage(role=Role.USER, content=format_results_and_remaining_turns(result[0], result[1], remaining_tool_turns))
             )
@@ -134,8 +132,8 @@ class Agent:
                 use_vllm=self.use_vllm,
             )
 
-            # Extract the thoughts, reply and python code from the response
-            thoughts, reply, python_code = self.extract_response_parts(response)
+            # Extract the thoughts and python code from the response
+            thoughts, python_code = self.extract_response_parts(response)
 
             self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
             if python_code:
@@ -149,7 +147,7 @@ class Agent:
                 result = ({}, "")
             remaining_tool_turns -= 1
 
-        return AgentResponse(thoughts=thoughts, reply=reply, python_block=python_code)
+        return AgentResponse(thoughts=thoughts, python_block=python_code)
 
     def save_conversation(self, log: bool = False, save_folder: str = None):
         """

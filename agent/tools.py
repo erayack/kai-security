@@ -1,11 +1,13 @@
 import os
 import tempfile
 import uuid
+import json
 import subprocess
 from pathlib import Path
 from typing import Union, Optional
 
-from agent.schemas import GrepResponse
+from agent.schemas import GrepResponse, Exploit
+from agent.settings import EXPLOITS_PATH
 
 def read_file(file_path: str) -> str:
     """
@@ -123,3 +125,43 @@ def grep(args: str) -> GrepResponse:
         return p.returncode, p.stdout, p.stderr
     except Exception as e:
         return 1, f"Error: {e}", ""
+
+
+def add_exploit(exploit: Exploit) -> str:
+    """
+    Add an exploit to the exploits.json file.
+
+    Args:
+        exploit: The exploit to add.
+
+    Returns:
+        A string indicating whether the exploit 
+        was added successfully or not.
+    """
+    try:
+        path = Path(EXPLOITS_PATH)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.exists():
+            path.touch(exist_ok=True)
+
+        try:
+            raw = path.read_text(encoding="utf-8") if path.stat().st_size else ""
+            data = json.loads(raw) if raw else []
+            exploits = (
+                data if isinstance(data, list)
+                else [data] if isinstance(data, dict)
+                else []
+            )
+        except Exception:
+            exploits = []
+
+        new_data = exploits + [exploit.model_dump()]
+        with tempfile.NamedTemporaryFile("w", delete=False, dir=str(path.parent), encoding="utf-8") as tmp:
+            json.dump(new_data, tmp)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            temp_name = tmp.name
+        os.replace(temp_name, path)
+    except Exception as e:
+        return f"Error: {e}"
+    return "Exploit added successfully"
