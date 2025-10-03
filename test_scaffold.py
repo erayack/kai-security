@@ -52,7 +52,9 @@ def delete_repo(repo_url: str) -> None:
 
 def test_agent(repo_url: str, num_turns: int, model_name: str):
     """Run the Agent against the cloned repo for the requested number of user turns."""
-    repo_path = clone_repo(repo_url)
+    repo_path = _repo_path(repo_url)
+    if not os.path.exists(repo_path):
+        repo_path = clone_repo(repo_url)
     agent = Agent(repo_path=repo_path, model=model_name)
 
     response = agent.chat(BASE_INSTRUCTION)
@@ -63,11 +65,10 @@ def test_agent(repo_url: str, num_turns: int, model_name: str):
     os.makedirs(report_folder, exist_ok=True)
     agent.save_conversation(save_folder=save_folder)
 
-    #delete_repo(repo_url)
     return save_folder
 
 def main():
-    repo_url = "https://github.com/firstbatchxyz/mem-agent-mcp.git"
+    repo_url = "https://github.com/CodeHawks-Contests/2025-07-last-man-standing.git"
     num_turns = 16
     model_name = "google/gemini-2.5-flash-preview-09-2025"
     test_agent(repo_url, num_turns, model_name)

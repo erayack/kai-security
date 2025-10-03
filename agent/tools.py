@@ -157,7 +157,7 @@ def add_exploit(exploit: Exploit) -> str:
 
         new_data = exploits + [exploit.model_dump()]
         with tempfile.NamedTemporaryFile("w", delete=False, dir=str(path.parent), encoding="utf-8") as tmp:
-            json.dump(new_data, tmp)
+            json.dump(new_data, tmp, indent=2)
             tmp.flush()
             os.fsync(tmp.fileno())
             temp_name = tmp.name
