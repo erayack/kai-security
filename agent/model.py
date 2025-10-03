@@ -34,12 +34,12 @@ def _as_dict(msg: Union[ChatMessage, dict]) -> dict:
     return msg if isinstance(msg, dict) else msg.model_dump()
 
 def get_model_response(
-        messages: Optional[list[ChatMessage]] = None,
-        message: Optional[str] = None,
-        system_prompt: Optional[str] = None,
-        model: str = OPENROUTER_STRONG_MODEL,
-        client: Optional[OpenAI] = None,
-        use_vllm: bool = False,
+    messages: Optional[list[ChatMessage]] = None,
+    message: Optional[str] = None,
+    system_prompt: Optional[str] = None,
+    model: str = OPENROUTER_STRONG_MODEL,
+    client: Optional[OpenAI] = None,
+    use_vllm: bool = False,
 ) -> Union[str, BaseModel]:
     """
     Get a response from a model using OpenRouter or vLLM, with optional schema for structured output.

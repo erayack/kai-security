@@ -25,4 +25,4 @@ FINDER_AGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "finder
 VERIFIER_AGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "verifier_agent_prompt.txt"
 SAVE_CONVERSATION_PATH = "output/conversations/"
 EXPLOITS_PATH = "exploits.json"
-VERIFICATION_SCRIPTS_DIR = "verification_scripts"
+VERIFICATION_SCRIPTS_PATH = "verification_scripts/"

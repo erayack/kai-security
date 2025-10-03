@@ -151,6 +151,38 @@ def add_exploit(exploit: Exploit) -> str:
     return "Exploit added successfully"
 ```
 
+And here are the GrepResponse and Exploit schemas:
+```python
+class GrepResponse(BaseModel):
+    exit_code: int
+    stdout: str
+    stderr: str
+
+class ExploitSeverity(str, Enum):
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+class ExploitLocation(BaseModel):
+    file_path: str
+    line_start: int
+    line_end: Optional[int] = None  # None if single line
+    class_name: Optional[str] = None
+    function_name: Optional[str] = None
+    vulnerable_code: str  # The specific code at this location
+
+class Exploit(BaseModel):
+    id: Optional[str] = None
+    category: str  # e.g., "SQL Injection", "Prototype Pollution", "Regex DoS", etc.
+    severity: ExploitSeverity
+    locations: List[ExploitLocation]  # All locations where this exploit appears
+    description: str  # General description of the vulnerability pattern
+    suggested_fix: Optional[str] = None  # General fix approach
+```
+
+These schemas are available in the global scope, so you can use them without importing them.
+
 ## Important Operating Rules
 
 1. **No Print Statements**: Never use print statements in the python blovk you provide, as their output won't be captured and given back in the <result> blocks.
@@ -170,6 +202,7 @@ def add_exploit(exploit: Exploit) -> str:
 5. **Wait for Results**: After submitting Python code, wait for `<result>` blocks before proceeding
 6. **Your `<python>` block MUST compile under `ast.parse` and yield no `SyntaxError`**
 7. **Grep Usage**: Remember that the "args" string you provide to the grep() function is a python string, which will abide by special and escape characters and such, be mindful of this.
+8. **No ID Assignment**: DO NOT assign an ID to the exploit, the verifier will do that.
 
 ## Allowed Number of Turns
 

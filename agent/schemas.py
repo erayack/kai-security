@@ -43,6 +43,7 @@ class ExploitLocation(BaseModel):
     vulnerable_code: str  # The specific code at this location
 
 class Exploit(BaseModel):
+    id: Optional[str] = None
     category: str  # e.g., "SQL Injection", "Prototype Pollution", "Regex DoS", etc.
     severity: ExploitSeverity
     locations: List[ExploitLocation]  # All locations where this exploit appears

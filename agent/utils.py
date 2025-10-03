@@ -23,7 +23,7 @@ def load_system_prompt(agent_type: AgentType) -> str:
 
             if agent_type == AgentType.FINDER:
                 system_prompt = system_prompt.replace("{{max_tool_turns}}", str(MAX_TOOL_TURNS - 1))
-                
+
             return system_prompt
     except FileNotFoundError:
         raise FileNotFoundError(f"System prompt file not found at {agent_type.value}")
@@ -58,9 +58,21 @@ def extract_thoughts(response: str) -> str:
     else:
         return ""
 
-def format_results_and_remaining_turns(results: dict, error_msg: str = "", remaining_turns: int = 0) -> str:
+def format_results_and_remaining_turns(
+    results: dict, 
+    error_msg: str = "", 
+    remaining_turns: int = 0
+) -> str:
     """
     Format the results into a string and add the remaining turns to the string.
+
+    Args:
+        results: The results from the tools.
+        error_msg: The error message from the tools.
+        remaining_turns: The number of remaining turns.
+
+    Returns:
+        The formatted string.
     """
     return (
         "<result>\n(" + str(results) + ", {" + error_msg + "})\n</result>\n<remaining_turns>\n" + str(remaining_turns) + "\n</remaining_turns>"
