@@ -69,7 +69,7 @@ def test_agent(repo_url: str, num_turns: int, model_name: str):
 
 def main():
     repo_url = "https://github.com/CodeHawks-Contests/2025-07-last-man-standing.git"
-    num_turns = 16
+    num_turns = 32
     model_name = "google/gemini-2.5-flash-preview-09-2025"
     test_agent(repo_url, num_turns, model_name)
 

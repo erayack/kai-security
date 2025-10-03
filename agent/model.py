@@ -20,7 +20,6 @@ def create_vllm_client(host: str = "0.0.0.0", port: int = 8000) -> OpenAI:
         api_key="EMPTY",  # vLLM doesn't require a real API key
     )
 
-
 def _as_dict(msg: Union[ChatMessage, dict]) -> dict:
     """
     Accept either ChatMessage or raw dict and return the raw dict.
@@ -78,15 +77,13 @@ def get_model_response(
     if use_vllm:
         completion = client.chat.completions.create(
             model=model,
-            messages=messages,
-            #stop=["</reply>", "</python>"]
+            messages=messages
         )
             
         return completion.choices[0].message.content
     else:
         completion = client.chat.completions.create(
             model=model,
-            messages=messages,
-            #stop=["</reply>", "</python>"]
+            messages=messages
         )
         return completion.choices[0].message.content

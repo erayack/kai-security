@@ -12,6 +12,7 @@ MAX_TOOL_TURNS = 32
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_STRONG_MODEL = "anthropic/claude-sonnet-4"
+OPENROUTER_GEMINI_FLASH = "google/gemini-2.5-flash-preview-09-2025"
 
 # vLLM
 VLLM_HOST = os.getenv("VLLM_HOST", "0.0.0.0")
@@ -22,7 +23,7 @@ SANDBOX_TIMEOUT = 20
 
 # Path settings
 FINDER_AGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "finder_agent_prompt.txt"
-VERIFIER_AGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "verifier_agent_prompt.txt"
+NON_DUPLICATE_VERIFIER_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "non_duplicate_verifier_prompt.txt"
 SAVE_CONVERSATION_PATH = "output/conversations/"
 EXPLOITS_PATH = "exploits.json"
 VERIFICATION_SCRIPTS_PATH = "verification_scripts/"

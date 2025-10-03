@@ -1,6 +1,6 @@
 from agent.settings import (
     FINDER_AGENT_PROMPT_PATH,
-    VERIFIER_AGENT_PROMPT_PATH,
+    NON_DUPLICATE_VERIFIER_PROMPT_PATH,
     MAX_TOOL_TURNS,
 )
 
@@ -8,7 +8,7 @@ from enum import Enum
 
 class AgentType(Enum):
     FINDER = FINDER_AGENT_PROMPT_PATH
-    VERIFIER = VERIFIER_AGENT_PROMPT_PATH
+    NON_DUPLICATE_VERIFIER = NON_DUPLICATE_VERIFIER_PROMPT_PATH
 
 def load_system_prompt(agent_type: AgentType) -> str:
     """
@@ -57,6 +57,15 @@ def extract_thoughts(response: str) -> str:
         return response.split("<think>")[1].split("</think>")[0]
     else:
         return ""
+
+def extract_decision(response: str) -> bool:
+    """
+    Extract the decision from the response.
+    """
+    if "<decision>" in response and "</decision>" in response:
+        return response.split("<decision>")[1].split("</decision>")[0] == "True"
+    else:
+        return False
 
 def format_results_and_remaining_turns(
     results: dict, 

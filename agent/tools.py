@@ -4,10 +4,11 @@ import uuid
 import json
 import subprocess
 from pathlib import Path
-from typing import Union, Optional
+from typing import Union, Optional, List
 
-from agent.schemas import GrepResponse, Exploit
+from agent.schemas import GrepResponse, Exploit, ExploitLocation, ExploitSeverity
 from agent.settings import EXPLOITS_PATH
+from agent.verifier import verify_non_duplicate
 
 def read_file(file_path: str) -> str:
     """
@@ -138,6 +139,9 @@ def add_exploit(exploit: Exploit) -> str:
         A string indicating whether the exploit 
         was added successfully or not.
     """
+    if verify_non_duplicate(exploit, read_file(EXPLOITS_PATH)):
+        return "Exploit is a duplicate"
+    
     try:
         path = Path(EXPLOITS_PATH)
         path.parent.mkdir(parents=True, exist_ok=True)
