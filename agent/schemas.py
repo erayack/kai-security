@@ -16,9 +16,10 @@ class ChatMessage(BaseModel):
 class AgentResponse(BaseModel):
     thoughts: str
     python_block: Optional[str] = None
+    test_script: Optional[str] = None
 
     def __str__(self):
-        return f"Thoughts: {self.thoughts}\nPython block:\n {self.python_block}"
+        return f"Thoughts: {self.thoughts}\nPython block:\n {self.python_block}\nTest script:\n {self.test_script}"
 
 class GrepResponse(BaseModel):
     exit_code: int

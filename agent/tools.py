@@ -142,6 +142,10 @@ def add_exploit(exploit: Exploit) -> str:
     if verify_non_duplicate(exploit, read_file(EXPLOITS_PATH)):
         return "Exploit is a duplicate"
     
+    # Generate a short ID for the exploit if it doesn't have one
+    exploit_id = exploit.id if exploit.id else str(uuid.uuid4())[:6]
+    exploit.id = exploit_id
+
     try:
         path = Path(EXPLOITS_PATH)
         path.parent.mkdir(parents=True, exist_ok=True)

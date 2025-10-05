@@ -1,6 +1,7 @@
 from agent.settings import (
     FINDER_AGENT_PROMPT_PATH,
     NON_DUPLICATE_VERIFIER_PROMPT_PATH,
+    TEST_GENERATOR_PROMPT_PATH,
     MAX_TOOL_TURNS,
 )
 
@@ -9,6 +10,7 @@ from enum import Enum
 class AgentType(Enum):
     FINDER = FINDER_AGENT_PROMPT_PATH
     NON_DUPLICATE_VERIFIER = NON_DUPLICATE_VERIFIER_PROMPT_PATH
+    TEST_GENERATOR = TEST_GENERATOR_PROMPT_PATH
 
 def load_system_prompt(agent_type: AgentType) -> str:
     """
@@ -66,6 +68,15 @@ def extract_decision(response: str) -> bool:
         return response.split("<decision>")[1].split("</decision>")[0] == "True"
     else:
         return False
+
+def extract_test_script(response: str) -> str:
+    """
+    Extract the test script from the response.
+    """
+    if "<test_script>" in response and "</test_script>" in response:
+        return response.split("<test_script>")[1].split("</test_script>")[0]
+    else:
+        return ""
 
 def format_results_and_remaining_turns(
     results: dict, 
