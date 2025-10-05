@@ -6,8 +6,9 @@ help:
 	@echo "Usage: make <target>"
 	@echo ""
 	@echo "Targets:"
-	@echo "  install - Install ALL dependencies (uv + Python packages + Foundry)"
-	@echo "  help    - Show this help message"
+	@echo "  1. help    - Show this help message"
+	@echo "  2. install - Install ALL dependencies (uv + Python packages + Foundry)"
+	@echo "  3. run     - Run the scaffold"
 	@echo ""
 	@echo "Quick Start:"
 	@echo "  make install"
@@ -24,3 +25,6 @@ install:
 		echo "  export PATH=\"\$$HOME/.foundry/bin:\$$PATH\""; \
 		echo ""; \
 	fi
+
+run:
+	uv run run_scaffold.py

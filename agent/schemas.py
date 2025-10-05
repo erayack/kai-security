@@ -40,7 +40,6 @@ class ExploitLocation(BaseModel):
     line_end: Optional[int] = None  # None if single line
     class_name: Optional[str] = None
     function_name: Optional[str] = None
-    vulnerable_code: str  # The specific code at this location
 
 class Exploit(BaseModel):
     id: Optional[str] = None

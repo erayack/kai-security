@@ -61,8 +61,6 @@ def test_agent(repo_url: str, num_turns: int, model_name: str):
 
     # Save conversation under a per-repo folder inside output/conversations
     save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url))
-    report_folder = os.path.join(save_folder, "reports")
-    os.makedirs(report_folder, exist_ok=True)
     agent.save_conversation(save_folder=save_folder)
 
     return save_folder
