@@ -6,6 +6,7 @@ from agent.utils import (
     format_results_and_remaining_turns,
     extract_thoughts,
     AgentType,
+    extract_test_script
 )
 from agent.settings import (
     SAVE_CONVERSATION_PATH,
@@ -16,7 +17,7 @@ from agent.settings import (
 )
 from agent.schemas import ChatMessage, Role, AgentResponse
 
-from typing import Union, Tuple
+from typing import Union, Tuple, Optional
 
 import json
 import os
@@ -32,6 +33,7 @@ class Agent:
         model: str = None,
         agent_type: AgentType = AgentType.FINDER,
     ):
+        self.agent_type = agent_type
         # Load the system prompt and add it to the conversation history
         self.system_prompt = load_system_prompt(agent_type)
         self.messages: list[ChatMessage] = [
@@ -114,20 +116,21 @@ class Agent:
             result = execute_sandboxed_code(
                 code=python_code,
                 allowed_path=self.repo_path,
-                import_module="agent.tools",
+                import_module="agent.tools" if self.agent_type != AgentType.TEST_GENERATOR else "agent.generator_tools",
             )
 
         # Add the agent's response to the conversation history
         self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
 
+        test_script = None
         remaining_tool_turns = self.max_tool_turns
-        while remaining_tool_turns > 0:
+        while remaining_tool_turns > 0 and not test_script:
             self._add_message(
                 ChatMessage(role=Role.USER, content=format_results_and_remaining_turns(result[0], result[1], remaining_tool_turns))
             )
             response = get_model_response(
                 messages=self.messages,
-                model=self.model,  # Pass the model if specified
+                model=self.model,  
                 client=self._client,
                 use_vllm=self.use_vllm,
             )
@@ -135,21 +138,29 @@ class Agent:
             # Extract the thoughts and python code from the response
             thoughts, python_code = self.extract_response_parts(response)
 
+            if self.agent_type == AgentType.TEST_GENERATOR:
+                test_script = extract_test_script(response)
+
             self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
             if python_code:
                 result = execute_sandboxed_code(
                     code=python_code,
                     allowed_path=self.repo_path,
-                    import_module="agent.tools",
+                    import_module="agent.tools" if self.agent_type != AgentType.TEST_GENERATOR else "agent.generator_tools",
                 )
             else:
                 # Reset result when no Python code is executed
                 result = ({}, "")
             remaining_tool_turns -= 1
 
-        return AgentResponse(thoughts=thoughts, python_block=python_code)
+        return AgentResponse(thoughts=thoughts, python_block=python_code, test_script=test_script)
 
-    def save_conversation(self, log: bool = False, save_folder: str = None):
+    def save_conversation(
+        self, 
+        log: bool = False, 
+        save_folder: str = None,
+        prefix: Optional[str] = None,
+    ):
         """
         Save the conversation messages to a JSON file in
         the output/conversations directory.
@@ -166,7 +177,10 @@ class Agent:
             )
             if not os.path.exists(folder_path):
                 os.makedirs(folder_path)
-            file_path = os.path.join(folder_path, f"convo_{unique_id}.json")
+            if prefix:
+                file_path = os.path.join(folder_path, f"{prefix}_{unique_id}.json")
+            else:
+                file_path = os.path.join(folder_path, f"convo_{unique_id}.json")
 
         # Convert the execution result messages to tool role
         messages = [

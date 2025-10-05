@@ -7,6 +7,8 @@ from pathlib import Path
 import json
 import uuid
 from agent.agent import Agent
+from agent.utils import AgentType
+from agent.verifier import generate_test_script
 
 
 BASE_INSTRUCTION = "You must start your search for exploits now"
@@ -50,12 +52,12 @@ def delete_repo(repo_url: str) -> None:
         shutil.rmtree(dest)
 
 
-def test_agent(repo_url: str, num_turns: int, model_name: str):
+def run_finder_agent(repo_url: str, num_turns: int, model_name: str):
     """Run the Agent against the cloned repo for the requested number of user turns."""
     repo_path = _repo_path(repo_url)
     if not os.path.exists(repo_path):
         repo_path = clone_repo(repo_url)
-    agent = Agent(repo_path=repo_path, model=model_name)
+    agent = Agent(repo_path=repo_path, model=model_name, max_tool_turns=num_turns)
 
     response = agent.chat(BASE_INSTRUCTION)
 
@@ -63,13 +65,32 @@ def test_agent(repo_url: str, num_turns: int, model_name: str):
     save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url))
     agent.save_conversation(save_folder=save_folder)
 
-    return save_folder
+def run_generator_agent(repo_url: str, num_turns: int, model_name: str):
+    """
+    Run the generator agent for all exploits in the exploits.json file in the repo path
+    """
+    repo_path = _repo_path(repo_url)
+    agent = Agent(repo_path=repo_path, model=model_name, max_tool_turns=num_turns, agent_type=AgentType.TEST_GENERATOR)
+    for exploit in json.load(open(os.path.join(repo_path, "exploits.json"))):
+        test_script = generate_test_script(exploit, repo_path)
+        if test_script:
+            try:
+                test_dir = "test_scripts"
+                os.makedirs(test_dir, exist_ok=True)
+                test_file_path = os.path.join(test_dir, f"{exploit['id']}.t.sol")
+                with open(test_file_path, "w") as f:
+                    f.write(test_script)
+            except Exception as e:
+                print(f"Error writing test script for exploit {exploit['id']}: {e}")
 
 def main():
     repo_url = "https://github.com/CodeHawks-Contests/2025-07-last-man-standing.git"
-    num_turns = 32
+    num_turns = 16
     model_name = "google/gemini-2.5-flash-preview-09-2025"
-    test_agent(repo_url, num_turns, model_name)
+    run_finder_agent(repo_url, num_turns, model_name)
+    print("Finder agent finished")
+    run_generator_agent(repo_url, num_turns, model_name)
+    print("Generator agent finished")
 
 if __name__ == "__main__":
     main()

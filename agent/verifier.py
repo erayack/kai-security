@@ -1,7 +1,8 @@
-from agent.utils import load_system_prompt, AgentType, extract_python_code, extract_decision
+from agent.utils import load_system_prompt, AgentType, extract_python_code, extract_decision, extract_test_script
 from agent.model import get_model_response
-from agent.settings import VERIFICATION_SCRIPTS_PATH, EXPLOITS_PATH, OPENROUTER_GEMINI_FLASH
+from agent.settings import EXPLOITS_PATH, OPENROUTER_GEMINI_FLASH
 from agent.schemas import Exploit, ExploitLocation, ExploitSeverity
+from agent.agent import Agent
 
 import json
 import os
@@ -22,6 +23,15 @@ And here is the `exploits.json` file containing all the previously found exploit
 Now you can decide whether the exploit is a non-duplicate or not.
 """
 
+GENERATOR_INSTRUCTION = """
+Here is the exploit:
+<exploit>
+{exploit}
+</exploit>
+
+Start exploring the codebase and generate a test script for the exploit.
+"""
+
 def construct_verifier_instruction(exploit: Exploit, exploits_json_string: str) -> str:
     """
     Construct the verifier instruction.
@@ -34,6 +44,12 @@ def construct_verifier_instruction(exploit: Exploit, exploits_json_string: str) 
         The verifier instruction.
     """
     return VERIFIER_INSTRUCTION.format(exploit=exploit, exploits=exploits_json_string)
+
+def construct_generator_instruction(exploit: dict) -> str:
+    """
+    Construct the generator instruction.
+    """
+    return GENERATOR_INSTRUCTION.format(exploit=json.dumps(exploit))
 
 def verify_non_duplicate(exploit: Exploit, exploits_json_string: str) -> bool:
     """
@@ -53,3 +69,25 @@ def verify_non_duplicate(exploit: Exploit, exploits_json_string: str) -> bool:
         model=OPENROUTER_GEMINI_FLASH
     )
     return extract_decision(response)
+
+
+def generate_test_script(exploit: dict, repo_path: str) -> str:
+    """
+    Generate a test script for the exploit.
+
+    Args:
+        exploit: The exploit to generate a test script for.
+        repo_path: The path to the repo.
+
+    Returns:
+        The test script.
+    """
+    # Initialize the agent
+    agent = Agent(agent_type=AgentType.TEST_GENERATOR, repo_path=repo_path)
+    # Construct the instruction
+    instruction = construct_generator_instruction(exploit)
+    # Generate the test script
+    response = agent.chat(instruction)
+    # Save the conversation
+    agent.save_conversation(save_folder="generator_conversations", prefix="generator")
+    return response.test_script
