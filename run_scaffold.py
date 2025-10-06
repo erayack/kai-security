@@ -57,7 +57,7 @@ def run_finder_agent(repo_url: str, num_turns: int, model_name: str):
     repo_path = _repo_path(repo_url)
     if not os.path.exists(repo_path):
         repo_path = clone_repo(repo_url)
-    agent = Agent(repo_path=repo_path, model=model_name, max_tool_turns=num_turns)
+    agent = Agent(repo_path=repo_path, model=model_name, max_tool_turns=num_turns, agent_type=AgentType.FINDER)
 
     response = agent.chat(BASE_INSTRUCTION)
 
@@ -70,9 +70,8 @@ def run_generator_agent(repo_url: str, num_turns: int, model_name: str):
     Run the generator agent for all exploits in the exploits.json file in the repo path
     """
     repo_path = _repo_path(repo_url)
-    agent = Agent(repo_path=repo_path, model=model_name, max_tool_turns=num_turns, agent_type=AgentType.TEST_GENERATOR)
     for exploit in json.load(open(os.path.join(repo_path, "exploits.json"))):
-        test_script = generate_test_script(exploit, repo_path)
+        test_script = generate_test_script(exploit, repo_path, max_tool_turns=num_turns, model=model_name)
         if test_script:
             try:
                 test_dir = "test_scripts"
@@ -86,10 +85,11 @@ def run_generator_agent(repo_url: str, num_turns: int, model_name: str):
 def main():
     repo_url = "https://github.com/CodeHawks-Contests/2025-07-last-man-standing.git"
     num_turns = 16
-    model_name = "google/gemini-2.5-flash-preview-09-2025"
-    run_finder_agent(repo_url, num_turns, model_name)
+    finder_model_name = "google/gemini-2.5-flash-preview-09-2025"
+    generator_model_name = "anthropic/claude-sonnet-4.5"
+    run_finder_agent(repo_url, num_turns, finder_model_name)
     print("Finder agent finished")
-    run_generator_agent(repo_url, num_turns, model_name)
+    run_generator_agent(repo_url, num_turns, generator_model_name)
     print("Generator agent finished")
 
 if __name__ == "__main__":

@@ -160,7 +160,10 @@ This schema is available in the global scope, so you can use it without importin
 2. It should demonstrate the exploit in a `test_xxxx` function.
 3. It should use assert statements to make sure the exploit is working. If the exploit is working, the test should pass. If the exploit is not working, the test should fail.
 4. The test script should respect the import and all other conventions of the original contract.
+5. The test script should match the solidity version of the original contract.
 
 ## Allowed Number of Turns
 
 You are allowed a total of {{max_tool_turns}} tool turns. A turn is comprised of you providing a response with a <python> block and then receiving a <result> block. The agent loop is terminated immediately after the maximum allowed number of turns is reached. You should continue exploring the repo until you feel satisfied enough to produce a test script. 
+
+REMEMBER: STOP, after you've provided a <python> block, and then wait for the <result> block before providing a response. Don't provide anything after the <python> block.

@@ -23,7 +23,7 @@ def load_system_prompt(agent_type: AgentType) -> str:
         with open(agent_type.value, "r") as f:
             system_prompt = f.read()
 
-            if agent_type == AgentType.FINDER:
+            if agent_type in (AgentType.FINDER, AgentType.TEST_GENERATOR):
                 system_prompt = system_prompt.replace("{{max_tool_turns}}", str(MAX_TOOL_TURNS - 1))
 
             return system_prompt

@@ -122,9 +122,18 @@ class Agent:
         # Add the agent's response to the conversation history
         self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
 
-        test_script = None
+        # Check if the first response already contains a test script (for TEST_GENERATOR)
+        test_script = ""
+        if self.agent_type == AgentType.TEST_GENERATOR:
+            test_script = extract_test_script(response)
+            # If we have a test script and no python code, we're done immediately
+            if test_script and not python_code:
+                return AgentResponse(thoughts=thoughts, python_block=python_code, test_script=test_script)
+
         remaining_tool_turns = self.max_tool_turns
-        while remaining_tool_turns > 0 and not test_script:
+        
+        # Only enter loop if there was Python code in the first response
+        while remaining_tool_turns > 0 and python_code:
             self._add_message(
                 ChatMessage(role=Role.USER, content=format_results_and_remaining_turns(result[0], result[1], remaining_tool_turns))
             )
@@ -138,20 +147,27 @@ class Agent:
             # Extract the thoughts and python code from the response
             thoughts, python_code = self.extract_response_parts(response)
 
+            # Add the assistant message BEFORE checking for test_script to ensure proper turn-based flow
+            self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
+
+            # For TEST_GENERATOR, check if we have a test script
             if self.agent_type == AgentType.TEST_GENERATOR:
                 test_script = extract_test_script(response)
+                # Only break if we have a test script AND no more python code to execute
+                if test_script and not python_code:
+                    break
 
-            self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
+            # Execute python code if present
             if python_code:
                 result = execute_sandboxed_code(
                     code=python_code,
                     allowed_path=self.repo_path,
                     import_module="agent.tools" if self.agent_type != AgentType.TEST_GENERATOR else "agent.generator_tools",
                 )
+                remaining_tool_turns -= 1
             else:
-                # Reset result when no Python code is executed
-                result = ({}, "")
-            remaining_tool_turns -= 1
+                # No more python code to execute, we're done
+                break
 
         return AgentResponse(thoughts=thoughts, python_block=python_code, test_script=test_script)
 

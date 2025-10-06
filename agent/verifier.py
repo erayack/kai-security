@@ -71,19 +71,26 @@ def verify_non_duplicate(exploit: Exploit, exploits_json_string: str) -> bool:
     return extract_decision(response)
 
 
-def generate_test_script(exploit: dict, repo_path: str) -> str:
+def generate_test_script(exploit: dict, repo_path: str, max_tool_turns: int = 16, model: str = None) -> str:
     """
     Generate a test script for the exploit.
 
     Args:
         exploit: The exploit to generate a test script for.
         repo_path: The path to the repo.
+        max_tool_turns: The maximum number of tool turns allowed.
+        model: The model to use for generation.
 
     Returns:
         The test script.
     """
     # Initialize the agent
-    agent = Agent(agent_type=AgentType.TEST_GENERATOR, repo_path=repo_path)
+    agent = Agent(
+        agent_type=AgentType.TEST_GENERATOR, 
+        repo_path=repo_path,
+        max_tool_turns=max_tool_turns,
+        model=model
+    )
     # Construct the instruction
     instruction = construct_generator_instruction(exploit)
     # Generate the test script
