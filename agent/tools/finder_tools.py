@@ -8,7 +8,6 @@ from typing import Union, Optional, List
 
 from agent.schemas import GrepResponse, Exploit, ExploitLocation, ExploitSeverity
 from agent.settings import EXPLOITS_PATH
-from agent.verifier import verify_non_duplicate
 
 def read_file(file_path: str) -> str:
     """
@@ -139,7 +138,36 @@ def add_exploit(exploit: Exploit) -> str:
         A string indicating whether the exploit 
         was added successfully or not.
     """
-    if verify_non_duplicate(exploit, read_file(EXPLOITS_PATH)):
+    # Inline verification of non-duplicate
+    exploits_json_string = read_file(EXPLOITS_PATH)
+    
+    from agent.model import get_model_response
+    from agent.settings import OPENROUTER_GEMINI_FLASH
+    from agent.utils import load_system_prompt, extract_decision, AgentType
+    
+    VERIFIER_INSTRUCTION = """
+Here is the new exploit:
+<exploit>
+{exploit}
+</exploit>
+
+And here is the `exploits.json` file containing all the previously found exploits:
+<previous_exploits>
+{exploits}
+</previous_exploits>
+
+Now you can decide whether the exploit is a non-duplicate or not.
+"""
+    
+    verifier_instruction = VERIFIER_INSTRUCTION.format(exploit=exploit, exploits=exploits_json_string)
+    response = get_model_response(
+        system_prompt=load_system_prompt(AgentType.NON_DUPLICATE_VERIFIER),
+        message=verifier_instruction,
+        model=OPENROUTER_GEMINI_FLASH
+    )
+    is_duplicate = extract_decision(response)
+    
+    if is_duplicate:
         return "Exploit is a duplicate"
     
     # Generate a short ID for the exploit if it doesn't have one
@@ -173,3 +201,4 @@ def add_exploit(exploit: Exploit) -> str:
     except Exception as e:
         return f"Error: {e}"
     return "Exploit added successfully"
+

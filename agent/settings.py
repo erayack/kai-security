@@ -19,7 +19,7 @@ VLLM_HOST = os.getenv("VLLM_HOST", "0.0.0.0")
 VLLM_PORT = int(os.getenv("VLLM_PORT", "8000"))
 
 # Engine
-SANDBOX_TIMEOUT = 20
+SANDBOX_TIMEOUT = 60
 
 # Path settings
 FINDER_AGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "finder_agent_prompt.txt"

@@ -6,7 +6,6 @@ from agent.utils import (
     format_results_and_remaining_turns,
     extract_thoughts,
     AgentType,
-    extract_test_script
 )
 from agent.settings import (
     SAVE_CONVERSATION_PATH,
@@ -18,20 +17,23 @@ from agent.settings import (
 from agent.schemas import ChatMessage, Role, AgentResponse
 
 from typing import Union, Tuple, Optional
+from abc import ABC, abstractmethod
 
 import json
 import os
 import uuid
 
 
-class Agent:
+class BaseAgent(ABC):
+    """Abstract base class for all agents."""
+    
     def __init__(
         self,
         max_tool_turns: int = MAX_TOOL_TURNS,
         repo_path: str = None,
         use_vllm: bool = False,
         model: str = None,
-        agent_type: AgentType = AgentType.FINDER,
+        agent_type: AgentType = None,
     ):
         self.agent_type = agent_type
         # Load the system prompt and add it to the conversation history
@@ -61,6 +63,45 @@ class Agent:
 
         # Ensure memory_path is absolute for consistency
         self.repo_path = os.path.abspath(self.repo_path)
+
+    @abstractmethod
+    def check_termination(self, response: str, python_code: str) -> bool:
+        """
+        Check if the agent should terminate based on the response.
+        
+        Args:
+            response: The full response from the model.
+            python_code: The extracted python code from the response.
+            
+        Returns:
+            True if the agent should terminate, False otherwise.
+        """
+        pass
+    
+    @abstractmethod
+    def get_tools_module(self) -> str:
+        """
+        Get the tools module name for execute_sandboxed_code.
+        
+        Returns:
+            The module name to import for tools.
+        """
+        pass
+    
+    @abstractmethod
+    def extract_final_result(self, thoughts: str, python_code: str, response: str) -> AgentResponse:
+        """
+        Extract the final result from the agent's work.
+        
+        Args:
+            thoughts: The extracted thoughts.
+            python_code: The extracted python code.
+            response: The full response.
+            
+        Returns:
+            An AgentResponse object with the final result.
+        """
+        pass
 
     def _add_message(self, message: Union[ChatMessage, dict]):
         """Add a message to the conversation history."""
@@ -102,7 +143,7 @@ class Agent:
         # Get the response from the agent using this instance's clients
         response = get_model_response(
             messages=self.messages,
-            model=self.model,  # Pass the model if specified
+            model=self.model,
             client=self._client,
             use_vllm=self.use_vllm,
         )
@@ -116,19 +157,15 @@ class Agent:
             result = execute_sandboxed_code(
                 code=python_code,
                 allowed_path=self.repo_path,
-                import_module="agent.tools" if self.agent_type != AgentType.TEST_GENERATOR else "agent.generator_tools",
+                import_module=self.get_tools_module(),
             )
 
         # Add the agent's response to the conversation history
         self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
 
-        # Check if the first response already contains a test script (for TEST_GENERATOR)
-        test_script = ""
-        if self.agent_type == AgentType.TEST_GENERATOR:
-            test_script = extract_test_script(response)
-            # If we have a test script and no python code, we're done immediately
-            if test_script and not python_code:
-                return AgentResponse(thoughts=thoughts, python_block=python_code, test_script=test_script)
+        # Check if we should terminate immediately after first response
+        if self.check_termination(response, python_code):
+            return self.extract_final_result(thoughts, python_code, response)
 
         remaining_tool_turns = self.max_tool_turns
         
@@ -147,29 +184,26 @@ class Agent:
             # Extract the thoughts and python code from the response
             thoughts, python_code = self.extract_response_parts(response)
 
-            # Add the assistant message BEFORE checking for test_script to ensure proper turn-based flow
+            # Add the assistant message BEFORE checking termination
             self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
 
-            # For TEST_GENERATOR, check if we have a test script
-            if self.agent_type == AgentType.TEST_GENERATOR:
-                test_script = extract_test_script(response)
-                # Only break if we have a test script AND no more python code to execute
-                if test_script and not python_code:
-                    break
+            # Check if we should terminate
+            if self.check_termination(response, python_code):
+                break
 
             # Execute python code if present
             if python_code:
                 result = execute_sandboxed_code(
                     code=python_code,
                     allowed_path=self.repo_path,
-                    import_module="agent.tools" if self.agent_type != AgentType.TEST_GENERATOR else "agent.generator_tools",
+                    import_module=self.get_tools_module(),
                 )
                 remaining_tool_turns -= 1
             else:
                 # No more python code to execute, we're done
                 break
 
-        return AgentResponse(thoughts=thoughts, python_block=python_code, test_script=test_script)
+        return self.extract_final_result(thoughts, python_code, response)
 
     def save_conversation(
         self, 
@@ -188,9 +222,7 @@ class Agent:
         if not save_folder:
             file_path = os.path.join(SAVE_CONVERSATION_PATH, f"convo_{unique_id}.json")
         else:
-            folder_path = (
-                save_folder  # os.path.join(SAVE_CONVERSATION_PATH, save_folder)
-            )
+            folder_path = save_folder
             if not os.path.exists(folder_path):
                 os.makedirs(folder_path)
             if prefix:

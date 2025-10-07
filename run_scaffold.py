@@ -6,9 +6,7 @@ import hashlib
 from pathlib import Path
 import json
 import uuid
-from agent.agent import Agent
-from agent.utils import AgentType
-from agent.verifier import generate_test_script
+from agent.agents import FinderAgent, GeneratorAgent
 
 
 BASE_INSTRUCTION = "You must start your search for exploits now"
@@ -53,11 +51,11 @@ def delete_repo(repo_url: str) -> None:
 
 
 def run_finder_agent(repo_url: str, num_turns: int, model_name: str):
-    """Run the Agent against the cloned repo for the requested number of user turns."""
+    """Run the FinderAgent against the cloned repo for the requested number of user turns."""
     repo_path = _repo_path(repo_url)
     if not os.path.exists(repo_path):
         repo_path = clone_repo(repo_url)
-    agent = Agent(repo_path=repo_path, model=model_name, max_tool_turns=num_turns, agent_type=AgentType.FINDER)
+    agent = FinderAgent(repo_path=repo_path, model=model_name, max_tool_turns=num_turns)
 
     response = agent.chat(BASE_INSTRUCTION)
 
@@ -70,15 +68,41 @@ def run_generator_agent(repo_url: str, num_turns: int, model_name: str):
     Run the generator agent for all exploits in the exploits.json file in the repo path
     """
     repo_path = _repo_path(repo_url)
+    
+    GENERATOR_INSTRUCTION = """
+Here is the exploit:
+<exploit>
+{exploit}
+</exploit>
+
+Start exploring the codebase and generate a test script for the exploit.
+"""
+    
     for exploit in json.load(open(os.path.join(repo_path, "exploits.json"))):
-        test_script = generate_test_script(exploit, repo_path, max_tool_turns=num_turns, model=model_name)
-        if test_script:
+        # Initialize the generator agent
+        agent = GeneratorAgent(
+            repo_path=repo_path,
+            max_tool_turns=num_turns,
+            model=model_name
+        )
+        
+        # Construct the instruction
+        instruction = GENERATOR_INSTRUCTION.format(exploit=json.dumps(exploit))
+        
+        # Generate the test script
+        response = agent.chat(instruction)
+        
+        # Save the conversation
+        agent.save_conversation(save_folder="generator_conversations", prefix="generator")
+        
+        # Write the test script if one was generated
+        if response.test_script:
             try:
                 test_dir = "test_scripts"
                 os.makedirs(test_dir, exist_ok=True)
                 test_file_path = os.path.join(test_dir, f"{exploit['id']}.t.sol")
                 with open(test_file_path, "w") as f:
-                    f.write(test_script)
+                    f.write(response.test_script)
             except Exception as e:
                 print(f"Error writing test script for exploit {exploit['id']}: {e}")
 

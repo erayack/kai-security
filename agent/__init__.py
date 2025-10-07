@@ -1,9 +1,12 @@
 try:
-    from .agent import Agent
+    from .agent import BaseAgent
+    from .agents import FinderAgent, GeneratorAgent
     from .engine import execute_sandboxed_code
     
     __all__ = [
-        "Agent",
+        "BaseAgent",
+        "FinderAgent",
+        "GeneratorAgent",
         "execute_sandboxed_code",
     ]
 except ImportError:
