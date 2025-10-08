@@ -1,5 +1,5 @@
 from agent.agent import BaseAgent
-from agent.utils import AgentType, extract_test_script
+from agent.utils import AgentType, check_done
 from agent.schemas import AgentResponse
 
 
@@ -36,8 +36,8 @@ class GeneratorAgent(BaseAgent):
         Returns:
             True if we have a test script and no more python code, False otherwise.
         """
-        test_script = extract_test_script(response)
-        return bool(test_script and not python_code)
+        done_present = check_done(response)
+        return bool(done_present and not python_code)
     
     def get_tools_module(self) -> str:
         """
@@ -60,6 +60,5 @@ class GeneratorAgent(BaseAgent):
         Returns:
             An AgentResponse with thoughts, python_block, and test_script.
         """
-        test_script = extract_test_script(response)
-        return AgentResponse(thoughts=thoughts, python_block=python_code, test_script=test_script)
+        return AgentResponse(thoughts=thoughts, python_block=python_code)
 

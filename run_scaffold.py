@@ -94,24 +94,13 @@ Start exploring the codebase and generate a test script for the exploit.
         
         # Save the conversation
         agent.save_conversation(save_folder="generator_conversations", prefix="generator")
-        
-        # Write the test script if one was generated
-        if response.test_script:
-            try:
-                test_dir = "test_scripts"
-                os.makedirs(test_dir, exist_ok=True)
-                test_file_path = os.path.join(test_dir, f"{exploit['id']}.t.sol")
-                with open(test_file_path, "w") as f:
-                    f.write(response.test_script)
-            except Exception as e:
-                print(f"Error writing test script for exploit {exploit['id']}: {e}")
 
 def main():
     repo_url = "https://github.com/CodeHawks-Contests/2025-07-last-man-standing.git"
-    num_turns = 16
+    num_turns = 32
     finder_model_name = "google/gemini-2.5-flash-preview-09-2025"
     generator_model_name = "anthropic/claude-sonnet-4.5"
-    run_finder_agent(repo_url, num_turns, finder_model_name)
+    #run_finder_agent(repo_url, num_turns, finder_model_name)
     print("Finder agent finished")
     run_generator_agent(repo_url, num_turns, generator_model_name)
     print("Generator agent finished")

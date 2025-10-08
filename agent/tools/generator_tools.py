@@ -1,6 +1,8 @@
 import os
+import json
 import subprocess
-from typing import Optional
+import uuid
+from typing import Optional, Union
 
 def read_file(file_path: str) -> str:
     """
@@ -116,3 +118,129 @@ def grep(args: str) -> tuple:
     except Exception as e:
         return 1, f"Error: {e}", ""
 
+def create_file(file_path: str, content: str = "") -> bool:
+    """
+    Create a new file in the file system with the given content (if any).
+    If the file already exists, overwrite it with the new content.
+
+    Args:
+        file_path: The path to the file.
+        content: The content of the file.
+
+    Returns:
+        True if the file was created successfully, False otherwise.
+    """
+    temp_file_path = None
+    try:
+        # Create parent directories if they don't exist
+        parent_dir = os.path.dirname(file_path)
+        if parent_dir and not os.path.exists(parent_dir):
+            os.makedirs(parent_dir, exist_ok=True)
+        
+        # Create a unique temporary file name in the same directory as the target file
+        # This ensures the temp file is within the sandbox's allowed path
+        target_dir = os.path.dirname(os.path.abspath(file_path)) or "."
+        temp_file_path = os.path.join(target_dir, f"temp_{uuid.uuid4().hex[:8]}.txt")
+        
+        with open(temp_file_path, "w") as f:
+            f.write(content)
+        
+        # Move the content to the final destination
+        with open(file_path, "w") as f:
+            f.write(content)
+        os.remove(temp_file_path)
+        return True
+    except Exception as e:
+        # Clean up temp file if it exists
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except Exception as e:
+                raise Exception(f"Error removing temp file {temp_file_path}: {e}")
+        raise Exception(f"Error creating file {file_path}: {e}")
+
+def run_test(test_script_path: str) -> dict:
+    """
+    Run the command: `forge test --match-path test_script_path --json`
+
+    Args:
+        test_script_path: The path to the test script.
+
+    Returns:
+        A dictionary containing the test results.
+    """
+    try:
+        p = subprocess.run(f"forge test --match-path {test_script_path} --json", shell=True, text=True, capture_output=True)
+        return json.loads(p.stdout)
+    except Exception as e:
+        return {"error": str(e)}
+
+def update_file(file_path: str, old_content: str, new_content: str) -> Union[bool, str]:
+    """
+    Simple find-and-replace update method for files.
+
+    This is an easier alternative to write_to_file() that doesn't require
+    creating git-style diffs. It performs a simple string replacement.
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the file to update.
+    old_content : str
+        The exact text to find and replace in the file.
+    new_content : str
+        The text to replace old_content with.
+
+    Returns
+    -------
+    Union[bool, str]
+        True if successful, error message string if failed.
+
+    Examples
+    --------
+    # Add a new row to a table
+    old = "| TKT-1056  | 2024-09-25 | Late Delivery   | Resolved |"
+    new = "| TKT-1056  | 2024-09-25 | Late Delivery   | Resolved |\\n| TKT-1057  | 2024-11-11 | Damaged Item    | Open     |"
+    result = update_file("user.md", old, new)
+    """
+    try:
+        # Read the current file content
+        if not os.path.exists(file_path):
+            return f"Error: File '{file_path}' does not exist"
+
+        if not os.path.isfile(file_path):
+            return f"Error: '{file_path}' is not a file"
+
+        with open(file_path, "r") as f:
+            current_content = f.read()
+
+        # Check if old_content exists in the file
+        if old_content not in current_content:
+            # Provide helpful context about what wasn't found
+            preview_length = 50
+            preview = old_content[:preview_length] + "..." if len(old_content) > preview_length else old_content
+            return f"Error: Could not find the specified content in the file. Looking for: '{preview}'"
+
+        # Count occurrences to warn about multiple matches
+        occurrences = current_content.count(old_content)
+        if occurrences > 1:
+            # Still proceed but warn the user
+            print(f"Warning: Found {occurrences} occurrences of the content. Replacing only the first one.")
+
+        # Perform the replacement (only first occurrence)
+        updated_content = current_content.replace(old_content, new_content, 1)
+
+        # Check if replacement actually changed anything
+        if updated_content == current_content:
+            return "Error: No changes were made to the file"
+
+        # Write the updated content back
+        with open(file_path, "w") as f:
+            f.write(updated_content)
+
+        return True
+
+    except PermissionError:
+        return f"Error: Permission denied writing to '{file_path}'"
+    except Exception as e:
+        return f"Error: Unexpected error - {str(e)}"

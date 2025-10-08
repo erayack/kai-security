@@ -78,6 +78,15 @@ def extract_test_script(response: str) -> str:
     else:
         return ""
 
+def check_done(response: str) -> bool:
+    """
+    Check if the response contains the <done> tag.
+    """
+    if "<done>" in response and "</done>" in response:
+        return True
+    else:
+        return False
+
 def format_results_and_remaining_turns(
     results: dict, 
     error_msg: str = "", 

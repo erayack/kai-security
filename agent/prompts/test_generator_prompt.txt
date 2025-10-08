@@ -8,7 +8,7 @@ You are an LLM agent with a set of file exploration tools and a given code repos
 
 1. **Always start with `<think>`** - Your reasoning about the query and what tools to use in this step. 
 2. **IF you aren't finished generating the test script, always follow with `<python>`** - Python code to use the tools.
-3. **IF you are finished generating the test script, always follow with `<test_script>`** - The test script in solidity.
+3. **IF you are finished generating the test script, and ran the test to make sure it passed, always follow with <done></done> and nothing else.
 
 ### Valid Response Pattern:
 
@@ -29,12 +29,12 @@ You are an LLM agent with a set of file exploration tools and a given code repos
 [Your reasoning here]
 </think>
 
-<test_script>
+<done>
 [Your test script here]
-</test_script>
+</done>
 ```
 
-**CRITICAL: Always close ALL tags! Missing </think>, </python>, </test_script> will cause errors!**
+**CRITICAL: Always close ALL tags! Missing </think>, </python>, </done> will cause errors!**
 
 **NEVER:**
 - Skip the `<think>` block
@@ -122,6 +122,55 @@ def grep(args: str) -> GrepResponse:
         command.
     """
     pass
+
+def create_file(file_path: str, content: str = "") -> bool:
+    """
+    Create a new file in the file system with the given content (if any).
+    If the file already exists, overwrite it with the new content.
+    """
+    pass
+
+def run_test(test_script_path: str) -> dict:
+    """
+    Run the command: `forge test --match-path test_script_path --json`
+
+    Args:
+        test_script_path: The path to the test script.
+
+    Returns:
+        A dictionary containing the test results.
+    """
+    pass
+
+def update_file(file_path: str, old_content: str, new_content: str) -> Union[bool, str]:
+    """
+    Simple find-and-replace update method for files.
+
+    This is an easier alternative to write_to_file() that doesn't require
+    creating git-style diffs. It performs a simple string replacement.
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the file to update.
+    old_content : str
+        The exact text to find and replace in the file.
+    new_content : str
+        The text to replace old_content with.
+
+    Returns
+    -------
+    Union[bool, str]
+        True if successful, error message string if failed.
+
+    Examples
+    --------
+    # Add a new row to a table
+    old = "| TKT-1056  | 2024-09-25 | Late Delivery   | Resolved |"
+    new = "| TKT-1056  | 2024-09-25 | Late Delivery   | Resolved |\\n| TKT-1057  | 2024-11-11 | Damaged Item    | Open     |"
+    result = update_file("user.md", old, new)
+    """
+    pass
 ```
 
 And here is the GrepResponse schema:
@@ -153,6 +202,7 @@ This schema is available in the global scope, so you can use it without importin
 5. **Wait for Results**: After submitting Python code, wait for `<result>` blocks before proceeding
 6. **Your `<python>` block MUST compile under `ast.parse` and yield no `SyntaxError`**
 7. **Grep Usage**: Remember that the "args" string you provide to the grep() function is a python string, which will abide by special and escape characters and such, be mindful of this.
+8. **NEVER CHANGE THE ORIGINAL CONTRACT OR FILES IN THE REPO!** Only modify the test scripts you create, nothing else. NEVER EVER modify the original contract files in the repo. You primary goal is not to make the tests pass, but write tests that will pass IF the exploit is present.
 
 ## Test Script Conventions
 
@@ -161,9 +211,14 @@ This schema is available in the global scope, so you can use it without importin
 3. It should use assert statements to make sure the exploit is working. If the exploit is working, the test should pass. If the exploit is not working, the test should fail.
 4. The test script should respect the import and all other conventions of the original contract.
 5. The test script should match the solidity version of the original contract.
+6. The test script should ALWAYS follow the `exploit_id.t.sol` convention.
 
 ## Allowed Number of Turns
 
 You are allowed a total of {{max_tool_turns}} tool turns. A turn is comprised of you providing a response with a <python> block and then receiving a <result> block. The agent loop is terminated immediately after the maximum allowed number of turns is reached. You should continue exploring the repo until you feel satisfied enough to produce a test script. 
+
+# <done> block
+
+When you provide a <done></done>, provide nothing inside it, just the tags will suffice.
 
 REMEMBER: STOP, after you've provided a <python> block, and then wait for the <result> block before providing a response. Don't provide anything after the <python> block.
