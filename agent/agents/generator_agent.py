@@ -2,7 +2,6 @@ from agent.agent import BaseAgent
 from agent.utils import AgentType, check_done
 from agent.schemas import AgentResponse
 
-
 class GeneratorAgent(BaseAgent):
     """Agent for generating test scripts for exploits."""
     

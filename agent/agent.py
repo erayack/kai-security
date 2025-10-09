@@ -215,7 +215,7 @@ class BaseAgent(ABC):
         Save the conversation messages to a JSON file in
         the output/conversations directory.
         """
-        if not os.path.exists(SAVE_CONVERSATION_PATH):
+        if not os.path.exists(SAVE_CONVERSATION_PATH) and not save_folder:
             os.makedirs(SAVE_CONVERSATION_PATH, exist_ok=True)
 
         unique_id = uuid.uuid4()

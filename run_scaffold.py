@@ -6,10 +6,11 @@ import hashlib
 from pathlib import Path
 import json
 import uuid
-from agent.agents import FinderAgent, GeneratorAgent
+from agent.agents import FinderAgent, GeneratorAgent, SetupAgent
 
 
 BASE_INSTRUCTION = "You must start your search for exploits now"
+SETUP_INSTRUCTION = "You must start setting up the repository now"
 
 
 def _project_root() -> str:
@@ -63,6 +64,17 @@ def run_finder_agent(repo_url: str, num_turns: int, model_name: str):
     save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url))
     agent.save_conversation(save_folder=save_folder)
 
+def run_setup_agent(repo_url: str, num_turns: int, model_name: str):
+    """Run the SetupAgent against the cloned repo for the requested number of user turns."""
+    repo_path = _repo_path(repo_url)
+    agent = SetupAgent(repo_path=repo_path, model=model_name, max_tool_turns=num_turns)
+
+    response = agent.chat(SETUP_INSTRUCTION)
+
+    # Save conversation under a per-repo folder inside output/conversations
+    save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url))
+    agent.save_conversation(save_folder=save_folder, prefix="setup")
+
 def run_generator_agent(repo_url: str, num_turns: int, model_name: str):
     """
     Run the generator agent for all exploits in the exploits.json file in the repo path
@@ -99,9 +111,12 @@ def main():
     repo_url = "https://github.com/CodeHawks-Contests/2025-07-last-man-standing.git"
     num_turns = 32
     finder_model_name = "google/gemini-2.5-flash-preview-09-2025"
+    setup_model_name = "anthropic/claude-sonnet-4.5"
     generator_model_name = "anthropic/claude-sonnet-4.5"
-    #run_finder_agent(repo_url, num_turns, finder_model_name)
+    run_finder_agent(repo_url, num_turns, finder_model_name)
     print("Finder agent finished")
+    run_setup_agent(repo_url, num_turns, setup_model_name)
+    print("Setup agent finished")
     run_generator_agent(repo_url, num_turns, generator_model_name)
     print("Generator agent finished")
 

@@ -2,6 +2,7 @@ from agent.settings import (
     FINDER_AGENT_PROMPT_PATH,
     NON_DUPLICATE_VERIFIER_PROMPT_PATH,
     TEST_GENERATOR_PROMPT_PATH,
+    SETUP_AGENT_PROMPT_PATH,
     MAX_TOOL_TURNS,
 )
 
@@ -11,6 +12,7 @@ class AgentType(Enum):
     FINDER = FINDER_AGENT_PROMPT_PATH
     NON_DUPLICATE_VERIFIER = NON_DUPLICATE_VERIFIER_PROMPT_PATH
     TEST_GENERATOR = TEST_GENERATOR_PROMPT_PATH
+    SETUP = SETUP_AGENT_PROMPT_PATH
 
 def load_system_prompt(agent_type: AgentType) -> str:
     """
@@ -23,7 +25,7 @@ def load_system_prompt(agent_type: AgentType) -> str:
         with open(agent_type.value, "r") as f:
             system_prompt = f.read()
 
-            if agent_type in (AgentType.FINDER, AgentType.TEST_GENERATOR):
+            if agent_type in (AgentType.FINDER, AgentType.TEST_GENERATOR, AgentType.SETUP):
                 system_prompt = system_prompt.replace("{{max_tool_turns}}", str(MAX_TOOL_TURNS - 1))
 
             return system_prompt

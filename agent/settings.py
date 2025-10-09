@@ -25,6 +25,7 @@ SANDBOX_TIMEOUT = 60
 FINDER_AGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "finder_agent_prompt.txt"
 NON_DUPLICATE_VERIFIER_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "non_duplicate_verifier_prompt.txt"
 TEST_GENERATOR_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "test_generator_prompt.txt"
+SETUP_AGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "setup_agent_prompt.txt"
 SAVE_CONVERSATION_PATH = "output/conversations/"
 EXPLOITS_PATH = "exploits.json"
 TEST_SCRIPTS_PATH = "test/"
