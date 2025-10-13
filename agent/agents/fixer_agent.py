@@ -1,5 +1,5 @@
 from agent.agent import BaseAgent
-from agent.utils import AgentType, check_done
+from agent.utils import AgentType, extract_suggest_fix
 from agent.schemas import AgentResponse
 
 class FixerAgent(BaseAgent):
@@ -26,10 +26,10 @@ class FixerAgent(BaseAgent):
         
     def check_termination(self, response: str, python_code: str) -> bool:
         """
-        Fixer agent terminates when it produces a done block.
+        Fixer agent terminates when it produces a suggest_fix block.
         """
-        done_present = check_done(response)
-        return bool(done_present and not python_code)
+        suggest_fix_present = bool(extract_suggest_fix(response))
+        return bool(suggest_fix_present and not python_code)
     
     def get_tools_module(self) -> str:
         """
@@ -41,4 +41,4 @@ class FixerAgent(BaseAgent):
         """
         Extract the final result for fixer agent.
         """
-        return AgentResponse(thoughts=thoughts, python_block=python_code, test_script="")
+        return AgentResponse(thoughts=thoughts, python_block=python_code, test_script="", suggest_fix=extract_suggest_fix(response))

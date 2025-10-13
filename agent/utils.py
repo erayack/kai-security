@@ -82,6 +82,15 @@ def extract_test_script(response: str) -> str:
     else:
         return ""
 
+def extract_suggest_fix(response: str) -> str:
+    """
+    Extract the suggested fix from the response.
+    """
+    if "<suggest_fix>" in response and "</suggest_fix>" in response:
+        return response.split("<suggest_fix>")[1].split("</suggest_fix>")[0]
+    else:
+        return ""
+
 def check_done(response: str) -> bool:
     """
     Check if the response contains the <done> tag.

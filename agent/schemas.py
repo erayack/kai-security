@@ -17,9 +17,10 @@ class AgentResponse(BaseModel):
     thoughts: str
     python_block: Optional[str] = None
     test_script: Optional[str] = None
+    suggest_fix: Optional[str] = None
 
     def __str__(self):
-        return f"Thoughts: {self.thoughts}\nPython block:\n {self.python_block}\nTest script:\n {self.test_script}"
+        return f"Thoughts: {self.thoughts}\nPython block:\n {self.python_block}\nTest script:\n {self.test_script}\nSuggest fix:\n {self.suggest_fix}"
 
 class GrepResponse(BaseModel):
     exit_code: int
