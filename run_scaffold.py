@@ -138,19 +138,16 @@ Start exploring the codebase and fix the exploit.
         agent.save_conversation(save_folder="fixer_conversations", prefix="fixer")
 
 def main():
-    repo_url = "https://github.com/CodeHawks-Contests/2025-07-last-man-standing.git"
-    num_turns = 32
-    finder_model_name = "google/gemini-2.5-flash-preview-09-2025"
-    setup_model_name = "anthropic/claude-sonnet-4.5"
-    generator_model_name = "anthropic/claude-sonnet-4.5"
-    fixer_model_name = "anthropic/claude-sonnet-4.5"
-    run_finder_agent(repo_url, num_turns, finder_model_name)
+    repo_url = "https://github.com/CodeHawks-Contests/2025-10-raisebox-faucet"
+    num_turns = 64
+    model_name = "anthropic/claude-sonnet-4.5"
+    run_finder_agent(repo_url, num_turns, model_name)
     print("Finder agent finished")
-    run_setup_agent(repo_url, num_turns, setup_model_name)
+    run_setup_agent(repo_url, num_turns, model_name)
     print("Setup agent finished")
-    run_generator_agent(repo_url, num_turns, generator_model_name)
+    run_generator_agent(repo_url, num_turns, model_name)
     print("Generator agent finished")
-    run_fixer_agent(repo_url, num_turns, fixer_model_name)
+    run_fixer_agent(repo_url, num_turns, model_name)
     print("Fixer agent finished")
 
 if __name__ == "__main__":
