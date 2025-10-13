@@ -6,12 +6,11 @@ import hashlib
 from pathlib import Path
 import json
 import uuid
-from agent.agents import FinderAgent, GeneratorAgent, SetupAgent
+from agent.agents import FinderAgent, GeneratorAgent, SetupAgent, FixerAgent
 
 
 BASE_INSTRUCTION = "You must start your search for exploits now"
 SETUP_INSTRUCTION = "You must start setting up the repository now"
-
 
 def _project_root() -> str:
     return str(Path(__file__).resolve().parent)
@@ -107,18 +106,52 @@ Start exploring the codebase and generate a test script for the exploit.
         # Save the conversation
         agent.save_conversation(save_folder="generator_conversations", prefix="generator")
 
+def run_fixer_agent(repo_url: str, num_turns: int, model_name: str):
+    """
+    Run the fixer agent for all exploits in the exploits.json file in the repo path
+    """
+    repo_path = _repo_path(repo_url)
+    
+    FIXER_INSTRUCTION = """
+Here is the exploit:
+<exploit>
+{exploit}
+</exploit>
+
+Start exploring the codebase and fix the exploit.
+"""
+    
+    for exploit in json.load(open(os.path.join(repo_path, "exploits.json"))):
+        agent = FixerAgent(
+            repo_path=repo_path, 
+            max_tool_turns=num_turns, 
+            model=model_name
+        )
+
+        # Construct the instruction
+        instruction = FIXER_INSTRUCTION.format(exploit=json.dumps(exploit))
+        
+        # Fix the exploit
+        response = agent.chat(instruction)
+        
+        # Save the conversation
+        agent.save_conversation(save_folder="fixer_conversations", prefix="fixer")
+
 def main():
     repo_url = "https://github.com/CodeHawks-Contests/2025-07-last-man-standing.git"
     num_turns = 32
     finder_model_name = "google/gemini-2.5-flash-preview-09-2025"
     setup_model_name = "anthropic/claude-sonnet-4.5"
     generator_model_name = "anthropic/claude-sonnet-4.5"
+    fixer_model_name = "anthropic/claude-sonnet-4.5"
     run_finder_agent(repo_url, num_turns, finder_model_name)
     print("Finder agent finished")
     run_setup_agent(repo_url, num_turns, setup_model_name)
     print("Setup agent finished")
     run_generator_agent(repo_url, num_turns, generator_model_name)
     print("Generator agent finished")
+    run_fixer_agent(repo_url, num_turns, fixer_model_name)
+    print("Fixer agent finished")
 
 if __name__ == "__main__":
     main()

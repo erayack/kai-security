@@ -32,3 +32,6 @@ generator_conversations/
 
 # test scripts
 test_scripts/
+
+# fixer conversations
+fixer_conversations/
