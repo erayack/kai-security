@@ -6,6 +6,8 @@ import hashlib
 from pathlib import Path
 import json
 import uuid
+from tqdm import tqdm
+
 from agent.agents import FinderAgent, GeneratorAgent, SetupAgent, FixerAgent
 
 
@@ -89,7 +91,8 @@ Here is the exploit:
 Start exploring the codebase and generate a test script for the exploit.
 """
     
-    for exploit in json.load(open(os.path.join(repo_path, "exploits.json"))):
+    exploits = json.load(open(os.path.join(repo_path, "exploits.json")))
+    for exploit in tqdm(exploits, desc="Generating exploits"):
         # Initialize the generator agent
         agent = GeneratorAgent(
             repo_path=repo_path,
@@ -104,7 +107,7 @@ Start exploring the codebase and generate a test script for the exploit.
         response = agent.chat(instruction)
         
         # Save the conversation
-        agent.save_conversation(save_folder="generator_conversations", prefix="generator")
+        agent.save_conversation(save_folder="generator_conversations", prefix=f"exploit_{exploit['id']}")
 
 def run_fixer_agent(repo_url: str, num_turns: int, model_name: str):
     """
@@ -121,7 +124,8 @@ Here is the exploit:
 Start exploring the codebase and fix the exploit.
 """
     
-    for exploit in json.load(open(os.path.join(repo_path, "exploits.json"))):
+    exploits = json.load(open(os.path.join(repo_path, "exploits.json")))
+    for exploit in tqdm(exploits, desc="Fixing exploits"):
         agent = FixerAgent(
             repo_path=repo_path, 
             max_tool_turns=num_turns, 

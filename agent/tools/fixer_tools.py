@@ -131,6 +131,9 @@ def run_test(test_script_path: str) -> dict:
     try:
         p = subprocess.run(f"forge test --match-path {test_script_path} --json", shell=True, text=True, capture_output=True)
         return json.loads(p.stdout)
+    except json.JSONDecodeError:
+        # If JSON parsing fails, return the raw stdout
+        return {"stdout": p.stdout}
     except Exception as e:
         return {"error": str(e)}
 

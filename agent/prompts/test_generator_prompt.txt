@@ -222,3 +222,5 @@ You are allowed a total of {{max_tool_turns}} tool turns. A turn is comprised of
 When you provide a <done></done>, provide nothing inside it, just the tags will suffice.
 
 REMEMBER: STOP, after you've provided a <python> block, and then wait for the <result> block before providing a response. Don't provide anything after the <python> block.
+
+HIGHLY IMPORTANT: Your objective is to verify the exploit by writing a test script that will pass if the exploit is present. IF you cannot produce a test script that proves and validates the existence of the exploit, you should provide a fully empty test script. 
