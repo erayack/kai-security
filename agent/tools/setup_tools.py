@@ -107,22 +107,30 @@ def list_files(path: Optional[str] = None) -> str:
     except Exception as e:
         return f"Error: {e}"
 
-def forge_install(package_name: str) -> str:
+def forge_install(package_name: str, working_dir: Optional[str] = None) -> str:
     """
     Install a package using forge.
 
     Args:
         package_name: The name of the package to install.
+        working_dir: The directory to run the forge install command from. 
+                    Useful for repos with multiple sub-projects.
+                    If None, uses the current working directory.
 
     Returns:
         A string containing the output of the forge install command.
+        
+    Examples:
+        # Install in a sub-repository
+        forge_install("openzeppelin/openzeppelin-contracts", working_dir="ve33")
     """
     try:
         result = subprocess.run(
             ["forge", "install", package_name],
             check=True,
             capture_output=True,
-            text=True
+            text=True,
+            cwd=working_dir
         )
         return result.stdout + result.stderr
     except subprocess.CalledProcessError as e:
@@ -130,19 +138,68 @@ def forge_install(package_name: str) -> str:
     except Exception as e:
         return f"Error: {e}"
 
-def forge_build() -> str:
+def forge_build(working_dir: Optional[str] = None) -> str:
     """
     Build the project using forge.
 
+    Args:
+        working_dir: The directory to run the forge build command from.
+                    Useful for repos with multiple sub-projects.
+                    If None, uses the current working directory.
+
     Returns:
         A string containing the output of the forge build command.
+        
+    Examples:
+        # Build a sub-repository
+        forge_build(working_dir="ve33")
+        
+        # Build from current directory
+        forge_build()
     """
     try:
         result = subprocess.run(
             ["forge", "build"],
             check=True,
             capture_output=True,
-            text=True
+            text=True,
+            cwd=working_dir
+        )
+        return result.stdout + result.stderr
+    except subprocess.CalledProcessError as e:
+        return f"Error: {e.stderr if e.stderr else str(e)}"
+    except Exception as e:
+        return f"Error: {e}"
+
+def npm_install(working_dir: Optional[str] = None) -> str:
+    """
+    Install npm dependencies for the project.
+    
+    Many Solidity projects use npm packages (like @openzeppelin/contracts)
+    that need to be installed before compilation.
+
+    Args:
+        working_dir: The directory to run npm install from.
+                    Useful for repos with multiple sub-projects.
+                    If None, uses the current working directory.
+
+    Returns:
+        A string containing the output of the npm install command.
+        
+    Examples:
+        # Install npm dependencies in a sub-repository
+        npm_install(working_dir="ve33")
+        
+        # Install in current directory
+        npm_install()
+    """
+    try:
+        result = subprocess.run(
+            ["npm", "install"],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=working_dir
         )
         return result.stdout + result.stderr
     except subprocess.CalledProcessError as e:

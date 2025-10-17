@@ -122,6 +122,52 @@ def grep(args: str) -> GrepResponse:
         command.
     """
     pass
+
+def run_test(
+    test_script_path: Optional[str] = None,
+    working_dir: Optional[str] = None,
+    match_contract: Optional[str] = None,
+    match_test: Optional[str] = None,
+    additional_args: Optional[str] = None,
+    output_json: bool = True
+) -> dict:
+    """
+    Run forge test with flexible parameters to support various repository structures.
+    
+    This function supports repositories with multiple sub-repositories and test directories.
+    You can specify the working directory where forge should run, and use various
+    matching patterns to target specific tests.
+
+    Args:
+        test_script_path: The path pattern to match test files (uses --match-path).
+                         Can be a glob pattern like "test/*.t.sol" or specific file.
+        working_dir: The directory to run the forge command from. Useful when the repo
+                    has multiple sub-repos with their own foundry.toml files.
+                    If None, uses the current working directory.
+        match_contract: Contract name pattern to match (uses --match-contract).
+        match_test: Test function name pattern to match (uses --match-test).
+        additional_args: Any additional forge test arguments as a string.
+        output_json: Whether to output JSON format (default True, uses --json flag).
+
+    Returns:
+        A dictionary containing the test results. If JSON parsing fails, returns
+        {"stdout": <output>, "stderr": <errors>} with the raw output.
+        
+    Examples:
+        # Run test in a sub-repository
+        result = run_test(test_script_path="test/MyTest.t.sol", working_dir="ve33")
+        
+        # Run specific test function
+        result = run_test(match_test="test_exploit", working_dir="cl")
+        
+        # Run with multiple filters
+        result = run_test(
+            test_script_path="test/*.t.sol",
+            match_contract="ExploitTest",
+            working_dir="ve33"
+        )
+    """
+    pass
 ```
 
 And here is the GrepResponse schema:
@@ -153,7 +199,8 @@ This schema is available in the global scope, so you can use it without importin
 5. **Wait for Results**: After submitting Python code, wait for `<result>` blocks before proceeding
 6. **Your `<python>` block MUST compile under `ast.parse` and yield no `SyntaxError`**
 7. **Grep Usage**: Remember that the "args" string you provide to the grep() function is a python string, which will abide by special and escape characters and such, be mindful of this.
-8. **Follow the suggestion format!** The suggestion should follow the following format:
+8. **For repositories with multiple sub-projects:** Some repositories contain multiple sub-repositories (e.g., `ve33/`, `cl/`), each with their own `foundry.toml` and test directories. When running tests in such repositories, you MUST use the `working_dir` parameter of `run_test()` to specify which sub-repository to run the tests from. For example, if the test is at `ve33/test/exploit.t.sol`, run it with: `run_test(test_script_path="test/exploit.t.sol", working_dir="ve33")`. The test_script_path should be relative to the working_dir.
+9. **Follow the suggestion format!** The suggestion should follow the following format:
 ```
 <suggest_fix>
 ```diff

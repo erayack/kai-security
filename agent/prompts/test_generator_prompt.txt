@@ -130,15 +130,49 @@ def create_file(file_path: str, content: str = "") -> bool:
     """
     pass
 
-def run_test(test_script_path: str) -> dict:
+def run_test(
+    test_script_path: Optional[str] = None,
+    working_dir: Optional[str] = None,
+    match_contract: Optional[str] = None,
+    match_test: Optional[str] = None,
+    additional_args: Optional[str] = None,
+    output_json: bool = True
+) -> dict:
     """
-    Run the command: `forge test --match-path test_script_path --json`
+    Run forge test with flexible parameters to support various repository structures.
+    
+    This function supports repositories with multiple sub-repositories and test directories.
+    You can specify the working directory where forge should run, and use various
+    matching patterns to target specific tests.
 
     Args:
-        test_script_path: The path to the test script.
+        test_script_path: The path pattern to match test files (uses --match-path).
+                         Can be a glob pattern like "test/*.t.sol" or specific file.
+        working_dir: The directory to run the forge command from. Useful when the repo
+                    has multiple sub-repos with their own foundry.toml files.
+                    If None, uses the current working directory.
+        match_contract: Contract name pattern to match (uses --match-contract).
+        match_test: Test function name pattern to match (uses --match-test).
+        additional_args: Any additional forge test arguments as a string.
+        output_json: Whether to output JSON format (default True, uses --json flag).
 
     Returns:
-        A dictionary containing the test results.
+        A dictionary containing the test results. If JSON parsing fails, returns
+        {"stdout": <output>, "stderr": <errors>} with the raw output.
+        
+    Examples:
+        # Run test in a sub-repository
+        result = run_test(test_script_path="test/MyTest.t.sol", working_dir="ve33")
+        
+        # Run specific test function
+        result = run_test(match_test="test_exploit", working_dir="cl")
+        
+        # Run with multiple filters
+        result = run_test(
+            test_script_path="test/*.t.sol",
+            match_contract="ExploitTest",
+            working_dir="ve33"
+        )
     """
     pass
 
@@ -203,6 +237,8 @@ This schema is available in the global scope, so you can use it without importin
 6. **Your `<python>` block MUST compile under `ast.parse` and yield no `SyntaxError`**
 7. **Grep Usage**: Remember that the "args" string you provide to the grep() function is a python string, which will abide by special and escape characters and such, be mindful of this.
 8. **NEVER CHANGE THE ORIGINAL CONTRACT OR FILES IN THE REPO!** Only modify the test scripts you create, nothing else. NEVER EVER modify the original contract files in the repo. You primary goal is not to make the tests pass, but write tests that will pass IF the exploit is present.
+9. **Make sure the test file passes before confirming the exploit is valid.** If the test file does not pass, you should provide a fully empty test script.
+10. **For repositories with multiple sub-projects:** Some repositories contain multiple sub-repositories (e.g., `ve33/`, `cl/`), each with their own `foundry.toml` and test directories. When running tests in such repositories, you MUST use the `working_dir` parameter of `run_test()` to specify which sub-repository to run the tests from. For example, if you create a test at `ve33/test/exploit.t.sol`, run it with: `run_test(test_script_path="test/exploit.t.sol", working_dir="ve33")`. The test_script_path should be relative to the working_dir.
 
 ## Test Script Conventions
 

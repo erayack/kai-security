@@ -159,22 +159,110 @@ def create_file(file_path: str, content: str = "") -> bool:
                 raise Exception(f"Error removing temp file {temp_file_path}: {e}")
         raise Exception(f"Error creating file {file_path}: {e}")
 
-def run_test(test_script_path: str) -> dict:
+def run_test(
+    test_script_path: Optional[str] = None,
+    working_dir: Optional[str] = None,
+    match_contract: Optional[str] = None,
+    match_test: Optional[str] = None,
+    additional_args: Optional[str] = None,
+    output_json: bool = True
+) -> dict:
     """
-    Run the command: `forge test --match-path test_script_path --json`
+    Run forge test with flexible parameters to support various repository structures.
+    
+    This function supports repositories with multiple sub-repositories and test directories.
+    You can specify the working directory where forge should run, and use various
+    matching patterns to target specific tests.
 
     Args:
-        test_script_path: The path to the test script.
+        test_script_path: The path pattern to match test files (uses --match-path).
+                         Can be a glob pattern like "test/*.t.sol" or specific file.
+        working_dir: The directory to run the forge command from. Useful when the repo
+                    has multiple sub-repos with their own foundry.toml files.
+                    If None, uses the current working directory.
+        match_contract: Contract name pattern to match (uses --match-contract).
+        match_test: Test function name pattern to match (uses --match-test).
+        additional_args: Any additional forge test arguments as a string.
+        output_json: Whether to output JSON format (default True, uses --json flag).
 
     Returns:
-        A dictionary containing the test results.
+        A dictionary containing the test results. If JSON parsing fails, returns
+        {"stdout": <output>, "stderr": <errors>} with the raw output.
+        
+    Examples:
+        # Run test in a sub-repository
+        run_test(test_script_path="test/MyTest.t.sol", working_dir="ve33")
+        
+        # Run specific test function
+        run_test(match_test="test_exploit", working_dir="cl")
+        
+        # Run with multiple filters
+        run_test(
+            test_script_path="test/*.t.sol",
+            match_contract="ExploitTest",
+            working_dir="ve33"
+        )
     """
     try:
-        p = subprocess.run(f"forge test --match-path {test_script_path} --json", shell=True, text=True, capture_output=True)
-        return json.loads(p.stdout)
-    except json.JSONDecodeError:
-        # If JSON parsing fails, return the raw stdout
-        return {"stdout": p.stdout}
+        # Build the forge test command
+        cmd_parts = ["forge", "test"]
+        
+        # Add match patterns
+        if test_script_path:
+            cmd_parts.extend(["--match-path", test_script_path])
+        if match_contract:
+            cmd_parts.extend(["--match-contract", match_contract])
+        if match_test:
+            cmd_parts.extend(["--match-test", match_test])
+        
+        # Add JSON output flag if requested
+        if output_json:
+            cmd_parts.append("--json")
+        
+        # Add any additional arguments
+        if additional_args:
+            cmd_parts.append(additional_args)
+        
+        # Join command parts
+        cmd = " ".join(cmd_parts)
+        
+        # Run the command, optionally in a specific directory
+        if working_dir:
+            p = subprocess.run(
+                cmd,
+                shell=True,
+                text=True,
+                capture_output=True,
+                cwd=working_dir
+            )
+        else:
+            p = subprocess.run(
+                cmd,
+                shell=True,
+                text=True,
+                capture_output=True
+            )
+        
+        # Try to parse JSON output if requested
+        if output_json:
+            try:
+                return json.loads(p.stdout)
+            except json.JSONDecodeError:
+                # If JSON parsing fails, return raw output
+                return {
+                    "stdout": p.stdout,
+                    "stderr": p.stderr,
+                    "returncode": p.returncode,
+                    "error": "Failed to parse JSON output"
+                }
+        else:
+            # Return raw output for non-JSON mode
+            return {
+                "stdout": p.stdout,
+                "stderr": p.stderr,
+                "returncode": p.returncode
+            }
+            
     except Exception as e:
         return {"error": str(e)}
 

@@ -108,36 +108,67 @@ def list_files(path: Optional[str] = None) -> str:
     """
     pass
 
-def run_test(test_script_path: str) -> dict:
-    """
-    Run the command: `forge test --match-path test_script_path --json`
-
-    Args:
-        test_script_path: The path to the test script.
-
-    Returns:
-        A dictionary containing the test results.
-    """
-    pass
-
-def forge_install(package_name: str) -> str:
+def forge_install(package_name: str, working_dir: Optional[str] = None) -> str:
     """
     Install a package using forge.
 
     Args:
         package_name: The name of the package to install.
+        working_dir: The directory to run the forge install command from. 
+                    Useful for repos with multiple sub-projects.
+                    If None, uses the current working directory.
 
     Returns:
         A string containing the output of the forge install command.
+        
+    Examples:
+        # Install in a sub-repository
+        result = forge_install("openzeppelin/openzeppelin-contracts", working_dir="ve33")
     """
     pass
 
-def forge_build() -> str:
+def forge_build(working_dir: Optional[str] = None) -> str:
     """
     Build the project using forge.
 
+    Args:
+        working_dir: The directory to run the forge build command from.
+                    Useful for repos with multiple sub-projects.
+                    If None, uses the current working directory.
+
     Returns:
         A string containing the output of the forge build command.
+        
+    Examples:
+        # Build a sub-repository
+        result = forge_build(working_dir="ve33")
+        
+        # Build from current directory
+        result = forge_build()
+    """
+    pass
+
+def npm_install(working_dir: Optional[str] = None) -> str:
+    """
+    Install npm dependencies for the project.
+    
+    Many Solidity projects use npm packages (like @openzeppelin/contracts)
+    that need to be installed before compilation.
+
+    Args:
+        working_dir: The directory to run npm install from.
+                    Useful for repos with multiple sub-projects.
+                    If None, uses the current working directory.
+
+    Returns:
+        A string containing the output of the npm install command.
+        
+    Examples:
+        # Install npm dependencies in a sub-repository
+        result = npm_install(working_dir="ve33")
+        
+        # Install in current directory
+        result = npm_install()
     """
     pass
 ```
@@ -163,6 +194,13 @@ This schema is available in the global scope, so you can use it without importin
 5. **Wait for Results**: After submitting Python code, wait for `<result>` blocks before proceeding
 6. **Your `<python>` block MUST compile under `ast.parse` and yield no `SyntaxError`**
 7. **Forge Usage**: Remember that the "package_name" string you provide to the forge_install() function is a python string, which will abide by special and escape characters and such, be mindful of this.
+8. **For repositories with multiple sub-projects:** Some repositories contain multiple sub-repositories (e.g., `ve33/`, `cl/`), each with their own `foundry.toml`, `package.json`, and dependencies. When setting up such repositories:
+   - First explore the repository structure using `list_files()` to identify subdirectories with their own `foundry.toml` or `package.json` files
+   - Check for README.md files that explain the build process
+   - Install npm dependencies in subdirectories that have `package.json`: `npm_install(working_dir="ve33")`
+   - Build each sub-project separately: `forge_build(working_dir="ve33")`, `forge_build(working_dir="cl")`
+   - Some repos may require building in a specific order (e.g., `cl` before `ve33` if there are dependencies)
+9. **Check for npm dependencies:** Many Solidity projects (especially those using OpenZeppelin or other npm packages) require running `npm install` before `forge build`. Look for `package.json` files in the repository or subdirectories.
 
 ## Allowed Number of Turns
 

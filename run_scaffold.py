@@ -153,14 +153,14 @@ Start exploring the codebase and fix the exploit.
         agent.save_conversation(save_folder="fixer_conversations", prefix=f"exploit_{exploit['id']}")
 
 def main():
-    repo_url = "https://github.com/CodeHawks-Contests/2025-10-raisebox-faucet"
+    repo_url = "https://github.com/code-423n4/2025-10-hybra-finance"
     num_turns = 64
     model_name = "anthropic/claude-sonnet-4.5"
-    #run_finder_agent(repo_url, num_turns, model_name)
+    run_finder_agent(repo_url, num_turns, model_name)
     print("Finder agent finished")
-    #run_setup_agent(repo_url, num_turns, model_name)
+    run_setup_agent(repo_url, num_turns, model_name)
     print("Setup agent finished")
-    #run_generator_agent(repo_url, num_turns, model_name)
+    run_generator_agent(repo_url, num_turns, model_name)
     print("Generator agent finished")
     run_fixer_agent(repo_url, num_turns, model_name)
     print("Fixer agent finished")
