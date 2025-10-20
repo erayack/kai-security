@@ -52,12 +52,22 @@ def delete_repo(repo_url: str) -> None:
         shutil.rmtree(dest)
 
 
-def run_finder_agent(repo_url: str, num_turns: int, model_name: str):
+def run_finder_agent(
+    repo_url: str, 
+    num_turns: int, 
+    model_name: str,
+    use_openai: bool = False
+):
     """Run the FinderAgent against the cloned repo for the requested number of user turns."""
     repo_path = _repo_path(repo_url)
     if not os.path.exists(repo_path):
         repo_path = clone_repo(repo_url)
-    agent = FinderAgent(repo_path=repo_path, model=model_name, max_tool_turns=num_turns)
+    agent = FinderAgent(
+        repo_path=repo_path, 
+        model=model_name, 
+        max_tool_turns=num_turns,
+        use_openai=use_openai
+    )
 
     response = agent.chat(BASE_INSTRUCTION)
 
@@ -65,18 +75,38 @@ def run_finder_agent(repo_url: str, num_turns: int, model_name: str):
     save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url))
     agent.save_conversation(save_folder=save_folder)
 
-def run_setup_agent(repo_url: str, num_turns: int, model_name: str):
+def run_setup_agent(
+    repo_url: str, 
+    num_turns: int, 
+    model_name: str,
+    use_openai: bool = False
+):
     """Run the SetupAgent against the cloned repo for the requested number of user turns."""
     repo_path = _repo_path(repo_url)
-    agent = SetupAgent(repo_path=repo_path, model=model_name, max_tool_turns=num_turns)
+    agent = SetupAgent(
+        repo_path=repo_path, 
+        model=model_name, 
+        max_tool_turns=num_turns,
+        use_openai=use_openai
+    )
 
-    response = agent.chat(SETUP_INSTRUCTION)
-
+    try:
+        response = agent.chat(SETUP_INSTRUCTION)
+        prefix = "setup"
+    except Exception as e:
+        print(f"Error in setup agent: {e}")
+        prefix = "error_setup"
+    
     # Save conversation under a per-repo folder inside output/conversations
     save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url))
-    agent.save_conversation(save_folder=save_folder, prefix="setup")
+    agent.save_conversation(save_folder=save_folder, prefix=prefix)
 
-def run_generator_agent(repo_url: str, num_turns: int, model_name: str):
+def run_generator_agent(
+    repo_url: str, 
+    num_turns: int, 
+    model_name: str,
+    use_openai: bool = False
+):
     """
     Run the generator agent for all exploits in the exploits.json file in the repo path
     """
@@ -97,7 +127,8 @@ Start exploring the codebase and generate a test script for the exploit.
         agent = GeneratorAgent(
             repo_path=repo_path,
             max_tool_turns=num_turns,
-            model=model_name
+            model=model_name,
+            use_openai=use_openai
         )
         
         # Construct the instruction
@@ -106,10 +137,17 @@ Start exploring the codebase and generate a test script for the exploit.
         # Generate the test script
         response = agent.chat(instruction)
         
-        # Save the conversation
-        agent.save_conversation(save_folder="generator_conversations", prefix=f"exploit_{exploit['id']}")
+        # Save conversation under a per-repo folder inside output/conversations
+        save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url), "generator_conversations")
+        os.makedirs(save_folder, exist_ok=True)
+        agent.save_conversation(save_folder=save_folder, prefix=f"generator_exploit_{exploit['id']}")
 
-def run_fixer_agent(repo_url: str, num_turns: int, model_name: str):
+def run_fixer_agent(
+    repo_url: str, 
+    num_turns: int, 
+    model_name: str,
+    use_openai: bool = False
+):
     """
     Run the fixer agent for all exploits in the exploits.json file in the repo path
     """
@@ -129,7 +167,8 @@ Start exploring the codebase and fix the exploit.
         agent = FixerAgent(
             repo_path=repo_path, 
             max_tool_turns=num_turns, 
-            model=model_name
+            model=model_name,
+            use_openai=use_openai
         )
 
         # Construct the instruction
@@ -150,19 +189,24 @@ Start exploring the codebase and fix the exploit.
         with open(os.path.join(repo_path, "suggested_fixes.json"), "w") as f:
             json.dump(suggested_fixes, f, indent=2)
 
-        agent.save_conversation(save_folder="fixer_conversations", prefix=f"exploit_{exploit['id']}")
+        # Save conversation under a per-repo folder inside output/conversations
+        save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url), "fixer_conversations")
+        os.makedirs(save_folder, exist_ok=True)
+        agent.save_conversation(save_folder=save_folder, prefix=f"fixer_exploit_{exploit['id']}")
 
 def main():
-    repo_url = "https://github.com/code-423n4/2025-10-hybra-finance"
+    repo_url = "https://github.com/succinctlabs/sp1.git"
     num_turns = 64
-    model_name = "anthropic/claude-sonnet-4.5"
-    run_finder_agent(repo_url, num_turns, model_name)
+    use_openai = False
+    model_name = "gpt-5-2025-08-07" if use_openai else "google/gemini-2.5-pro"
+
+    run_finder_agent(repo_url, num_turns, model_name, use_openai)
     print("Finder agent finished")
-    run_setup_agent(repo_url, num_turns, model_name)
+    run_setup_agent(repo_url, num_turns, model_name, use_openai)
     print("Setup agent finished")
-    run_generator_agent(repo_url, num_turns, model_name)
+    run_generator_agent(repo_url, num_turns, model_name, use_openai)
     print("Generator agent finished")
-    run_fixer_agent(repo_url, num_turns, model_name)
+    run_fixer_agent(repo_url, num_turns, model_name, use_openai)
     print("Fixer agent finished")
 
 if __name__ == "__main__":

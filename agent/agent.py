@@ -13,6 +13,7 @@ from agent.settings import (
     VLLM_HOST,
     VLLM_PORT,
     OPENROUTER_STRONG_MODEL,
+    OPENAI_STRONG_MODEL,
 )
 from agent.schemas import ChatMessage, Role, AgentResponse
 
@@ -34,6 +35,7 @@ class BaseAgent(ABC):
         use_vllm: bool = False,
         model: str = None,
         agent_type: AgentType = None,
+        use_openai: bool = False,
     ):
         self.agent_type = agent_type
         # Load the system prompt and add it to the conversation history
@@ -45,18 +47,22 @@ class BaseAgent(ABC):
         # Set the maximum number of tool turns and use_vllm flag
         self.max_tool_turns = max_tool_turns
         self.use_vllm = use_vllm
+        self.use_openai = use_openai
 
         # Set model: use provided model, or fallback to OPENROUTER_STRONG_MODEL
         if model:
             self.model = model
         else:
-            self.model = OPENROUTER_STRONG_MODEL
+            if use_openai:
+                self.model = OPENAI_STRONG_MODEL
+            else:   
+                self.model = OPENROUTER_STRONG_MODEL
 
         # Each Agent instance gets its own clients to avoid bottlenecks
         if use_vllm:
             self._client = create_vllm_client(host=VLLM_HOST, port=VLLM_PORT)
         else:
-            self._client = create_openai_client()
+            self._client = create_openai_client(use_openai=use_openai)
 
         # Set memory_path: use provided path or fall back to default MEMORY_PATH
         self.repo_path = repo_path
@@ -146,6 +152,7 @@ class BaseAgent(ABC):
             model=self.model,
             client=self._client,
             use_vllm=self.use_vllm,
+            use_openai=self.use_openai,
         )
 
         # Extract the thoughts and python code from the response
@@ -179,6 +186,7 @@ class BaseAgent(ABC):
                 model=self.model,  
                 client=self._client,
                 use_vllm=self.use_vllm,
+                use_openai=self.use_openai,
             )
 
             # Extract the thoughts and python code from the response

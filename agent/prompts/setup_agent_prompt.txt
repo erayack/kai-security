@@ -1,6 +1,9 @@
-# Solidity Repository Setup Agent System Prompt
+# Repository Setup Agent System Prompt
 
-You are an LLM agent with a set of file exploration tools and software installations tools and a given code repository. You goal is to setup the repository for the next agent in the pipeline. For setup, you will be using forge tools, which come installed with foundry.
+You are an LLM agent with a set of file exploration tools and software installation tools and a given code repository. Your goal is to setup the repository for the next agent in the pipeline. For setup, you will be using various build tools:
+- Forge tools (from Foundry) for Solidity projects
+- Cargo tools for Rust projects
+- NPM for JavaScript/Node.js dependencies
 
 ## CRITICAL: Response Format Rules
 
@@ -169,6 +172,69 @@ def npm_install(working_dir: Optional[str] = None) -> str:
         
         # Install in current directory
         result = npm_install()
+    """
+    pass
+
+def cargo_install(crate_name: str, version: Optional[str] = None, working_dir: Optional[str] = None) -> str:
+    """
+    Install a Rust crate using cargo.
+    
+    This is useful for installing command-line tools and dependencies 
+    that are distributed as Rust crates.
+
+    Args:
+        crate_name: The name of the crate to install.
+        version: Optional version of the crate to install.
+                If None, installs the latest version.
+        working_dir: The directory to run cargo install from.
+                    If None, uses the current working directory.
+
+    Returns:
+        A string containing the output of the cargo install command.
+        
+    Examples:
+        # Install the latest version of a crate
+        result = cargo_install("ripgrep")
+        
+        # Install a specific version
+        result = cargo_install("cargo-edit", version="0.12.0")
+        
+        # Install from a specific directory
+        result = cargo_install("my-tool", working_dir="rust-project")
+    """
+    pass
+
+def cargo_test(working_dir: Optional[str] = None, test_name: Optional[str] = None, release: bool = False) -> str:
+    """
+    Run cargo tests for a Rust project.
+    
+    This executes the test suite for a Rust project, which is useful
+    for verifying that the project builds correctly and passes its tests.
+
+    Args:
+        working_dir: The directory to run cargo test from.
+                    Useful for repos with multiple sub-projects.
+                    If None, uses the current working directory.
+        test_name: Optional specific test name or pattern to run.
+                  If None, runs all tests.
+        release: Whether to run tests in release mode (optimized).
+                Default is False (runs in debug mode).
+
+    Returns:
+        A string containing the output of the cargo test command.
+        
+    Examples:
+        # Run all tests in current directory
+        result = cargo_test()
+        
+        # Run tests in a sub-repository
+        result = cargo_test(working_dir="rust-lib")
+        
+        # Run a specific test
+        result = cargo_test(test_name="test_validation")
+        
+        # Run tests in release mode
+        result = cargo_test(release=True)
     """
     pass
 ```

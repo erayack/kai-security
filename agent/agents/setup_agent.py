@@ -11,6 +11,7 @@ class SetupAgent(BaseAgent):
         repo_path: str = None,
         use_vllm: bool = False,
         model: str = None,
+        use_openai: bool = False,
     ):
 
         super().__init__(
@@ -19,6 +20,7 @@ class SetupAgent(BaseAgent):
             use_vllm=use_vllm,
             model=model,
             agent_type=AgentType.SETUP,
+            use_openai=use_openai,
         )
     
     def check_termination(self, response: str, python_code: str) -> bool:

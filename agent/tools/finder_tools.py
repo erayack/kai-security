@@ -8,6 +8,7 @@ from typing import Union, Optional, List
 
 from agent.schemas import GrepResponse, Exploit, ExploitLocation, ExploitSeverity
 from agent.settings import EXPLOITS_PATH
+from agent.utils import load_gitignore_spec, should_ignore_path
 
 def read_file(file_path: str) -> str:
     """
@@ -57,13 +58,24 @@ def list_files(path: Optional[str] = None) -> str:
         # Always use current working directory
         dir_path = os.getcwd() if path is None else path
         
+        # Load gitignore patterns
+        gitignore_spec = load_gitignore_spec(dir_path)
+        
         def build_tree(start_path, prefix="", is_last=True):
             """Recursively build tree structure"""
             entries = []
             try:
                 items = sorted(os.listdir(start_path))
-                # Filter out hidden files and __pycache__
-                items = [item for item in items if not item.startswith('.') and item != '__pycache__']
+                # Filter out hidden files, __pycache__, and gitignored items
+                filtered_items = []
+                for item in items:
+                    if item.startswith('.') or item == '__pycache__':
+                        continue
+                    item_path = os.path.join(start_path, item)
+                    if should_ignore_path(item_path, dir_path, gitignore_spec):
+                        continue
+                    filtered_items.append(item)
+                items = filtered_items
             except PermissionError:
                 return f"{prefix}[Permission Denied]\n"
             
@@ -83,10 +95,17 @@ def list_files(path: Optional[str] = None) -> str:
                     extension = prefix + "│   "
                 
                 if os.path.isdir(item_path):
-                    # Check if directory is empty
+                    # Check if directory is empty (considering gitignore)
                     try:
-                        dir_contents = [f for f in os.listdir(item_path) 
-                                      if not f.startswith('.') and f != '__pycache__']
+                        dir_contents = []
+                        for f in os.listdir(item_path):
+                            if f.startswith('.') or f == '__pycache__':
+                                continue
+                            f_path = os.path.join(item_path, f)
+                            if should_ignore_path(f_path, dir_path, gitignore_spec):
+                                continue
+                            dir_contents.append(f)
+                        
                         if not dir_contents:
                             entries.append(f"{current_prefix}{item}/ (empty)\n")
                         else:

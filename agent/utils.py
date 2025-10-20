@@ -8,6 +8,9 @@ from agent.settings import (
 )
 
 from enum import Enum
+import os
+import pathspec
+from typing import Optional
 
 class AgentType(Enum):
     FINDER = FINDER_AGENT_PROMPT_PATH
@@ -121,3 +124,48 @@ def format_results_and_remaining_turns(
         if error_msg
         else "<result>\n" + str(results) + "\n</result>\n<remaining_turns>\n" + str(remaining_turns) + "\n</remaining_turns>"
     )
+
+def load_gitignore_spec(directory: str) -> Optional[pathspec.PathSpec]:
+    """
+    Load and parse .gitignore file from a directory.
+    
+    Args:
+        directory: The directory to look for .gitignore file.
+    
+    Returns:
+        A PathSpec object that can be used to match paths against gitignore patterns,
+        or None if no .gitignore file is found.
+    """
+    gitignore_path = os.path.join(directory, '.gitignore')
+    if not os.path.exists(gitignore_path):
+        return None
+    
+    try:
+        with open(gitignore_path, 'r') as f:
+            gitignore_content = f.read()
+        return pathspec.PathSpec.from_lines('gitwildmatch', gitignore_content.splitlines())
+    except Exception:
+        return None
+
+def should_ignore_path(path: str, root_dir: str, gitignore_spec: Optional[pathspec.PathSpec]) -> bool:
+    """
+    Check if a path should be ignored based on gitignore patterns.
+    
+    Args:
+        path: The absolute path to check.
+        root_dir: The root directory (where .gitignore is located).
+        gitignore_spec: The PathSpec object for gitignore patterns.
+    
+    Returns:
+        True if the path should be ignored, False otherwise.
+    """
+    if gitignore_spec is None:
+        return False
+    
+    # Get relative path from root directory
+    try:
+        rel_path = os.path.relpath(path, root_dir)
+        # Check if this path matches any gitignore pattern
+        return gitignore_spec.match_file(rel_path)
+    except Exception:
+        return False

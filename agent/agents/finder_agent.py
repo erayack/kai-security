@@ -12,6 +12,7 @@ class FinderAgent(BaseAgent):
         repo_path: str = None,
         use_vllm: bool = False,
         model: str = None,
+        use_openai: bool = False,
     ):
         from agent.settings import MAX_TOOL_TURNS
         if max_tool_turns is None:
@@ -22,6 +23,7 @@ class FinderAgent(BaseAgent):
             repo_path=repo_path,
             use_vllm=use_vllm,
             model=model,
+            use_openai=use_openai,
             agent_type=AgentType.FINDER,
         )
     

@@ -8,6 +8,7 @@ from typing import Union, Optional, List
 
 from agent.schemas import GrepResponse, Exploit, ExploitLocation, ExploitSeverity
 from agent.settings import EXPLOITS_PATH
+from agent.utils import load_gitignore_spec, should_ignore_path
 
 def read_file(file_path: str) -> str:
     """
@@ -57,13 +58,24 @@ def list_files(path: Optional[str] = None) -> str:
         # Always use current working directory
         dir_path = os.getcwd() if path is None else path
         
+        # Load gitignore patterns
+        gitignore_spec = load_gitignore_spec(dir_path)
+        
         def build_tree(start_path, prefix="", is_last=True):
             """Recursively build tree structure"""
             entries = []
             try:
                 items = sorted(os.listdir(start_path))
-                # Filter out hidden files and __pycache__
-                items = [item for item in items if not item.startswith('.') and item != '__pycache__']
+                # Filter out hidden files, __pycache__, and gitignored items
+                filtered_items = []
+                for item in items:
+                    if item.startswith('.') or item == '__pycache__':
+                        continue
+                    item_path = os.path.join(start_path, item)
+                    if should_ignore_path(item_path, dir_path, gitignore_spec):
+                        continue
+                    filtered_items.append(item)
+                items = filtered_items
             except PermissionError:
                 return f"{prefix}[Permission Denied]\n"
             
@@ -83,10 +95,17 @@ def list_files(path: Optional[str] = None) -> str:
                     extension = prefix + "│   "
                 
                 if os.path.isdir(item_path):
-                    # Check if directory is empty
+                    # Check if directory is empty (considering gitignore)
                     try:
-                        dir_contents = [f for f in os.listdir(item_path) 
-                                      if not f.startswith('.') and f != '__pycache__']
+                        dir_contents = []
+                        for f in os.listdir(item_path):
+                            if f.startswith('.') or f == '__pycache__':
+                                continue
+                            f_path = os.path.join(item_path, f)
+                            if should_ignore_path(f_path, dir_path, gitignore_spec):
+                                continue
+                            dir_contents.append(f)
+                        
                         if not dir_contents:
                             entries.append(f"{current_prefix}{item}/ (empty)\n")
                         else:
@@ -196,6 +215,103 @@ def npm_install(working_dir: Optional[str] = None) -> str:
     try:
         result = subprocess.run(
             ["npm", "install"],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=working_dir
+        )
+        return result.stdout + result.stderr
+    except subprocess.CalledProcessError as e:
+        return f"Error: {e.stderr if e.stderr else str(e)}"
+    except Exception as e:
+        return f"Error: {e}"
+
+def cargo_install(crate_name: str, version: Optional[str] = None, working_dir: Optional[str] = None) -> str:
+    """
+    Install a Rust crate using cargo.
+    
+    This is useful for installing command-line tools and dependencies 
+    that are distributed as Rust crates.
+
+    Args:
+        crate_name: The name of the crate to install.
+        version: Optional version of the crate to install.
+                If None, installs the latest version.
+        working_dir: The directory to run cargo install from.
+                    If None, uses the current working directory.
+
+    Returns:
+        A string containing the output of the cargo install command.
+        
+    Examples:
+        # Install the latest version of a crate
+        cargo_install("ripgrep")
+        
+        # Install a specific version
+        cargo_install("cargo-edit", version="0.12.0")
+        
+        # Install from a specific directory
+        cargo_install("my-tool", working_dir="rust-project")
+    """
+    try:
+        command = ["cargo", "install", crate_name]
+        if version:
+            command.extend(["--version", version])
+        
+        result = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=working_dir
+        )
+        return result.stdout + result.stderr
+    except subprocess.CalledProcessError as e:
+        return f"Error: {e.stderr if e.stderr else str(e)}"
+    except Exception as e:
+        return f"Error: {e}"
+
+def cargo_test(working_dir: Optional[str] = None, test_name: Optional[str] = None, release: bool = False) -> str:
+    """
+    Run cargo tests for a Rust project.
+    
+    This executes the test suite for a Rust project, which is useful
+    for verifying that the project builds correctly and passes its tests.
+
+    Args:
+        working_dir: The directory to run cargo test from.
+                    Useful for repos with multiple sub-projects.
+                    If None, uses the current working directory.
+        test_name: Optional specific test name or pattern to run.
+                  If None, runs all tests.
+        release: Whether to run tests in release mode (optimized).
+                Default is False (runs in debug mode).
+
+    Returns:
+        A string containing the output of the cargo test command.
+        
+    Examples:
+        # Run all tests in current directory
+        cargo_test()
+        
+        # Run tests in a sub-repository
+        cargo_test(working_dir="rust-lib")
+        
+        # Run a specific test
+        cargo_test(test_name="test_validation")
+        
+        # Run tests in release mode
+        cargo_test(release=True)
+    """
+    try:
+        command = ["cargo", "test"]
+        if test_name:
+            command.append(test_name)
+        if release:
+            command.append("--release")
+        
+        result = subprocess.run(
+            command,
             check=True,
             capture_output=True,
             text=True,

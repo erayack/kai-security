@@ -11,6 +11,7 @@ class GeneratorAgent(BaseAgent):
         repo_path: str = None,
         use_vllm: bool = False,
         model: str = None,
+        use_openai: bool = False,
     ):
         from agent.settings import MAX_TOOL_TURNS
         if max_tool_turns is None:
@@ -22,6 +23,7 @@ class GeneratorAgent(BaseAgent):
             use_vllm=use_vllm,
             model=model,
             agent_type=AgentType.TEST_GENERATOR,
+            use_openai=use_openai,
         )
     
     def check_termination(self, response: str, python_code: str) -> bool:

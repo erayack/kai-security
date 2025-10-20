@@ -3,15 +3,20 @@ from pydantic import BaseModel
 
 from typing import Optional, Union
 
-from agent.settings import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_STRONG_MODEL
+from agent.settings import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_STRONG_MODEL, OPENAI_API_KEY
 from agent.schemas import ChatMessage, Role
 
-def create_openai_client() -> OpenAI:
+def create_openai_client(use_openai: bool = False) -> OpenAI:
     """Create a new OpenAI client instance."""
-    return OpenAI(
-        api_key=OPENROUTER_API_KEY,
-        base_url=OPENROUTER_BASE_URL,
-    )
+    if use_openai:
+        return OpenAI(
+            api_key=OPENAI_API_KEY,
+        )
+    else:
+        return OpenAI(
+            api_key=OPENROUTER_API_KEY,
+            base_url=OPENROUTER_BASE_URL,
+        )
 
 def create_vllm_client(host: str = "0.0.0.0", port: int = 8000) -> OpenAI:
     """Create a new vLLM client instance (OpenAI-compatible)."""
@@ -39,6 +44,7 @@ def get_model_response(
     model: str = OPENROUTER_STRONG_MODEL,
     client: Optional[OpenAI] = None,
     use_vllm: bool = False,
+    use_openai: bool = False,
 ) -> Union[str, BaseModel]:
     """
     Get a response from a model using OpenRouter or vLLM, with optional schema for structured output.
@@ -63,7 +69,7 @@ def get_model_response(
         if use_vllm:
             client = create_vllm_client()
         else:
-            client = create_openai_client()
+            client = create_openai_client(use_openai=use_openai)
 
     # Build message history
     if messages is None:
