@@ -285,6 +285,131 @@ def run_test(
     except Exception as e:
         return {"error": str(e)}
 
+def cargo_test(
+    working_dir: Optional[str] = None,
+    package: Optional[str] = None,
+    test_name: Optional[str] = None,
+    release: bool = False,
+    additional_args: Optional[str] = None,
+    output_json: bool = False
+) -> dict:
+    """
+    Run cargo test with flexible parameters to support various Rust project structures.
+    
+    This function supports Rust workspaces with multiple packages and can run specific
+    tests or all tests in a package.
+
+    Args:
+        working_dir: The directory to run the cargo command from. Useful when the repo
+                    has multiple sub-projects or you want to run from a specific location.
+                    If None, uses the current working directory.
+        package: Package name to test (uses -p or --package flag).
+                For example: "sp1-prover", "recursion-circuit", etc.
+        test_name: Optional specific test name or pattern to run.
+                  If None, runs all tests.
+        release: Whether to run tests in release mode (optimized).
+                Default is False (runs in debug mode).
+        additional_args: Any additional cargo test arguments as a string.
+                        For example: "--no-fail-fast", "--test-threads=1", etc.
+        output_json: Whether to request JSON output format (uses --format json).
+                    Note: This requires nightly Rust or the test to support it.
+
+    Returns:
+        A dictionary containing the test results:
+        - stdout: The standard output from cargo test
+        - stderr: The standard error from cargo test
+        - returncode: The exit code (0 for success, non-zero for failure)
+        - If JSON output is requested and parsing succeeds, returns parsed JSON.
+        
+    Examples:
+        # Run all tests in a workspace
+        result = cargo_test()
+        
+        # Run tests for a specific package
+        result = cargo_test(package="sp1-prover")
+        
+        # Run a specific test in a package
+        result = cargo_test(package="sp1-prover", test_name="test_uninitialized_memory")
+        
+        # Run tests in release mode with specific package
+        result = cargo_test(package="recursion-circuit", release=True)
+        
+        # Run from a specific directory
+        result = cargo_test(working_dir="crates/prover")
+        
+        # Run with additional flags
+        result = cargo_test(package="sp1-prover", additional_args="--no-fail-fast --test-threads=1")
+    """
+    try:
+        # Build the cargo test command
+        cmd_parts = ["cargo", "test"]
+        
+        # Add package filter if specified
+        if package:
+            cmd_parts.extend(["-p", package])
+        
+        # Add test name filter if specified
+        if test_name:
+            cmd_parts.append(test_name)
+        
+        # Add release flag if requested
+        if release:
+            cmd_parts.append("--release")
+        
+        # Add JSON output flag if requested
+        if output_json:
+            cmd_parts.extend(["--", "--format", "json"])
+        
+        # Add any additional arguments
+        if additional_args:
+            # If additional_args contains test-specific flags (after --), handle carefully
+            if "--" in additional_args:
+                # Split and add appropriately
+                cmd_parts.extend(additional_args.split())
+            else:
+                cmd_parts.extend(additional_args.split())
+        
+        # Run the command
+        result = subprocess.run(
+            cmd_parts,
+            capture_output=True,
+            text=True,
+            cwd=working_dir
+        )
+        
+        # Try to parse JSON output if requested
+        if output_json:
+            try:
+                return {
+                    "parsed_json": json.loads(result.stdout),
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "returncode": result.returncode
+                }
+            except json.JSONDecodeError:
+                # If JSON parsing fails, return raw output with error note
+                return {
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "returncode": result.returncode,
+                    "error": "Failed to parse JSON output"
+                }
+        else:
+            # Return raw output for non-JSON mode
+            return {
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "returncode": result.returncode
+            }
+            
+    except Exception as e:
+        return {
+            "error": str(e),
+            "stdout": "",
+            "stderr": "",
+            "returncode": -1
+        }
+
 def update_file(file_path: str, old_content: str, new_content: str) -> Union[bool, str]:
     """
     Simple find-and-replace update method for files.

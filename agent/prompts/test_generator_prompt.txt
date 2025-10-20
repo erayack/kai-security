@@ -176,6 +176,63 @@ def run_test(
     """
     pass
 
+def cargo_test(
+    working_dir: Optional[str] = None,
+    package: Optional[str] = None,
+    test_name: Optional[str] = None,
+    release: bool = False,
+    additional_args: Optional[str] = None,
+    output_json: bool = False
+) -> dict:
+    """
+    Run cargo test with flexible parameters to support various Rust project structures.
+    
+    This function supports Rust workspaces with multiple packages and can run specific
+    tests or all tests in a package. Use this for testing Rust exploits.
+
+    Args:
+        working_dir: The directory to run the cargo command from. Useful when the repo
+                    has multiple sub-projects or you want to run from a specific location.
+                    If None, uses the current working directory.
+        package: Package name to test (uses -p or --package flag).
+                For example: "sp1-prover", "recursion-circuit", etc.
+        test_name: Optional specific test name or pattern to run.
+                  If None, runs all tests.
+        release: Whether to run tests in release mode (optimized).
+                Default is False (runs in debug mode).
+        additional_args: Any additional cargo test arguments as a string.
+                        For example: "--no-fail-fast", "--test-threads=1", etc.
+        output_json: Whether to request JSON output format (uses --format json).
+                    Note: This requires nightly Rust or the test to support it.
+
+    Returns:
+        A dictionary containing the test results:
+        - stdout: The standard output from cargo test
+        - stderr: The standard error from cargo test
+        - returncode: The exit code (0 for success, non-zero for failure)
+        - If JSON output is requested and parsing succeeds, returns parsed JSON.
+        
+    Examples:
+        # Run all tests in a workspace
+        result = cargo_test()
+        
+        # Run tests for a specific package
+        result = cargo_test(package="sp1-prover")
+        
+        # Run a specific test in a package
+        result = cargo_test(package="sp1-prover", test_name="test_uninitialized_memory")
+        
+        # Run tests in release mode with specific package
+        result = cargo_test(package="recursion-circuit", release=True)
+        
+        # Run from a specific directory
+        result = cargo_test(working_dir="crates/prover")
+        
+        # Run with additional flags
+        result = cargo_test(package="sp1-prover", additional_args="--no-fail-fast --test-threads=1")
+    """
+    pass
+
 def update_file(file_path: str, old_content: str, new_content: str) -> Union[bool, str]:
     """
     Simple find-and-replace update method for files.
@@ -242,12 +299,30 @@ This schema is available in the global scope, so you can use it without importin
 
 ## Test Script Conventions
 
+### Detecting the Project Type
+
+**IMPORTANT**: Before generating a test script, determine if the repository is Solidity or Rust:
+- **Solidity projects**: Look for `.sol` files, `foundry.toml`, `hardhat.config.js`, etc. Use `run_test()` (forge test).
+- **Rust projects**: Look for `.rs` files, `Cargo.toml`, `Cargo.lock`, etc. Use `cargo_test()`.
+- If the exploit locations mention `.rs` files, it's a **Rust project** - generate Rust tests, not Solidity tests!
+
+### Solidity Test Conventions
+
 1. The test script should respect the `setUp` of the original contract.
 2. It should demonstrate the exploit in a `test_xxxx` function.
 3. It should use assert statements to make sure the exploit is working. If the exploit is working, the test should pass. If the exploit is not working, the test should fail.
 4. The test script should respect the import and all other conventions of the original contract.
 5. The test script should match the solidity version of the original contract.
 6. The test script should ALWAYS follow the `exploit_id.t.sol` convention.
+
+### Rust Test Conventions
+
+1. Rust tests should be written in `.rs` files, typically in a `tests/` directory or as `#[test]` modules.
+2. Test functions should be annotated with `#[test]`.
+3. Use `assert!`, `assert_eq!`, or `#[should_panic]` as appropriate.
+4. For workspace projects, tests can be in individual crate directories (e.g., `crates/prover/tests/`).
+5. Run tests with `cargo_test(package="package-name")` for specific packages in a workspace.
+6. The test file should ALWAYS follow the `exploit_id.rs` or `test_exploit_id.rs` convention.
 
 ## Allowed Number of Turns
 
