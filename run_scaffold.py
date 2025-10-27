@@ -69,11 +69,16 @@ def run_finder_agent(
         use_openai=use_openai
     )
 
-    response = agent.chat(BASE_INSTRUCTION)
+    try:
+        response = agent.chat(BASE_INSTRUCTION)
+        prefix = "convo"
+    except Exception as e:
+        print(f"Error in finder agent: {e}")
+        prefix = "error_convo"
 
     # Save conversation under a per-repo folder inside output/conversations
     save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url))
-    agent.save_conversation(save_folder=save_folder)
+    agent.save_conversation(save_folder=save_folder, prefix=prefix)
 
 def run_setup_agent(
     repo_url: str, 
@@ -195,7 +200,7 @@ Start exploring the codebase and fix the exploit.
         agent.save_conversation(save_folder=save_folder, prefix=f"fixer_exploit_{exploit['id']}")
 
 def main():
-    repo_url = "https://github.com/succinctlabs/sp1.git"
+    repo_url = "https://github.com/gmsol-labs/gmx-solana.git"
     num_turns = 64
     use_openai = False
     model_name = "gpt-5-2025-08-07" if use_openai else "google/gemini-2.5-pro"

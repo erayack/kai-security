@@ -75,9 +75,10 @@ def read_file(file_path: str) -> str:
     """
     pass
 
-def list_files(path: Optional[str] = None) -> str:
+def list_files(path: Optional[str] = None, depth: Optional[int] = None) -> str:
     """
-    Display all files and directories in the current working directory as a tree structure. If given a path, display the files and directories in the given path.
+    Display all files and directories in the current working directory as a tree structure. 
+    If given a path, display the files and directories in the given path.
     
     Example output:
     ```
@@ -90,19 +91,26 @@ def list_files(path: Optional[str] = None) -> str:
 
     Args:
         [Optional] path: The path to the directory to display.
+        [Optional] depth: Maximum depth to traverse. None means unlimited depth.
+                         depth=0 shows only the root directory contents,
+                         depth=1 shows root and one level of subdirectories, etc.
 
     Returns:
         A string representation of the directory tree.
     """
     pass
 
-def grep(args: str) -> GrepResponse:
+def grep(args: str, exclude_common_dirs: bool = True) -> GrepResponse:
     """
     Run system grep with the provided CLI-style arg string.
     Prints output passthrough; returns grep's exit code (0/1/2).
 
     Args:
         args: The arguments to pass to grep.
+        exclude_common_dirs: Whether to exclude common build/dependency directories
+                           (target, out, cache, node_modules, __pycache__, .git, 
+                           build, dist, venv, .env). Default is True for faster searches.
+                           Set to False if you need to search in these directories.
     Returns:
         A GrepResponse object. This object has the fields exit_code, 
         stdout, and stderr. stdout and stderr are the output of the 
@@ -203,6 +211,7 @@ These schemas are available in the global scope, so you can use them without imp
 6. **Your `<python>` block MUST compile under `ast.parse` and yield no `SyntaxError`**
 7. **Grep Usage**: Remember that the "args" string you provide to the grep() function is a python string, which will abide by special and escape characters and such, be mindful of this.
 8. **No ID Assignment**: DO NOT assign an ID to the exploit, the verifier will do that.
+9. **List Files Usage**: Remember that the "depth" parameter you provide to the list_files() function is an integer, which will limit the depth of the directory tree to traverse. Try to use the depth parameter effectively to not overload the context.
 
 ## Allowed Number of Turns
 

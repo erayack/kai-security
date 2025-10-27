@@ -8,123 +8,7 @@ from typing import Union, Optional, List
 
 from agent.schemas import GrepResponse, Exploit, ExploitLocation, ExploitSeverity
 from agent.settings import EXPLOITS_PATH
-from agent.utils import load_gitignore_spec, should_ignore_path
-
-def read_file(file_path: str) -> str:
-    """
-    Read a file with a given path.
-
-    Args:
-        file_path: The path to the file.
-
-    Returns:
-        The content of the file, or an error message if the file cannot be read.
-    """
-    try:
-        # Ensure the file path is properly resolved
-        if not os.path.exists(file_path):
-            return f"Error: File {file_path} does not exist"
-        
-        if not os.path.isfile(file_path):
-            return f"Error: {file_path} is not a file"
-            
-        with open(file_path, "r") as f:
-            return f.read()
-    except PermissionError:
-        return f"Error: Permission denied accessing {file_path}"
-    except Exception as e:
-        return f"Error: {e}"
-
-def list_files(path: Optional[str] = None) -> str:
-    """
-    Display all files and directories in the current working directory as a tree structure. If given a path, display the files and directories in the given path.
-    
-    Example output:
-    ```
-    ./
-    ├── user.md
-    └── entities/
-        ├── 452_willow_creek_dr.md
-        └── frank_miller_plumbing.md
-    ```
-
-    Args:
-        [Optional] path: The path to the directory to display.
-
-    Returns:
-        A string representation of the directory tree.
-    """
-    try:
-        # Always use current working directory
-        dir_path = os.getcwd() if path is None else path
-        
-        # Load gitignore patterns
-        gitignore_spec = load_gitignore_spec(dir_path)
-        
-        def build_tree(start_path, prefix="", is_last=True):
-            """Recursively build tree structure"""
-            entries = []
-            try:
-                items = sorted(os.listdir(start_path))
-                # Filter out hidden files, __pycache__, and gitignored items
-                filtered_items = []
-                for item in items:
-                    if item.startswith('.') or item == '__pycache__':
-                        continue
-                    item_path = os.path.join(start_path, item)
-                    if should_ignore_path(item_path, dir_path, gitignore_spec):
-                        continue
-                    filtered_items.append(item)
-                items = filtered_items
-            except PermissionError:
-                return f"{prefix}[Permission Denied]\n"
-            
-            if not items:
-                return ""
-            
-            for i, item in enumerate(items):
-                item_path = os.path.join(start_path, item)
-                is_last_item = i == len(items) - 1
-                
-                # Choose the right prefix characters
-                if is_last_item:
-                    current_prefix = prefix + "└── "
-                    extension = prefix + "    "
-                else:
-                    current_prefix = prefix + "├── "
-                    extension = prefix + "│   "
-                
-                if os.path.isdir(item_path):
-                    # Check if directory is empty (considering gitignore)
-                    try:
-                        dir_contents = []
-                        for f in os.listdir(item_path):
-                            if f.startswith('.') or f == '__pycache__':
-                                continue
-                            f_path = os.path.join(item_path, f)
-                            if should_ignore_path(f_path, dir_path, gitignore_spec):
-                                continue
-                            dir_contents.append(f)
-                        
-                        if not dir_contents:
-                            entries.append(f"{current_prefix}{item}/ (empty)\n")
-                        else:
-                            entries.append(f"{current_prefix}{item}/\n")
-                            # Recursively add subdirectory contents
-                            entries.append(build_tree(item_path, extension, is_last_item))
-                    except PermissionError:
-                        entries.append(f"{current_prefix}{item}/ [Permission Denied]\n")
-                else:
-                    entries.append(f"{current_prefix}{item}\n")
-            
-            return "".join(entries)
-        
-        # Start with the root directory
-        tree = f"./\n{build_tree(dir_path)}"
-        return tree.rstrip()  # Remove trailing newline
-        
-    except Exception as e:
-        return f"Error: {e}"
+from agent.tools.tools import read_file, list_files, cargo_test, anchor_test
 
 def forge_install(package_name: str, working_dir: Optional[str] = None) -> str:
     """
@@ -157,7 +41,14 @@ def forge_install(package_name: str, working_dir: Optional[str] = None) -> str:
     except Exception as e:
         return f"Error: {e}"
 
-def forge_build(working_dir: Optional[str] = None) -> str:
+def forge_build(
+    working_dir: Optional[str] = None,
+    force: bool = False,
+    skip: Optional[List[str]] = None,
+    sizes: bool = False,
+    names: bool = False,
+    additional_args: Optional[str] = None
+) -> str:
     """
     Build the project using forge.
 
@@ -165,6 +56,13 @@ def forge_build(working_dir: Optional[str] = None) -> str:
         working_dir: The directory to run the forge build command from.
                     Useful for repos with multiple sub-projects.
                     If None, uses the current working directory.
+        force: If True, clears the cache and recompiles all contracts (--force flag).
+        skip: List of file paths or patterns to skip during compilation.
+              For example: ["test/", "script/Deploy.sol"]
+        sizes: If True, displays contract sizes after compilation (--sizes flag).
+        names: If True, prints compiled contract names (--names flag).
+        additional_args: Any additional forge build arguments as a string.
+                        For example: "--optimize --optimizer-runs 200"
 
     Returns:
         A string containing the output of the forge build command.
@@ -175,10 +73,43 @@ def forge_build(working_dir: Optional[str] = None) -> str:
         
         # Build from current directory
         forge_build()
+        
+        # Force rebuild with sizes
+        forge_build(force=True, sizes=True)
+        
+        # Skip test directory
+        forge_build(skip=["test/"])
+        
+        # Build with custom optimizer settings
+        forge_build(additional_args="--optimize --optimizer-runs 200")
     """
     try:
+        # Build the forge build command
+        cmd = ["forge", "build"]
+        
+        # Add force flag if requested
+        if force:
+            cmd.append("--force")
+        
+        # Add skip patterns if specified
+        if skip:
+            for pattern in skip:
+                cmd.extend(["--skip", pattern])
+        
+        # Add sizes flag if requested
+        if sizes:
+            cmd.append("--sizes")
+        
+        # Add names flag if requested
+        if names:
+            cmd.append("--names")
+        
+        # Add any additional arguments
+        if additional_args:
+            cmd.extend(additional_args.split())
+        
         result = subprocess.run(
-            ["forge", "build"],
+            cmd,
             check=True,
             capture_output=True,
             text=True,
@@ -257,58 +188,6 @@ def cargo_install(crate_name: str, version: Optional[str] = None, working_dir: O
         command = ["cargo", "install", crate_name]
         if version:
             command.extend(["--version", version])
-        
-        result = subprocess.run(
-            command,
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd=working_dir
-        )
-        return result.stdout + result.stderr
-    except subprocess.CalledProcessError as e:
-        return f"Error: {e.stderr if e.stderr else str(e)}"
-    except Exception as e:
-        return f"Error: {e}"
-
-def cargo_test(working_dir: Optional[str] = None, test_name: Optional[str] = None, release: bool = False) -> str:
-    """
-    Run cargo tests for a Rust project.
-    
-    This executes the test suite for a Rust project, which is useful
-    for verifying that the project builds correctly and passes its tests.
-
-    Args:
-        working_dir: The directory to run cargo test from.
-                    Useful for repos with multiple sub-projects.
-                    If None, uses the current working directory.
-        test_name: Optional specific test name or pattern to run.
-                  If None, runs all tests.
-        release: Whether to run tests in release mode (optimized).
-                Default is False (runs in debug mode).
-
-    Returns:
-        A string containing the output of the cargo test command.
-        
-    Examples:
-        # Run all tests in current directory
-        cargo_test()
-        
-        # Run tests in a sub-repository
-        cargo_test(working_dir="rust-lib")
-        
-        # Run a specific test
-        cargo_test(test_name="test_validation")
-        
-        # Run tests in release mode
-        cargo_test(release=True)
-    """
-    try:
-        command = ["cargo", "test"]
-        if test_name:
-            command.append(test_name)
-        if release:
-            command.append("--release")
         
         result = subprocess.run(
             command,
