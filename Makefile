@@ -6,9 +6,15 @@ help:
 	@echo "Usage: make <target>"
 	@echo ""
 	@echo "Targets:"
-	@echo "  1. help    - Show this help message"
-	@echo "  2. install - Install ALL dependencies (uv + Python packages + Foundry)"
-	@echo "  3. run     - Run the scaffold"
+	@echo "  1. help              - Show this help message"
+	@echo "  2. install           - Install ALL dependencies (uv + Python packages + Foundry)"
+	@echo "  3. run               - Run the scaffold"
+	@echo ""
+	@echo "Benchmark Targets:"
+	@echo "  4. benchmark         - Run benchmarks for all models on repositories"
+	@echo "  5. resume-benchmark  - Resume failed benchmarks (skips successful ones)"
+	@echo "  6. extract-metrics   - Extract and analyze metrics from benchmark results"
+	@echo "  7. analyse-costs     - Comprehensive cost analysis with OpenRouter data"
 	@echo ""
 	@echo "Quick Start:"
 	@echo "  make install"
@@ -28,3 +34,16 @@ install:
 
 run:
 	uv run run_scaffold.py
+
+# Benchmark targets
+benchmark:
+	cd benchmark && uv run benchmark_models.py
+
+resume-benchmark:
+	cd benchmark && uv run resume_benchmarks.py
+
+extract-metrics:
+	cd benchmark && uv run extract_metrics.py
+
+analyse-costs:
+	cd benchmark && uv run analyse_costs.py

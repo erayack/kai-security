@@ -35,3 +35,8 @@ test_scripts/
 
 # fixer conversations
 fixer_conversations/
+
+# benchmark
+benchmark_output/
+benchmark_aggregates.json
+benchmark_metrics.csv
