@@ -42,7 +42,7 @@ And here is the `exploits.json` file containing all the previously found exploit
 Now you can decide whether the exploit is a non-duplicate or not.
 """
     
-    verifier_instruction = VERIFIER_INSTRUCTION.format(exploit=exploit, exploits=exploits_json_string)
+    verifier_instruction = VERIFIER_INSTRUCTION.format(exploit=exploit.model_dump_json(indent=2), exploits=exploits_json_string)
     response = get_model_response(
         system_prompt=load_system_prompt(AgentType.NON_DUPLICATE_VERIFIER),
         message=verifier_instruction,

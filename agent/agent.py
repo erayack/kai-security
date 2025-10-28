@@ -166,6 +166,10 @@ class BaseAgent(ABC):
                 allowed_path=self.repo_path,
                 import_module=self.get_tools_module(),
             )
+            # Check if execution timed out
+            if result[0] is None and "TimeoutError" in result[1]:
+                error_msg = f"{result[1]}\nPlease try simpler operations or break down the task."
+                result = ({}, error_msg)
 
         # Add the agent's response to the conversation history
         self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
@@ -176,8 +180,8 @@ class BaseAgent(ABC):
 
         remaining_tool_turns = self.max_tool_turns
         
-        # Only enter loop if there was Python code in the first response
-        while remaining_tool_turns > 0 and python_code:
+        # Only enter loop if there was Python code in the first response (except for finder agent)
+        while remaining_tool_turns > 0 and (python_code or self.agent_type == AgentType.FINDER):
             self._add_message(
                 ChatMessage(role=Role.USER, content=format_results_and_remaining_turns(result[0], result[1], remaining_tool_turns))
             )
@@ -206,10 +210,17 @@ class BaseAgent(ABC):
                     allowed_path=self.repo_path,
                     import_module=self.get_tools_module(),
                 )
+                # Check if execution timed out
+                if result[0] is None and "TimeoutError" in result[1]:
+                    error_msg = f"{result[1]}\nPlease try simpler operations or break down the task."
+                    result = ({}, error_msg)
                 remaining_tool_turns -= 1
             else:
-                # No more python code to execute, we're done
-                break
+                if self.agent_type == AgentType.FINDER:
+                    self._add_message(ChatMessage(role=Role.USER, content="Don't stop yet, keep searching for exploits."))
+                else:
+                    # Other agents terminate when there's no more python code to execute
+                    break
 
         return self.extract_final_result(thoughts, python_code, response)
 

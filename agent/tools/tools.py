@@ -39,7 +39,7 @@ def read_file(file_path: str) -> str:
         return f"Error: {e}"
 
 
-def list_files(path: Optional[str] = None, depth: Optional[int] = None) -> str:
+def list_files(depth: int, path: Optional[str] = None) -> str:
     """
     Display all files and directories in the current working directory as a tree structure. 
     If given a path, display the files and directories in the given path.
@@ -54,10 +54,10 @@ def list_files(path: Optional[str] = None, depth: Optional[int] = None) -> str:
     ```
 
     Args:
-        [Optional] path: The path to the directory to display.
-        [Optional] depth: Maximum depth to traverse. None means unlimited depth.
-                         depth=0 shows only the root directory contents,
-                         depth=1 shows root and one level of subdirectories, etc.
+        depth: Maximum depth to traverse.
+           depth=0 shows only the root directory contents,
+           depth=1 shows root and one level of subdirectories, etc.
+        path: The path to the directory to display.
 
     Returns:
         A string representation of the directory tree.

@@ -35,13 +35,6 @@ install:
 run:
 	uv run run_scaffold.py
 
-# Benchmark targets
-benchmark:
-	cd benchmark && uv run benchmark_models.py
-
-resume-benchmark:
-	cd benchmark && uv run resume_benchmarks.py
-
 extract-metrics:
 	cd benchmark && uv run extract_metrics.py
 
