@@ -139,37 +139,36 @@ def list_files(depth: int, path: Optional[str] = None) -> str:
         return f"Error: {e}"
 
 
-def grep(args: str, exclude_common_dirs: bool = True):
+def grep(args: str):
     """
     Run system grep with the provided CLI-style arg string.
     Prints output passthrough; returns grep's exit code (0/1/2).
+    
+    Common build/dependency directories are always excluded for faster searches:
+    (target, out, cache, node_modules, __pycache__, .git, build, dist, venv, .env)
 
     Args:
         args: The arguments to pass to grep.
-        exclude_common_dirs: Whether to exclude common build/dependency directories.
     Returns:
         A tuple/GrepResponse with exit_code, stdout, and stderr.
     """
     try:
         from agent.settings import SANDBOX_TIMEOUT
         
-        # Build exclude-dir flags if requested
-        exclude_flags = ""
-        if exclude_common_dirs:
-            # Add common exclusions for build/dependency directories to speed up grep
-            exclude_dirs = [
-                "target",           # Rust build artifacts
-                "out",              # Solidity/Foundry build artifacts  
-                "cache",            # Various caches
-                "node_modules",     # Node.js dependencies
-                "__pycache__",      # Python cache
-                ".git",             # Git directory
-                "build",            # General build directory
-                "dist",             # Distribution directory
-                "venv",             # Python virtual environment
-                ".env",             # Environment directory
-            ]
-            exclude_flags = " ".join([f"--exclude-dir={d}" for d in exclude_dirs])
+        # Always exclude common build/dependency directories to speed up grep
+        exclude_dirs = [
+            "target",           # Rust build artifacts
+            "out",              # Solidity/Foundry build artifacts  
+            "cache",            # Various caches
+            "node_modules",     # Node.js dependencies
+            "__pycache__",      # Python cache
+            ".git",             # Git directory
+            "build",            # General build directory
+            "dist",             # Distribution directory
+            "venv",             # Python virtual environment
+            ".env",             # Environment directory
+        ]
+        exclude_flags = " ".join([f"--exclude-dir={d}" for d in exclude_dirs])
         
         # Run grep with timeout, locale optimization (LC_ALL=C), and optional exclusions
         cmd = f"LC_ALL=C grep {exclude_flags} {args}".strip()

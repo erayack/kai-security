@@ -112,17 +112,16 @@ def list_files(path: Optional[str] = None, depth: Optional[int] = None) -> str:
     """
     pass
 
-def grep(args: str, exclude_common_dirs: bool = True) -> GrepResponse:
+def grep(args: str) -> GrepResponse:
     """
     Run system grep with the provided CLI-style arg string.
     Prints output passthrough; returns grep's exit code (0/1/2).
+    
+    Common build/dependency directories are always excluded for faster searches:
+    (target, out, cache, node_modules, __pycache__, .git, build, dist, venv, .env)
 
     Args:
         args: The arguments to pass to grep.
-        exclude_common_dirs: Whether to exclude common build/dependency directories
-                           (target, out, cache, node_modules, __pycache__, .git, 
-                           build, dist, venv, .env). Default is True for faster searches.
-                           Set to False if you need to search in these directories.
     Returns:
         A GrepResponse object. This object has the fields exit_code, 
         stdout, and stderr. stdout and stderr are the output of the 
