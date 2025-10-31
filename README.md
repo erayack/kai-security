@@ -1,5 +1,13 @@
 # exploit-agent
 
+## Enviroment
+
+Do not forget to add openrouter api key before start!
+
+```
+OPENROUTER_API_KEY="sk-or-v1-asdfasdfsafasdf"
+```
+
 ## Installation 
 
 ```
