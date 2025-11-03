@@ -16,6 +16,7 @@ from agent.settings import (
     OPENAI_STRONG_MODEL,
 )
 from agent.schemas import ChatMessage, Role, AgentResponse
+from tqdm import tqdm
 
 from typing import Union, Tuple, Optional
 from abc import ABC, abstractmethod
@@ -60,15 +61,33 @@ class BaseAgent(ABC):
                 os.path.abspath(os.path.join(self.repo_path, p)) 
                 for p in scope_paths
             ]
+            # For sub-agents with single scope, use that as working directory
+            # This allows tools to work with relative paths naturally
+            if len(scope_paths) == 1:
+                self.working_dir = self.allowed_paths[0]
+            else:
+                self.working_dir = self.repo_path
         else:
             self.restricted_scope = False
             self.allowed_paths = []
+            self.working_dir = self.repo_path
         
         # Track sub-agents spawned by this agent (NEW)
         self.sub_agent_reports: list = []  # Will hold SubAgentReport objects
         
         # Load the system prompt and add it to the conversation history
-        self.system_prompt = load_system_prompt(agent_type)
+        # Use condensed prompt for sub-agents
+        is_sub_agent = depth > 0
+        scope_path_str = scope_paths[0] if scope_paths else ""
+        self.system_prompt = load_system_prompt(
+            agent_type, 
+            is_sub_agent=is_sub_agent,
+            scope_path=scope_path_str,
+            task_description="",  # Will be set in delegation instruction
+            max_turns=max_tool_turns,
+            depth=depth,
+            max_depth=max_depth
+        )
         self.messages: list[ChatMessage] = [
             ChatMessage(role=Role.SYSTEM, content=self.system_prompt)
         ]
@@ -102,7 +121,7 @@ class BaseAgent(ABC):
         # Count assistant messages with python code to determine turns used
         turns_used = sum(
             1 for msg in self.messages 
-            if msg.role == Role.ASSISTANT and "```python" in msg.content
+            if msg.role == Role.ASSISTANT and "<python>" in msg.content
         )
         return self.max_tool_turns - turns_used
     
@@ -199,12 +218,15 @@ class BaseAgent(ABC):
         if python_code:
             result = execute_sandboxed_code(
                 code=python_code,
-                allowed_path=self.repo_path,
+                allowed_path=self.working_dir,  # Use working_dir instead of repo_path for scoped agents
                 import_module=self.get_tools_module(),
                 agent_instance=self,  # NEW: Pass agent instance for sub-agent delegation
             )
+            # Handle None result (shouldn't happen but be defensive)
+            if result is None:
+                result = ({}, "Error: Code execution returned None")
             # Check if execution timed out
-            if result[0] is None and "TimeoutError" in result[1]:
+            elif result[0] is None and "TimeoutError" in result[1]:
                 error_msg = f"{result[1]}\nPlease try simpler operations or break down the task."
                 result = ({}, error_msg)
 
@@ -218,47 +240,72 @@ class BaseAgent(ABC):
         remaining_tool_turns = self.max_tool_turns
         
         # Only enter loop if there was Python code in the first response (except for finder agent)
-        while remaining_tool_turns > 0 and (python_code or self.agent_type == AgentType.FINDER):
-            self._add_message(
-                ChatMessage(role=Role.USER, content=format_results_and_remaining_turns(result[0], result[1], remaining_tool_turns))
-            )
-            response = get_model_response(
-                messages=self.messages,
-                model=self.model,  
-                client=self._client,
-                use_vllm=self.use_vllm,
-                use_openai=self.use_openai,
-            )
-
-            # Extract the thoughts and python code from the response
-            thoughts, python_code = self.extract_response_parts(response)
-
-            # Add the assistant message BEFORE checking termination
-            self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
-
-            # Check if we should terminate
-            if self.check_termination(response, python_code):
-                break
-
-            # Execute python code if present
-            if python_code:
-                result = execute_sandboxed_code(
-                    code=python_code,
-                    allowed_path=self.repo_path,
-                    import_module=self.get_tools_module(),
-                    agent_instance=self,  # NEW: Pass agent instance for sub-agent delegation
+        # Setup progress bar
+        agent_desc = f"{'Sub-' if self.depth > 0 else ''}Agent (Depth {self.depth})"
+        if self.scope_paths:
+            agent_desc += f" [{self.scope_paths[0]}]"
+        
+        with tqdm(total=self.max_tool_turns, desc=agent_desc, unit="turn", 
+                  leave=True, position=self.depth, ncols=100) as pbar:
+            # Update to show initial turn
+            turns_done = self.max_tool_turns - remaining_tool_turns
+            pbar.update(turns_done)
+            
+            while remaining_tool_turns > 0 and (python_code or self.agent_type == AgentType.FINDER):
+                self._add_message(
+                    ChatMessage(role=Role.USER, content=format_results_and_remaining_turns(result[0], result[1], remaining_tool_turns))
                 )
-                # Check if execution timed out
-                if result[0] is None and "TimeoutError" in result[1]:
-                    error_msg = f"{result[1]}\nPlease try simpler operations or break down the task."
-                    result = ({}, error_msg)
-                remaining_tool_turns -= 1
-            else:
-                if self.agent_type == AgentType.FINDER:
-                    self._add_message(ChatMessage(role=Role.USER, content="Don't stop yet, keep searching for exploits."))
-                else:
-                    # Other agents terminate when there's no more python code to execute
+                response = get_model_response(
+                    messages=self.messages,
+                    model=self.model,  
+                    client=self._client,
+                    use_vllm=self.use_vllm,
+                    use_openai=self.use_openai,
+                )
+
+                # Extract the thoughts and python code from the response
+                thoughts, python_code = self.extract_response_parts(response)
+
+                # Add the assistant message BEFORE checking termination
+                self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
+
+                # Check if we should terminate
+                if self.check_termination(response, python_code):
+                    pbar.set_postfix_str("✓ Completed (terminated early)")
                     break
+
+                # Execute python code if present
+                if python_code:
+                    result = execute_sandboxed_code(
+                        code=python_code,
+                        allowed_path=self.working_dir,  # Use working_dir instead of repo_path for scoped agents
+                        import_module=self.get_tools_module(),
+                        agent_instance=self,  # NEW: Pass agent instance for sub-agent delegation
+                    )
+                    # Handle None result (shouldn't happen but be defensive)
+                    if result is None:
+                        result = ({}, "Error: Code execution returned None")
+                    # Check if execution timed out
+                    elif result[0] is None and "TimeoutError" in result[1]:
+                        error_msg = f"{result[1]}\nPlease try simpler operations or break down the task."
+                        result = ({}, error_msg)
+                    remaining_tool_turns -= 1
+                    pbar.update(1)
+                    
+                    # Update postfix with exploit count
+                    exploit_count = len(self.sub_agent_reports) if hasattr(self, 'sub_agent_reports') else 0
+                    pbar.set_postfix_str(f"Exploits: {exploit_count}")
+                else:
+                    if self.agent_type == AgentType.FINDER:
+                        self._add_message(ChatMessage(role=Role.USER, content="Don't stop yet, keep searching for exploits."))
+                    else:
+                        # Other agents terminate when there's no more python code to execute
+                        pbar.set_postfix_str("✓ Completed (no more code)")
+                        break
+            
+            # Final update
+            if remaining_tool_turns == 0:
+                pbar.set_postfix_str("✓ Completed (max turns)")
 
         return self.extract_final_result(thoughts, python_code, response)
 

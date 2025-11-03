@@ -212,7 +212,7 @@ Start exploring the codebase and fix the exploit.
 
 def main():
     repo_url = "https://github.com/gmsol-labs/gmx-solana.git"
-    num_turns = 64
+    num_turns = 32
     use_openai = False
     model_name = "gpt-5-2025-08-07" if use_openai else "z-ai/glm-4.6"
 

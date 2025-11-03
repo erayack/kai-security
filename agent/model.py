@@ -80,16 +80,34 @@ def get_model_response(
     else:
         messages = [_as_dict(m) for m in messages]
 
-    if use_vllm:
-        completion = client.chat.completions.create(
-            model=model,
-            messages=messages
-        )
+    try:
+        if use_vllm:
+            completion = client.chat.completions.create(
+                model=model,
+                messages=messages
+            )
+                
+            return completion.choices[0].message.content
+        else:
+            completion = client.chat.completions.create(
+                model=model,
+                messages=messages
+            )
+            return completion.choices[0].message.content
+    except Exception as e:
+        error_msg = str(e)
+        
+        # Check if this is a context length error
+        if any(keyword in error_msg.lower() for keyword in ["context length", "maximum context", "tokens"]):
+            # Calculate approximate token count from messages
+            total_chars = sum(len(str(m)) for m in messages)
+            approx_tokens = total_chars // 4  # Rough approximation
             
-        return completion.choices[0].message.content
-    else:
-        completion = client.chat.completions.create(
-            model=model,
-            messages=messages
-        )
-        return completion.choices[0].message.content
+            raise Exception(
+                f"Context length exceeded: approximately {approx_tokens} tokens.\n"
+                f"This usually means the conversation history is too long.\n"
+                f"Original error: {error_msg}"
+            )
+        else:
+            # Re-raise the original exception
+            raise

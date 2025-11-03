@@ -221,9 +221,12 @@ def _execute_with_delegation(
     agent_instance,
 ) -> tuple[dict, str]:
     """
-    Execute code that contains delegate_to_sub_agent calls directly in main process.
-    This is necessary because delegation needs to create new agents with HTTP clients.
+    Execute code that contains delegate_to_sub_agent or add_exploit calls directly in main process.
+    This is necessary because these functions need HTTP clients and agent context.
     """
+    # Save current directory to restore later
+    original_cwd = os.getcwd()
+    
     try:
         # Import the tools module
         if import_module:
@@ -253,7 +256,23 @@ def _execute_with_delegation(
         exec_globals.update(available_functions)
         exec_locals = {}
         
-        exec(code, exec_globals, exec_locals)
+        # Try to capture unassigned expression results
+        # If code is a single expression, try eval first to capture result
+        code_stripped = code.strip()
+        lines = [line for line in code_stripped.split('\n') if line.strip() and not line.strip().startswith('#')]
+        
+        # If it's a single line expression, try eval to capture result
+        if len(lines) == 1:
+            try:
+                result = eval(code_stripped, exec_globals, exec_locals)
+                if result is not None:
+                    exec_locals['_last_result'] = result
+            except SyntaxError:
+                # Not an expression, fall back to exec
+                exec(code, exec_globals, exec_locals)
+        else:
+            # Multiple lines or statements, use exec
+            exec(code, exec_globals, exec_locals)
         
         # Filter out non-picklable objects
         safe_locals = {}
@@ -268,6 +287,12 @@ def _execute_with_delegation(
     except Exception as e:
         tb = traceback.format_exc()
         return {}, f"Exception in code execution:\n{tb}"
+    finally:
+        # Always restore original working directory
+        try:
+            os.chdir(original_cwd)
+        except Exception:
+            pass  # Ignore errors when restoring cwd
 
 
 def execute_sandboxed_code(
@@ -325,8 +350,11 @@ def execute_sandboxed_code(
             logger.error("Requirements file %s not found.", requirements_path)
             return None, f"Requirements file not found: {requirements_path}"
 
-    # Check if code contains delegate_to_sub_agent - if so, execute in main process
-    if "delegate_to_sub_agent" in code and agent_instance is not None:
+    # Check if this is a sub-agent or code contains special functions - if so, execute in main process
+    # Sub-agents need main process for proper tool function access
+    # delegate_to_sub_agent and add_exploit need main process for HTTP clients
+    if agent_instance is not None:
+        # Always run in main process if agent instance is provided (handles sub-agents + special functions)
         return _execute_with_delegation(code, allowed_path, import_module, agent_instance)
     
     # If a module name is provided, import it and add its functions to available_functions

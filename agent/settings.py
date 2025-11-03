@@ -27,6 +27,7 @@ SANDBOX_TIMEOUT = 200
 
 # Path settings
 FINDER_AGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "finder_agent_prompt.txt"
+FINDER_SUBAGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "finder_subagent_prompt.txt"
 NON_DUPLICATE_VERIFIER_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "non_duplicate_verifier_prompt.txt"
 TEST_GENERATOR_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "test_generator_prompt.txt"
 SETUP_AGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "setup_agent_prompt.txt"

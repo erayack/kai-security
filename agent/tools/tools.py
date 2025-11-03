@@ -201,10 +201,11 @@ def grep(args: str):
     Args:
         args: The arguments to pass to grep.
     Returns:
-        A tuple/GrepResponse with exit_code, stdout, and stderr.
+        A GrepResponse with exit_code, stdout, and stderr.
     """
     try:
         from agent.settings import SANDBOX_TIMEOUT
+        from agent.schemas import GrepResponse
         
         # Scope validation: restrict grep to allowed paths if scope is restricted
         search_path = "."
@@ -248,12 +249,14 @@ def grep(args: str):
             capture_output=True,
             timeout=SANDBOX_TIMEOUT
         )
-        # Return a tuple for compatibility with different return types
-        return p.returncode, p.stdout, p.stderr
+        # Return a GrepResponse object
+        return GrepResponse(exit_code=p.returncode, stdout=p.stdout, stderr=p.stderr)
     except subprocess.TimeoutExpired:
-        return 1, "", f"Error: grep exceeded timeout of {SANDBOX_TIMEOUT} seconds. Try narrowing your search or using more specific patterns."
+        from agent.schemas import GrepResponse
+        return GrepResponse(exit_code=1, stdout="", stderr=f"Error: grep exceeded timeout of {SANDBOX_TIMEOUT} seconds. Try narrowing your search or using more specific patterns.")
     except Exception as e:
-        return 1, f"Error: {e}", ""
+        from agent.schemas import GrepResponse
+        return GrepResponse(exit_code=1, stdout="", stderr=f"Error: {e}")
 
 
 def forge_test(

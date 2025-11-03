@@ -1,5 +1,6 @@
 from agent.settings import (
     FINDER_AGENT_PROMPT_PATH,
+    FINDER_SUBAGENT_PROMPT_PATH,
     NON_DUPLICATE_VERIFIER_PROMPT_PATH,
     TEST_GENERATOR_PROMPT_PATH,
     SETUP_AGENT_PROMPT_PATH,
@@ -19,23 +20,50 @@ class AgentType(Enum):
     SETUP = SETUP_AGENT_PROMPT_PATH
     FIXER = FIXER_AGENT_PROMPT_PATH
 
-def load_system_prompt(agent_type: AgentType) -> str:
+def load_system_prompt(agent_type: AgentType, is_sub_agent: bool = False, 
+                       scope_path: str = "", task_description: str = "", 
+                       max_turns: int = MAX_TOOL_TURNS, depth: int = 0, 
+                       max_depth: int = 3) -> str:
     """
     Load the system prompt from the file.
+
+    Args:
+        agent_type: The type of agent.
+        is_sub_agent: Whether this is a sub-agent (uses condensed prompt).
+        scope_path: The scope path for sub-agents.
+        task_description: The task description for sub-agents.
+        max_turns: Maximum turns allocated.
+        depth: Current depth in hierarchy.
+        max_depth: Maximum depth allowed.
 
     Returns:
         The system prompt as a string.
     """
     try:
-        with open(agent_type.value, "r") as f:
+        # Use condensed prompt for sub-agents of FINDER type
+        if is_sub_agent and agent_type == AgentType.FINDER:
+            prompt_path = FINDER_SUBAGENT_PROMPT_PATH
+        else:
+            prompt_path = agent_type.value
+            
+        with open(prompt_path, "r") as f:
             system_prompt = f.read()
 
+            # Replace placeholders
             if agent_type in (AgentType.FINDER, AgentType.TEST_GENERATOR, AgentType.SETUP):
                 system_prompt = system_prompt.replace("{{max_tool_turns}}", str(MAX_TOOL_TURNS - 1))
+            
+            # Sub-agent specific replacements
+            if is_sub_agent:
+                system_prompt = system_prompt.replace("{{scope_path}}", scope_path)
+                system_prompt = system_prompt.replace("{{task_description}}", task_description)
+                system_prompt = system_prompt.replace("{{max_turns}}", str(max_turns))
+                system_prompt = system_prompt.replace("{{depth}}", str(depth))
+                system_prompt = system_prompt.replace("{{max_depth}}", str(max_depth))
 
             return system_prompt
     except FileNotFoundError:
-        raise FileNotFoundError(f"System prompt file not found at {agent_type.value}")
+        raise FileNotFoundError(f"System prompt file not found at {prompt_path}")
 
 def extract_python_code(response: str) -> str:
     """
@@ -120,9 +148,9 @@ def format_results_and_remaining_turns(
         The formatted string.
     """
     return (
-        "<result>\n(" + str(results) + ", {" + error_msg + "})\n</result>\n<remaining_turns>\n" + str(remaining_turns) + "\n</remaining_turns>"
+        "<result>\n(" + str(results) + ", {" + error_msg + "})\n</result>\n<remaining_turns>\n" + str(remaining_turns - 1) + "\n</remaining_turns>"
         if error_msg
-        else "<result>\n" + str(results) + "\n</result>\n<remaining_turns>\n" + str(remaining_turns) + "\n</remaining_turns>"
+        else "<result>\n" + str(results) + "\n</result>\n<remaining_turns>\n" + str(remaining_turns - 1) + "\n</remaining_turns>"
     )
 
 def load_gitignore_spec(directory: str) -> Optional[pathspec.PathSpec]:

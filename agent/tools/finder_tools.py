@@ -9,6 +9,7 @@ from typing import Union, Optional, List
 from agent.schemas import GrepResponse, Exploit, ExploitLocation, ExploitSeverity, report_to_string
 from agent.settings import EXPLOITS_PATH, MAX_TOOL_TURNS
 from agent.tools.tools import read_file, list_files, grep
+from tqdm import tqdm
 
 def delegate_to_sub_agent(
     scope_path: str,
@@ -47,7 +48,7 @@ def delegate_to_sub_agent(
             task_description="Analyze state management for race conditions"
         )
     """
-    max_turns = MAX_TOOL_TURNS / 2
+    max_turns = int((MAX_TOOL_TURNS / 4) * 3)
     # Access parent agent from execution context (injected by engine)
     try:
         parent = _get_current_agent()
@@ -76,52 +77,94 @@ def delegate_to_sub_agent(
         max_depth=parent.max_depth       # Propagate limit
     )
     
-    # Build instruction based on depth and capability
-    instruction = f"""You are a SUB-AGENT working on a focused exploration task.
-
-Your scope is limited to: {scope_path}
+    # Build short instruction to minimize context
+    can_delegate = sub_agent.can_spawn_sub_agent()
+    
+    instruction = f"""Focused exploration of: {scope_path}
 Task: {task_description}
-Depth: {sub_agent.depth} (max depth: {parent.max_depth})
-Turn budget: {max_turns} turns
 
-IMPORTANT: You are using the same tools and prompt as the main FinderAgent, but with restricted scope.
+{'You can delegate to sub-agents for large areas.' if can_delegate else 'Max depth reached - direct exploration only.'}
+
+Start exploring and add exploits as you find them. When done, create a <sub_agent_report>.
 """
     
-    if sub_agent.can_spawn_sub_agent():
-        instruction += """
-You CAN delegate to further sub-agents if needed:
-- Large subdirectories (>10 files) requiring focused analysis
-- Complex modules that need deeper investigation  
-- Large files (>500 lines) that need section-by-section review
-
-Use delegate_to_sub_agent() strategically to partition work.
-"""
-    else:
-        instruction += """
-You are at MAXIMUM DEPTH and CANNOT spawn further sub-agents.
-Focus on thorough direct exploration of your assigned scope.
-"""
+    # Execute sub-agent with progress indication
+    print(f"\n{'  ' * parent.depth}🔀 Spawning sub-agent for: {scope_path}")
     
-    instruction += """
-Explore this area and find exploits. Add them using add_exploit() as you discover them.
-
-When you complete your exploration, you MUST produce a <sub_agent_report> tag with your findings summary.
-This will signal completion and return control to the parent agent.
-
-Start your search now.
-"""
+    # Create conversation directory
+    import os
+    repo_slug = os.path.basename(parent.repo_path) if parent.repo_path else "unknown"
+    convo_dir = os.path.join("output", repo_slug, "sub_agent_convos")
+    os.makedirs(convo_dir, exist_ok=True)
     
-    # Execute sub-agent
     try:
         sub_agent.chat(instruction)
     except Exception as e:
-        return f"Error: Sub-agent execution failed: {str(e)}"
+        # Save sub-agent's conversation on error for debugging
+        error_msg = str(e)
+        
+        # Check if this is a context length error
+        is_context_error = (
+            "context length" in error_msg.lower() or 
+            "maximum context" in error_msg.lower() or 
+            "tokens" in error_msg.lower() or
+            "400" in error_msg
+        )
+        
+        # Save the sub-agent's conversation
+        sub_agent.save_conversation(
+            save_folder=convo_dir,
+            prefix=f"error_subagent_depth{sub_agent.depth}_{scope_path.replace('/', '_')}"
+        )
+        
+        print(f"{'  ' * parent.depth}❌ Sub-agent failed: {error_msg}")
+        print(f"{'  ' * parent.depth}   Conversation saved to: {convo_dir}")
+        
+        # Provide helpful error message
+        if is_context_error:
+            return (
+                f"Error: Sub-agent exceeded context limit while exploring {scope_path}.\n"
+                f"The scope may be too large or complex for a single sub-agent.\n"
+                f"Suggestions:\n"
+                f"1. Break down {scope_path} into smaller subdirectories\n"
+                f"2. Explore this area directly with targeted read_file() calls\n"
+                f"3. Use grep to find specific patterns before diving deep\n"
+                f"Conversation saved for debugging."
+            )
+        else:
+            return f"Error: Sub-agent execution failed: {error_msg}\nConversation saved for debugging."
+    
+    # Save sub-agent's conversation after successful completion
+    sub_agent.save_conversation(
+        save_folder=convo_dir,
+        prefix=f"subagent_depth{sub_agent.depth}_{scope_path.replace('/', '_')}"
+    )
+    print(f"{'  ' * parent.depth}💾 Sub-agent conversation saved to: {convo_dir}")
     
     # Generate structured report
-    report = sub_agent.generate_report()
+    try:
+        report = sub_agent.generate_report()
+    except Exception as e:
+        # If report generation fails, create a minimal report
+        print(f"{'  ' * parent.depth}⚠️  Report generation failed: {e}")
+        from agent.schemas import SubAgentReport
+        report = SubAgentReport(
+            agent_id=sub_agent.agent_id,
+            parent_agent_id=parent.agent_id,
+            depth=sub_agent.depth,
+            scope_path=scope_path,
+            task_description=task_description,
+            turns_used=sub_agent.max_tool_turns - sub_agent._get_remaining_turns(),
+            turns_allocated=sub_agent.max_tool_turns,
+            summary=f"Sub-agent encountered an error and could not complete exploration: {str(e)}",
+            exploration_complete=False,
+            requires_followup=True
+        )
     
     # Store report in parent's sub_reports list
     parent.sub_agent_reports.append(report)
+    
+    print(f"{'  ' * parent.depth}✓ Sub-agent completed: {len(report.exploits_found)} exploits found\n")
     
     # Convert to formatted string for parent's context
     return report_to_string(report)
