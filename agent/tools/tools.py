@@ -13,26 +13,64 @@ from typing import Optional, Union
 from agent.utils import load_gitignore_spec, should_ignore_path
 
 
-def read_file(file_path: str) -> str:
+def read_file(file_path: str, start_line: Optional[int] = None, end_line: Optional[int] = None) -> str:
     """
-    Read a file with a given path.
+    Read a file with a given path, optionally specifying a line range.
 
     Args:
         file_path: The path to the file.
+        start_line: Optional starting line number (1-indexed, inclusive).
+        end_line: Optional ending line number (1-indexed, inclusive).
 
     Returns:
-        The content of the file, or an error message if the file cannot be read.
+        The content of the file (or specified line range), or an error message if the file cannot be read.
+        
+    Examples:
+        read_file("foo.rs")              # Full file
+        read_file("foo.rs", 100, 150)    # Lines 100-150 only
     """
     try:
+        # Scope validation (if _get_current_agent is available)
+        try:
+            agent = _get_current_agent()
+            if agent and hasattr(agent, 'restricted_scope') and agent.restricted_scope:
+                abs_path = os.path.abspath(file_path)
+                if not any(abs_path.startswith(allowed) for allowed in agent.allowed_paths):
+                    return f"Error: Access denied. File '{file_path}' is outside assigned scope."
+        except (NameError, TypeError):
+            # _get_current_agent not defined or returns None, skip scope validation
+            pass
+        
         # Ensure the file path is properly resolved
         if not os.path.exists(file_path):
             return f"Error: File {file_path} does not exist"
         
         if not os.path.isfile(file_path):
             return f"Error: {file_path} is not a file"
-            
+        
         with open(file_path, "r") as f:
-            return f.read()
+            if start_line is None and end_line is None:
+                # Read entire file
+                return f.read()
+            else:
+                # Read specific line range
+                lines = f.readlines()
+                total_lines = len(lines)
+                
+                # Validate line numbers
+                if start_line is not None and (start_line < 1 or start_line > total_lines):
+                    return f"Error: start_line {start_line} is out of range (file has {total_lines} lines)"
+                if end_line is not None and (end_line < 1 or end_line > total_lines):
+                    return f"Error: end_line {end_line} is out of range (file has {total_lines} lines)"
+                if start_line is not None and end_line is not None and start_line > end_line:
+                    return f"Error: start_line {start_line} cannot be greater than end_line {end_line}"
+                
+                # Extract line range (convert to 0-indexed)
+                start_idx = (start_line - 1) if start_line else 0
+                end_idx = end_line if end_line else total_lines
+                
+                return "".join(lines[start_idx:end_idx])
+                
     except PermissionError:
         return f"Error: Permission denied accessing {file_path}"
     except Exception as e:
@@ -65,6 +103,17 @@ def list_files(depth: int, path: Optional[str] = None) -> str:
     try:
         # Always use current working directory
         dir_path = os.getcwd() if path is None else path
+        
+        # Scope validation (if _get_current_agent is available)
+        try:
+            agent = _get_current_agent()
+            if agent and hasattr(agent, 'restricted_scope') and agent.restricted_scope:
+                abs_path = os.path.abspath(dir_path)
+                if not any(abs_path.startswith(allowed) for allowed in agent.allowed_paths):
+                    return f"Error: Access denied. Directory '{dir_path}' is outside assigned scope."
+        except (NameError, TypeError):
+            # _get_current_agent not defined or returns None, skip scope validation
+            pass
         
         # Load gitignore patterns
         gitignore_spec = load_gitignore_spec(dir_path)
@@ -146,6 +195,8 @@ def grep(args: str):
     
     Common build/dependency directories are always excluded for faster searches:
     (target, out, cache, node_modules, __pycache__, .git, build, dist, venv, .env)
+    
+    If the agent has a restricted scope, grep will only search within the allowed paths.
 
     Args:
         args: The arguments to pass to grep.
@@ -154,6 +205,23 @@ def grep(args: str):
     """
     try:
         from agent.settings import SANDBOX_TIMEOUT
+        
+        # Scope validation: restrict grep to allowed paths if scope is restricted
+        search_path = "."
+        try:
+            agent = _get_current_agent()
+            if agent and hasattr(agent, 'restricted_scope') and agent.restricted_scope:
+                # Use the first allowed path as the search root
+                if agent.allowed_paths:
+                    search_path = agent.allowed_paths[0]
+                    # Make path relative to current directory if possible
+                    try:
+                        search_path = os.path.relpath(search_path)
+                    except ValueError:
+                        pass  # Keep absolute path if relpath fails
+        except (NameError, TypeError):
+            # _get_current_agent not defined or returns None, skip scope validation
+            pass
         
         # Always exclude common build/dependency directories to speed up grep
         exclude_dirs = [
@@ -171,7 +239,8 @@ def grep(args: str):
         exclude_flags = " ".join([f"--exclude-dir={d}" for d in exclude_dirs])
         
         # Run grep with timeout, locale optimization (LC_ALL=C), and optional exclusions
-        cmd = f"LC_ALL=C grep {exclude_flags} {args}".strip()
+        # Add search path at the end
+        cmd = f"LC_ALL=C grep {exclude_flags} {args} {search_path}".strip()
         p = subprocess.run(
             cmd, 
             shell=True, 

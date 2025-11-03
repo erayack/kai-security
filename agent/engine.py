@@ -8,12 +8,23 @@ import types
 import pickle
 import subprocess
 import base64
+import threading
 
 from agent.settings import SANDBOX_TIMEOUT
 
 # Configure a logger for the sandbox (in real use, configure handlers/level as needed)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)  # or DEBUG for more verbosity
+
+# Global registry for agent instances (to avoid pickling)
+_agent_registry = {}
+_agent_registry_lock = threading.Lock()
+
+
+def get_agent_from_registry(agent_id: str):
+    """Get an agent instance from the registry by ID."""
+    with _agent_registry_lock:
+        return _agent_registry.get(agent_id)
 
 
 def _run_user_code(
@@ -23,6 +34,7 @@ def _run_user_code(
     blacklist: list,
     available_functions: dict,
     log: bool = False,
+    agent_id: str = None,
 ) -> tuple[dict, str]:
     """
     Execute code under sandboxed conditions (limited file access, optional installs,
@@ -148,6 +160,11 @@ def _run_user_code(
         # Add any provided functions to the execution environment
         if available_functions:
             exec_globals.update(available_functions)
+        
+        # Add agent accessor function if agent_id provided
+        if agent_id:
+            exec_globals['_get_current_agent'] = lambda: get_agent_from_registry(agent_id)
+            exec_globals['_agent_id'] = agent_id
 
         exec_locals = {}  # local variables will be collected here
 
@@ -197,6 +214,62 @@ def _run_user_code(
         return None, f"Sandbox worker error: {str(e)}"
 
 
+def _execute_with_delegation(
+    code: str,
+    allowed_path: str,
+    import_module: str,
+    agent_instance,
+) -> tuple[dict, str]:
+    """
+    Execute code that contains delegate_to_sub_agent calls directly in main process.
+    This is necessary because delegation needs to create new agents with HTTP clients.
+    """
+    try:
+        # Import the tools module
+        if import_module:
+            module = importlib.import_module(import_module)
+            # CRITICAL: Inject _get_current_agent into the module's namespace
+            # so delegate_to_sub_agent can access it
+            module.__dict__['_get_current_agent'] = lambda: agent_instance
+            
+            available_functions = {}
+            for name in dir(module):
+                if not name.startswith("_"):
+                    attr = getattr(module, name)
+                    if callable(attr):
+                        available_functions[name] = attr
+        else:
+            available_functions = {}
+        
+        # Add agent accessor to execution globals as well
+        available_functions['_get_current_agent'] = lambda: agent_instance
+        
+        # Change to allowed path
+        if allowed_path:
+            os.chdir(allowed_path)
+        
+        # Execute code
+        exec_globals = {"__builtins__": __builtins__}
+        exec_globals.update(available_functions)
+        exec_locals = {}
+        
+        exec(code, exec_globals, exec_locals)
+        
+        # Filter out non-picklable objects
+        safe_locals = {}
+        for var, val in exec_locals.items():
+            try:
+                pickle.dumps(val)
+                safe_locals[var] = val
+            except Exception:
+                safe_locals[var] = repr(val)
+        
+        return safe_locals, ""
+    except Exception as e:
+        tb = traceback.format_exc()
+        return {}, f"Exception in code execution:\n{tb}"
+
+
 def execute_sandboxed_code(
     code: str,
     timeout: int = SANDBOX_TIMEOUT,
@@ -207,6 +280,7 @@ def execute_sandboxed_code(
     available_functions: dict = None,
     import_module: str = None,
     log: bool = False,
+    agent_instance=None,  # NEW: Pass agent instance for sub-agent delegation
 ) -> tuple[dict, str]:
     """
     Execute the given Python code string in a sandboxed subprocess with specified restrictions.
@@ -251,6 +325,10 @@ def execute_sandboxed_code(
             logger.error("Requirements file %s not found.", requirements_path)
             return None, f"Requirements file not found: {requirements_path}"
 
+    # Check if code contains delegate_to_sub_agent - if so, execute in main process
+    if "delegate_to_sub_agent" in code and agent_instance is not None:
+        return _execute_with_delegation(code, allowed_path, import_module, agent_instance)
+    
     # If a module name is provided, import it and add its functions to available_functions
     if isinstance(available_functions, str) and not import_module:
         import_module = available_functions
@@ -269,6 +347,14 @@ def execute_sandboxed_code(
         except ImportError as e:
             logger.error(f"Failed to import module {import_module}: {e}")
             return None, f"Failed to import module {import_module}: {e}"
+    
+    # Add agent instance to registry and pass only the ID (NEW)
+    agent_id = None
+    if agent_instance is not None:
+        # Register the agent in the global registry
+        agent_id = agent_instance.agent_id
+        with _agent_registry_lock:
+            _agent_registry[agent_id] = agent_instance
 
     # Step 2: Execute the code in a separate Python subprocess
     params = {
@@ -278,6 +364,7 @@ def execute_sandboxed_code(
         "blacklist": blacklist or [],
         "available_functions": available_functions or {},
         "log": log,
+        "agent_id": agent_id,  # Pass agent ID instead of instance
     }
 
     env = os.environ.copy()
@@ -295,18 +382,35 @@ def execute_sandboxed_code(
         logger.error(
             "Sandboxed code exceeded time limit of %d seconds; terminating.", timeout
         )
+        # Clean up agent from registry
+        if agent_id:
+            with _agent_registry_lock:
+                _agent_registry.pop(agent_id, None)
         return None, f"TimeoutError: Code execution exceeded {timeout} seconds."
 
     if result.returncode != 0:
+        # Clean up agent from registry
+        if agent_id:
+            with _agent_registry_lock:
+                _agent_registry.pop(agent_id, None)
         return None, result.stderr.decode().strip()
 
     try:
         local_vars, error_msg = pickle.loads(result.stdout)
     except Exception as e:
+        # Clean up agent from registry
+        if agent_id:
+            with _agent_registry_lock:
+                _agent_registry.pop(agent_id, None)
         return None, f"Failed to decode sandbox output: {e}"
 
     if error_msg is None:
         error_msg = ""
+
+    # Clean up agent from registry after successful execution
+    if agent_id:
+        with _agent_registry_lock:
+            _agent_registry.pop(agent_id, None)
 
     return local_vars, error_msg
 
@@ -324,6 +428,7 @@ def _subprocess_entry() -> None:
         params.get("blacklist", []),
         params.get("available_functions", {}),
         params.get("log", False),
+        params.get("agent_id"),
     )
     sys.stdout.buffer.write(pickle.dumps((locals_dict, error)))
 

@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 import shutil
 import subprocess
 import hashlib
@@ -7,6 +8,16 @@ from pathlib import Path
 import json
 import uuid
 from tqdm import tqdm
+
+# Add project root to PYTHONPATH for subprocesses
+_PROJECT_ROOT = str(Path(__file__).resolve().parent)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+current_pythonpath = os.environ.get("PYTHONPATH", "")
+if current_pythonpath:
+    os.environ["PYTHONPATH"] = f"{_PROJECT_ROOT}{os.pathsep}{current_pythonpath}"
+else:
+    os.environ["PYTHONPATH"] = _PROJECT_ROOT
 
 from agent.agents import FinderAgent, GeneratorAgent, SetupAgent, FixerAgent
 
@@ -203,15 +214,15 @@ def main():
     repo_url = "https://github.com/gmsol-labs/gmx-solana.git"
     num_turns = 64
     use_openai = False
-    model_name = "gpt-5-2025-08-07" if use_openai else "google/gemini-2.5-pro"
+    model_name = "gpt-5-2025-08-07" if use_openai else "z-ai/glm-4.6"
 
     run_finder_agent(repo_url, num_turns, model_name, use_openai)
     print("Finder agent finished")
-    run_setup_agent(repo_url, num_turns, model_name, use_openai)
+    #run_setup_agent(repo_url, num_turns, model_name, use_openai)
     print("Setup agent finished")
-    run_generator_agent(repo_url, num_turns, model_name, use_openai)
+    #run_generator_agent(repo_url, num_turns, model_name, use_openai)
     print("Generator agent finished")
-    run_fixer_agent(repo_url, num_turns, model_name, use_openai)
+    #run_fixer_agent(repo_url, num_turns, model_name, use_openai)
     print("Fixer agent finished")
 
 if __name__ == "__main__":

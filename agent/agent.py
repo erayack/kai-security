@@ -36,8 +36,37 @@ class BaseAgent(ABC):
         model: str = None,
         agent_type: AgentType = None,
         use_openai: bool = False,
+        scope_paths: list[str] = None,  # NEW: Restrict file access to these paths
+        parent_agent_id: str = None,    # NEW: Track hierarchy
+        depth: int = 0,                  # NEW: Depth in hierarchy
+        max_depth: int = 3,              # NEW: Maximum recursion depth
     ):
         self.agent_type = agent_type
+        
+        # Agent identification and hierarchy (NEW)
+        self.agent_id = str(uuid.uuid4())
+        self.parent_agent_id = parent_agent_id
+        self.depth = depth
+        self.max_depth = max_depth
+        
+        # Scope restriction (NEW)
+        self.scope_paths = scope_paths
+        self.repo_path = os.path.abspath(repo_path) if repo_path else None
+        
+        if scope_paths:
+            self.restricted_scope = True
+            # Convert scope paths to absolute paths
+            self.allowed_paths = [
+                os.path.abspath(os.path.join(self.repo_path, p)) 
+                for p in scope_paths
+            ]
+        else:
+            self.restricted_scope = False
+            self.allowed_paths = []
+        
+        # Track sub-agents spawned by this agent (NEW)
+        self.sub_agent_reports: list = []  # Will hold SubAgentReport objects
+        
         # Load the system prompt and add it to the conversation history
         self.system_prompt = load_system_prompt(agent_type)
         self.messages: list[ChatMessage] = [
@@ -64,12 +93,19 @@ class BaseAgent(ABC):
         else:
             self._client = create_openai_client(use_openai=use_openai)
 
-        # Set memory_path: use provided path or fall back to default MEMORY_PATH
-        self.repo_path = repo_path
-
-        # Ensure memory_path is absolute for consistency
-        self.repo_path = os.path.abspath(self.repo_path)
-
+    def can_spawn_sub_agent(self) -> bool:
+        """Check if this agent can spawn sub-agents based on depth."""
+        return self.depth < self.max_depth
+    
+    def _get_remaining_turns(self) -> int:
+        """Get the number of remaining turns for this agent."""
+        # Count assistant messages with python code to determine turns used
+        turns_used = sum(
+            1 for msg in self.messages 
+            if msg.role == Role.ASSISTANT and "```python" in msg.content
+        )
+        return self.max_tool_turns - turns_used
+    
     @abstractmethod
     def check_termination(self, response: str, python_code: str) -> bool:
         """
@@ -165,6 +201,7 @@ class BaseAgent(ABC):
                 code=python_code,
                 allowed_path=self.repo_path,
                 import_module=self.get_tools_module(),
+                agent_instance=self,  # NEW: Pass agent instance for sub-agent delegation
             )
             # Check if execution timed out
             if result[0] is None and "TimeoutError" in result[1]:
@@ -209,6 +246,7 @@ class BaseAgent(ABC):
                     code=python_code,
                     allowed_path=self.repo_path,
                     import_module=self.get_tools_module(),
+                    agent_instance=self,  # NEW: Pass agent instance for sub-agent delegation
                 )
                 # Check if execution timed out
                 if result[0] is None and "TimeoutError" in result[1]:
@@ -233,21 +271,25 @@ class BaseAgent(ABC):
         """
         Save the conversation messages to a JSON file in
         the output/conversations directory.
+        
+        For agents with sub-agent reports, the conversation will include
+        nested sub-agent data for building a hierarchical web viewer.
         """
-        if not os.path.exists(SAVE_CONVERSATION_PATH) and not save_folder:
-            os.makedirs(SAVE_CONVERSATION_PATH, exist_ok=True)
-
-        unique_id = uuid.uuid4()
-        if not save_folder:
-            file_path = os.path.join(SAVE_CONVERSATION_PATH, f"convo_{unique_id}.json")
-        else:
+        # Always create the save folder if it doesn't exist
+        if save_folder:
             folder_path = save_folder
             if not os.path.exists(folder_path):
-                os.makedirs(folder_path)
-            if prefix:
-                file_path = os.path.join(folder_path, f"{prefix}_{unique_id}.json")
-            else:
-                file_path = os.path.join(folder_path, f"convo_{unique_id}.json")
+                os.makedirs(folder_path, exist_ok=True)
+        else:
+            if not os.path.exists(SAVE_CONVERSATION_PATH):
+                os.makedirs(SAVE_CONVERSATION_PATH, exist_ok=True)
+            folder_path = SAVE_CONVERSATION_PATH
+
+        unique_id = uuid.uuid4()
+        if prefix:
+            file_path = os.path.join(folder_path, f"{prefix}_{unique_id}.json")
+        else:
+            file_path = os.path.join(folder_path, f"convo_{unique_id}.json")
 
         # Convert the execution result messages to tool role
         messages = [
@@ -258,11 +300,43 @@ class BaseAgent(ABC):
             )
             for message in self.messages
         ]
+        
+        # Build the conversation data structure
+        conversation_data = {
+            "agent_id": self.agent_id,
+            "parent_agent_id": self.parent_agent_id,
+            "depth": self.depth,
+            "max_depth": self.max_depth,
+            "model": self.model,
+            "repo_path": self.repo_path,
+            "scope_paths": self.scope_paths,
+            "messages": [message.model_dump() for message in messages],
+            "sub_agent_reports": [],  # Will hold nested sub-agent reports
+            "message_count": len(messages),
+        }
+        
+        # Add sub-agent reports if they exist (NEW)
+        if self.sub_agent_reports:
+            for report in self.sub_agent_reports:
+                # Convert SubAgentReport to dict for JSON serialization
+                try:
+                    conversation_data["sub_agent_reports"].append(report.model_dump())
+                except AttributeError:
+                    # If report is already a dict, use it as-is
+                    conversation_data["sub_agent_reports"].append(report)
+        
         try:
             with open(file_path, "w") as f:
-                json.dump([message.model_dump() for message in messages], f, indent=4)
-        except Exception as e:
+                json.dump(conversation_data, f, indent=4)
             if log:
-                print(f"Error saving conversation: {e}")
-        if log:
-            print(f"Conversation saved to {file_path}")
+                print(f"Conversation saved to {file_path}")
+        except Exception as e:
+            error_msg = f"Error saving conversation: {e}"
+            if log:
+                print(error_msg)
+            # Try to save error info at least
+            try:
+                with open(file_path + ".error", "w") as f:
+                    f.write(error_msg)
+            except:
+                pass
