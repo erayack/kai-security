@@ -200,10 +200,17 @@ class FinderAgent(BaseAgent):
                     # Skip invalid exploits rather than crashing
                     pass
         
+        # Calculate exploit stats for this agent
+        exploit_stats = {}
+        for exploit in exploits_found:
+            severity = exploit.severity.value
+            exploit_stats[severity] = exploit_stats.get(severity, 0) + 1
+        
         # Aggregate sub-agent costs and exploits
         sub_agent_total_cost = 0.0
         sub_agent_total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
         sub_agent_exploits_count = 0
+        sub_agent_exploit_stats = {}
         
         for sub_report in self.sub_agent_reports:
             if "budget_used" in sub_report:
@@ -212,7 +219,12 @@ class FinderAgent(BaseAgent):
                 sub_agent_total_tokens["prompt_tokens"] += tokens.get("prompt_tokens", 0)
                 sub_agent_total_tokens["completion_tokens"] += tokens.get("completion_tokens", 0)
             if "exploits" in sub_report:
-                sub_agent_exploits_count += len(sub_report["exploits"])
+                exploits_list = sub_report["exploits"]
+                sub_agent_exploits_count += len(exploits_list)
+                # Aggregate exploit stats from sub-agents
+                for exploit in exploits_list:
+                    severity = exploit.get('severity', 'unknown')
+                    sub_agent_exploit_stats[severity] = sub_agent_exploit_stats.get(severity, 0) + 1
         
         # Calculate combined totals (this agent + all sub-agents)
         combined_total_cost = self.estimated_cost + sub_agent_total_cost
@@ -220,6 +232,13 @@ class FinderAgent(BaseAgent):
             "prompt_tokens": self.total_tokens["prompt_tokens"] + sub_agent_total_tokens["prompt_tokens"],
             "completion_tokens": self.total_tokens["completion_tokens"] + sub_agent_total_tokens["completion_tokens"]
         }
+        
+        # Calculate combined exploit stats (this agent + all sub-agents)
+        combined_exploit_stats = {}
+        for severity, count in exploit_stats.items():
+            combined_exploit_stats[severity] = combined_exploit_stats.get(severity, 0) + count
+        for severity, count in sub_agent_exploit_stats.items():
+            combined_exploit_stats[severity] = combined_exploit_stats.get(severity, 0) + count
         
         # Generate natural language summary
         summary = self._generate_summary_text(exploits_found, files_explored)
@@ -255,7 +274,12 @@ class FinderAgent(BaseAgent):
             # Exploration results
             files_explored=files_explored,
             exploits_found=exploit_summaries,
+            exploit_stats=exploit_stats,
             code_references=code_references[:10],  # Top 10
+            # Sub-agent exploit tracking
+            sub_agent_exploit_stats=sub_agent_exploit_stats,
+            # Combined exploit stats
+            combined_exploit_stats=combined_exploit_stats,
             sub_reports=self.sub_agent_reports,  # Nested reports
             summary=summary,
             exploration_complete=exploration_complete,

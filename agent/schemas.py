@@ -100,7 +100,14 @@ class SubAgentReport(BaseModel):
     # Exploration results
     files_explored: List[str] = Field(default_factory=list)
     exploits_found: List[ExploitSummary] = Field(default_factory=list)
+    exploit_stats: Dict[str, int] = Field(default_factory=dict)  # {"critical": 2, "high": 5, ...}
     code_references: List[CodeReference] = Field(default_factory=list, max_length=10)
+    
+    # Sub-agent exploit tracking
+    sub_agent_exploit_stats: Dict[str, int] = Field(default_factory=dict)
+    
+    # Combined exploit stats (this agent + all sub-agents)
+    combined_exploit_stats: Dict[str, int] = Field(default_factory=dict)
     
     # Sub-reports from recursive delegation
     sub_reports: List['SubAgentReport'] = Field(default_factory=list)
@@ -131,8 +138,16 @@ def report_to_string(report: SubAgentReport, indent: int = 0) -> str:
         f"{prefix}Cost (Combined): ${report.combined_total_cost:.4f}",
         f"{prefix}Tokens (Combined): {report.combined_total_tokens.get('prompt_tokens', 0) + report.combined_total_tokens.get('completion_tokens', 0)}",
         "",
-        f"{prefix}EXPLOITS FOUND: {len(report.exploits_found)}",
+        f"{prefix}EXPLOITS FOUND (This Agent): {len(report.exploits_found)}",
     ]
+    
+    # Add combined exploit stats if available
+    if report.combined_exploit_stats:
+        total_combined = sum(report.combined_exploit_stats.values())
+        stats_str = ", ".join(f"{count} {sev}" for sev, count in sorted(report.combined_exploit_stats.items()))
+        lines.append(f"{prefix}EXPLOITS FOUND (Combined): {total_combined} - [{stats_str}]")
+    
+    lines.append("")  # Empty line before exploit details
     
     for exploit in report.exploits_found:
         lines.append(

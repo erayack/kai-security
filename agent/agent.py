@@ -431,6 +431,7 @@ class BaseAgent(ABC):
         sub_agent_total_cost = 0.0
         sub_agent_total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
         sub_agent_exploits = []
+        sub_agent_exploit_stats = {}
         
         for sub_report in self.sub_agent_reports:
             if "budget_used" in sub_report:
@@ -439,7 +440,12 @@ class BaseAgent(ABC):
                 sub_agent_total_tokens["prompt_tokens"] += tokens.get("prompt_tokens", 0)
                 sub_agent_total_tokens["completion_tokens"] += tokens.get("completion_tokens", 0)
             if "exploits" in sub_report:
-                sub_agent_exploits.extend(sub_report["exploits"])
+                exploits_list = sub_report["exploits"]
+                sub_agent_exploits.extend(exploits_list)
+                # Aggregate exploit stats from sub-agents
+                for exploit in exploits_list:
+                    severity = exploit.get('severity', 'unknown')
+                    sub_agent_exploit_stats[severity] = sub_agent_exploit_stats.get(severity, 0) + 1
         
         # Calculate combined totals
         combined_total_cost = self.estimated_cost + sub_agent_total_cost
@@ -447,6 +453,13 @@ class BaseAgent(ABC):
             "prompt_tokens": self.total_tokens["prompt_tokens"] + sub_agent_total_tokens["prompt_tokens"],
             "completion_tokens": self.total_tokens["completion_tokens"] + sub_agent_total_tokens["completion_tokens"]
         }
+        
+        # Calculate combined exploit stats (this agent + all sub-agents)
+        combined_exploit_stats = {}
+        for severity, count in exploit_stats.items():
+            combined_exploit_stats[severity] = combined_exploit_stats.get(severity, 0) + count
+        for severity, count in sub_agent_exploit_stats.items():
+            combined_exploit_stats[severity] = combined_exploit_stats.get(severity, 0) + count
         
         # Build the conversation data structure
         conversation_data = {
@@ -472,8 +485,10 @@ class BaseAgent(ABC):
             "exploit_stats": exploit_stats,
             # Exploit tracking - sub-agents only
             "sub_agent_exploits": sub_agent_exploits,
+            "sub_agent_exploit_stats": sub_agent_exploit_stats,
             # Exploit tracking - combined (this agent + all sub-agents)
             "combined_exploits": found_exploits + sub_agent_exploits,
+            "combined_exploit_stats": combined_exploit_stats,
         }
         
         try:
