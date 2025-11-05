@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Union, Optional, List
 
 from agent.schemas import GrepResponse, Exploit, ExploitLocation, ExploitSeverity
-from agent.settings import EXPLOITS_PATH
 from agent.tools.tools import read_file, list_files, cargo_test, anchor_test
 
 def forge_install(package_name: str, working_dir: Optional[str] = None) -> str:

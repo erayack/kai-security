@@ -8,6 +8,13 @@ from pathlib import Path
 import json
 import uuid
 from tqdm import tqdm
+import asyncio
+import warnings
+
+# Suppress asyncio/event loop cleanup warnings (harmless during multi-threaded async execution)
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*coroutine.*was never awaited.*")
+warnings.filterwarnings("ignore", message=".*Event loop is closed.*")
+warnings.filterwarnings("ignore", category=SyntaxWarning, message=".*invalid escape sequence.*")
 
 # Add project root to PYTHONPATH for subprocesses
 _PROJECT_ROOT = str(Path(__file__).resolve().parent)
@@ -63,13 +70,13 @@ def delete_repo(repo_url: str) -> None:
         shutil.rmtree(dest)
 
 
-def run_finder_agent(
+async def run_finder_agent(
     repo_url: str, 
     num_turns: int, 
     model_name: str,
     use_openai: bool = False
 ):
-    """Run the FinderAgent against the cloned repo for the requested number of user turns."""
+    """Run the FinderAgent against the cloned repo for the requested number of user turns (async)."""
     repo_path = _repo_path(repo_url)
     if not os.path.exists(repo_path):
         repo_path = clone_repo(repo_url)
@@ -80,24 +87,36 @@ def run_finder_agent(
         use_openai=use_openai
     )
 
+    response = None
     try:
-        response = agent.chat(BASE_INSTRUCTION)
+        response = await agent.chat(BASE_INSTRUCTION)
         prefix = "convo"
-    except Exception as e:
-        print(f"Error in finder agent: {e}")
+    except Exception:
         prefix = "error_convo"
+    finally:
+        # Always close the agent to clean up resources
+        try:
+            await agent.close()
+        except Exception:
+            pass
 
     # Save conversation under a per-repo folder inside output/conversations
     save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url))
     agent.save_conversation(save_folder=save_folder, prefix=prefix)
+    
+    return {
+        "response": response,
+        "estimated_cost": agent.estimated_cost,
+        "total_tokens": agent.total_tokens,
+    }
 
-def run_setup_agent(
+async def run_setup_agent(
     repo_url: str, 
     num_turns: int, 
     model_name: str,
     use_openai: bool = False
 ):
-    """Run the SetupAgent against the cloned repo for the requested number of user turns."""
+    """Run the SetupAgent against the cloned repo for the requested number of user turns (async)."""
     repo_path = _repo_path(repo_url)
     agent = SetupAgent(
         repo_path=repo_path, 
@@ -106,25 +125,37 @@ def run_setup_agent(
         use_openai=use_openai
     )
 
+    response = None
     try:
-        response = agent.chat(SETUP_INSTRUCTION)
+        response = await agent.chat(SETUP_INSTRUCTION)
         prefix = "setup"
-    except Exception as e:
-        print(f"Error in setup agent: {e}")
+    except Exception:
         prefix = "error_setup"
+    finally:
+        # Always close the agent to clean up resources
+        try:
+            await agent.close()
+        except Exception:
+            pass
     
     # Save conversation under a per-repo folder inside output/conversations
     save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url))
     agent.save_conversation(save_folder=save_folder, prefix=prefix)
+    
+    return {
+        "response": response,
+        "estimated_cost": agent.estimated_cost,
+        "total_tokens": agent.total_tokens,
+    }
 
-def run_generator_agent(
+async def run_generator_agent(
     repo_url: str, 
     num_turns: int, 
     model_name: str,
     use_openai: bool = False
 ):
     """
-    Run the generator agent for all exploits in the exploits.json file in the repo path
+    Run the generator agent for all exploits in the exploits.json file in the repo path (async)
     """
     repo_path = _repo_path(repo_url)
     
@@ -138,6 +169,8 @@ Start exploring the codebase and generate a test script for the exploit.
 """
     
     exploits = json.load(open(os.path.join(repo_path, "exploits.json")))
+    total_cost = 0.0
+    
     for exploit in tqdm(exploits, desc="Generating exploits"):
         # Initialize the generator agent
         agent = GeneratorAgent(
@@ -147,25 +180,39 @@ Start exploring the codebase and generate a test script for the exploit.
             use_openai=use_openai
         )
         
-        # Construct the instruction
-        instruction = GENERATOR_INSTRUCTION.format(exploit=json.dumps(exploit))
-        
-        # Generate the test script
-        response = agent.chat(instruction)
-        
-        # Save conversation under a per-repo folder inside output/conversations
-        save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url), "generator_conversations")
-        os.makedirs(save_folder, exist_ok=True)
-        agent.save_conversation(save_folder=save_folder, prefix=f"generator_exploit_{exploit['id']}")
+        try:
+            # Construct the instruction
+            instruction = GENERATOR_INSTRUCTION.format(exploit=json.dumps(exploit))
+            
+            # Generate the test script
+            response = await agent.chat(instruction)
+            
+            # Save conversation under a per-repo folder inside output/conversations
+            save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url), "generator_conversations")
+            os.makedirs(save_folder, exist_ok=True)
+            agent.save_conversation(save_folder=save_folder, prefix=f"generator_exploit_{exploit['id']}")
+            
+            total_cost += agent.estimated_cost
+        finally:
+            # Always close the agent to clean up resources
+            try:
+                await agent.close()
+            except Exception:
+                pass
+    
+    return {
+        "total_cost": total_cost,
+        "exploits_processed": len(exploits)
+    }
 
-def run_fixer_agent(
+async def run_fixer_agent(
     repo_url: str, 
     num_turns: int, 
     model_name: str,
     use_openai: bool = False
 ):
     """
-    Run the fixer agent for all exploits in the exploits.json file in the repo path
+    Run the fixer agent for all exploits in the exploits.json file in the repo path (async)
     """
     repo_path = _repo_path(repo_url)
     
@@ -179,6 +226,8 @@ Start exploring the codebase and fix the exploit.
 """
     
     exploits = json.load(open(os.path.join(repo_path, "exploits.json")))
+    total_cost = 0.0
+    
     for exploit in tqdm(exploits, desc="Fixing exploits"):
         agent = FixerAgent(
             repo_path=repo_path, 
@@ -187,43 +236,60 @@ Start exploring the codebase and fix the exploit.
             use_openai=use_openai
         )
 
-        # Construct the instruction
-        instruction = FIXER_INSTRUCTION.format(exploit=json.dumps(exploit))
-        
-        # Fix the exploit
-        response = agent.chat(instruction)
-        
-        # Save the suggested fix in a suggested_fixes.json file
-        # the format should be {exploit_id: suggested_fix}
-        # the suggested_fixes.json file should be a list of dicts, with the key being the exploit_id and the value being the suggested_fix
         try:
-            with open(os.path.join(repo_path, "suggested_fixes.json"), "r") as f:
-                suggested_fixes = json.load(f)
-        except:
-            suggested_fixes = []
-        suggested_fixes.append({exploit["id"]: response.suggest_fix})
-        with open(os.path.join(repo_path, "suggested_fixes.json"), "w") as f:
-            json.dump(suggested_fixes, f, indent=2)
+            # Construct the instruction
+            instruction = FIXER_INSTRUCTION.format(exploit=json.dumps(exploit))
+            
+            # Fix the exploit
+            response = await agent.chat(instruction)
+            
+            # Save the suggested fix in a suggested_fixes.json file
+            # the format should be {exploit_id: suggested_fix}
+            # the suggested_fixes.json file should be a list of dicts, with the key being the exploit_id and the value being the suggested_fix
+            try:
+                with open(os.path.join(repo_path, "suggested_fixes.json"), "r") as f:
+                    suggested_fixes = json.load(f)
+            except:
+                suggested_fixes = []
+            suggested_fixes.append({exploit["id"]: response.suggest_fix})
+            with open(os.path.join(repo_path, "suggested_fixes.json"), "w") as f:
+                json.dump(suggested_fixes, f, indent=2)
 
-        # Save conversation under a per-repo folder inside output/conversations
-        save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url), "fixer_conversations")
-        os.makedirs(save_folder, exist_ok=True)
-        agent.save_conversation(save_folder=save_folder, prefix=f"fixer_exploit_{exploit['id']}")
+            # Save conversation under a per-repo folder inside output/conversations
+            save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url), "fixer_conversations")
+            os.makedirs(save_folder, exist_ok=True)
+            agent.save_conversation(save_folder=save_folder, prefix=f"fixer_exploit_{exploit['id']}")
+            
+            total_cost += agent.estimated_cost
+        finally:
+            # Always close the agent to clean up resources
+            try:
+                await agent.close()
+            except Exception:
+                pass
+    
+    return {
+        "total_cost": total_cost,
+        "exploits_fixed": len(exploits)
+    }
 
-def main():
+async def main():
     repo_url = "https://github.com/gmsol-labs/gmx-solana.git"
     num_turns = 32
     use_openai = False
     model_name = "gpt-5-2025-08-07" if use_openai else "z-ai/glm-4.6"
 
-    run_finder_agent(repo_url, num_turns, model_name, use_openai)
-    print("Finder agent finished")
-    #run_setup_agent(repo_url, num_turns, model_name, use_openai)
-    print("Setup agent finished")
-    #run_generator_agent(repo_url, num_turns, model_name, use_openai)
-    print("Generator agent finished")
-    #run_fixer_agent(repo_url, num_turns, model_name, use_openai)
-    print("Fixer agent finished")
+    finder_result = await run_finder_agent(repo_url, num_turns, model_name, use_openai)
+    #setup_result = await run_setup_agent(repo_url, num_turns, model_name, use_openai)
+    #generator_result = await run_generator_agent(repo_url, num_turns, model_name, use_openai)
+    #fixer_result = await run_fixer_agent(repo_url, num_turns, model_name, use_openai)
+    
+    return {
+        "finder": finder_result,
+        #"setup": setup_result,
+        #"generator": generator_result,
+        #"fixer": fixer_result
+    }
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

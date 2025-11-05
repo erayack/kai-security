@@ -101,8 +101,15 @@ def list_files(depth: int, path: Optional[str] = None) -> str:
         A string representation of the directory tree.
     """
     try:
-        # Always use current working directory
-        dir_path = os.getcwd() if path is None else path
+        # Use agent's working_dir if available and no path specified, otherwise os.getcwd()
+        if path is None:
+            try:
+                agent = _get_current_agent()
+                dir_path = agent.working_dir if agent else os.getcwd()
+            except (NameError, TypeError):
+                dir_path = os.getcwd()
+        else:
+            dir_path = path
         
         # Scope validation (if _get_current_agent is available)
         try:
@@ -193,8 +200,8 @@ def grep(args: str):
     Run system grep with the provided CLI-style arg string.
     Prints output passthrough; returns grep's exit code (0/1/2).
     
-    Common build/dependency directories are always excluded for faster searches:
-    (target, out, cache, node_modules, __pycache__, .git, build, dist, venv, .env)
+    Common build/dependency directories are always excluded for faster searches.
+    Output is limited to 100KB to prevent context overflow.
     
     If the agent has a restricted scope, grep will only search within the allowed paths.
 
@@ -224,20 +231,72 @@ def grep(args: str):
             # _get_current_agent not defined or returns None, skip scope validation
             pass
         
-        # Always exclude common build/dependency directories to speed up grep
+        # Comprehensive exclusions for build artifacts, dependencies, and caches
+        # This prevents grep from returning millions of lines from these directories
         exclude_dirs = [
-            "target",           # Rust build artifacts
-            "out",              # Solidity/Foundry build artifacts  
-            "cache",            # Various caches
+            # Rust
+            "target",           # Rust build artifacts (includes debug/release/deps)
+            
+            # JavaScript/TypeScript
             "node_modules",     # Node.js dependencies
+            "bower_components", # Bower dependencies
+            ".npm",             # npm cache
+            ".yarn",            # Yarn cache
+            ".pnp",             # Yarn PnP
+            
+            # Python
+            "venv",             # Python virtual environment
+            ".venv",            # Python virtual environment (hidden)
+            "env",              # Python virtual environment
+            ".env",             # Python virtual environment (hidden)
+            "virtualenv",       # virtualenv directory
+            ".virtualenv",      # virtualenv directory (hidden)
             "__pycache__",      # Python cache
-            ".git",             # Git directory
+            ".pytest_cache",    # Pytest cache
+            ".mypy_cache",      # Mypy cache
+            ".tox",             # Tox test environments
+            "site-packages",    # Python packages
+            "dist-packages",    # Python packages (Debian/Ubuntu)
+            ".eggs",            # Python eggs
+            "*.egg-info",       # Python egg info
+            
+            # Build outputs
             "build",            # General build directory
             "dist",             # Distribution directory
-            "venv",             # Python virtual environment
-            ".env",             # Environment directory
+            "out",              # Solidity/Foundry/general build artifacts
+            "bin",              # Binary directory (sometimes)
+            "obj",              # Object files (C/C++)
+            
+            # Caches
+            "cache",            # Various caches
+            ".cache",           # Hidden caches
+            "tmp",              # Temporary files
+            ".tmp",             # Hidden temporary files
+            
+            # Version control
+            ".git",             # Git directory
+            ".svn",             # SVN directory
+            ".hg",              # Mercurial directory
+            
+            # IDEs and editors
+            ".idea",            # IntelliJ IDEA
+            ".vscode",          # VS Code
+            ".vs",              # Visual Studio
+            
+            # Other
+            "vendor",           # Vendored dependencies (Go, PHP, etc.)
+            ".bundle",          # Ruby bundler
         ]
         exclude_flags = " ".join([f"--exclude-dir={d}" for d in exclude_dirs])
+        
+        # Determine working directory for grep
+        grep_cwd = None
+        try:
+            agent = _get_current_agent()
+            if agent and hasattr(agent, 'working_dir'):
+                grep_cwd = agent.working_dir
+        except (NameError, TypeError):
+            pass
         
         # Run grep with timeout, locale optimization (LC_ALL=C), and optional exclusions
         # Add search path at the end
@@ -247,10 +306,29 @@ def grep(args: str):
             shell=True, 
             text=True, 
             capture_output=True,
-            timeout=SANDBOX_TIMEOUT
+            timeout=SANDBOX_TIMEOUT,
+            cwd=grep_cwd
         )
+        
+        # Limit output size to prevent context overflow (100KB max)
+        # This prevents grep from returning millions of characters that crash the model
+        MAX_GREP_OUTPUT_SIZE = 100_000  # 100KB
+        stdout = p.stdout
+        stderr = p.stderr
+        
+        if len(stdout) > MAX_GREP_OUTPUT_SIZE:
+            line_count = stdout.count('\n')
+            truncated_stdout = stdout[:MAX_GREP_OUTPUT_SIZE]
+            # Try to end at a line boundary
+            last_newline = truncated_stdout.rfind('\n')
+            if last_newline > 0:
+                truncated_stdout = truncated_stdout[:last_newline]
+            
+            truncation_msg = f"\n\n... [TRUNCATED: Output too large. Showing first {len(truncated_stdout):,} of {len(stdout):,} characters, ~{line_count:,} total matches. Use more specific patterns or -m flag to limit results.]"
+            stdout = truncated_stdout + truncation_msg
+        
         # Return a GrepResponse object
-        return GrepResponse(exit_code=p.returncode, stdout=p.stdout, stderr=p.stderr)
+        return GrepResponse(exit_code=p.returncode, stdout=stdout, stderr=stderr)
     except subprocess.TimeoutExpired:
         from agent.schemas import GrepResponse
         return GrepResponse(exit_code=1, stdout="", stderr=f"Error: grep exceeded timeout of {SANDBOX_TIMEOUT} seconds. Try narrowing your search or using more specific patterns.")
@@ -638,11 +716,9 @@ def update_file(file_path: str, old_content: str, new_content: str) -> Union[boo
             preview = old_content[:preview_length] + "..." if len(old_content) > preview_length else old_content
             return f"Error: Could not find the specified content in the file. Looking for: '{preview}'"
 
-        # Count occurrences to warn about multiple matches
+        # Count occurrences (multiple matches handled by replacing first only)
         occurrences = current_content.count(old_content)
-        if occurrences > 1:
-            # Still proceed but warn the user
-            print(f"Warning: Found {occurrences} occurrences of the content. Replacing only the first one.")
+        # Note: If multiple matches exist, only first one is replaced
 
         # Perform the replacement (only first occurrence)
         updated_content = current_content.replace(old_content, new_content, 1)

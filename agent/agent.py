@@ -1,5 +1,5 @@
 from agent.engine import execute_sandboxed_code
-from agent.model import get_model_response, create_openai_client, create_vllm_client
+from agent.model import get_model_response, create_openai_client, create_vllm_client, get_model_pricing
 from agent.utils import (
     load_system_prompt,
     extract_python_code,
@@ -14,11 +14,13 @@ from agent.settings import (
     VLLM_PORT,
     OPENROUTER_STRONG_MODEL,
     OPENAI_STRONG_MODEL,
+    MAX_DEPTH,
 )
 from agent.schemas import ChatMessage, Role, AgentResponse
 from tqdm import tqdm
+import asyncio
 
-from typing import Union, Tuple, Optional
+from typing import Union, Tuple, Optional, Dict
 from abc import ABC, abstractmethod
 
 import json
@@ -40,7 +42,7 @@ class BaseAgent(ABC):
         scope_paths: list[str] = None,  # NEW: Restrict file access to these paths
         parent_agent_id: str = None,    # NEW: Track hierarchy
         depth: int = 0,                  # NEW: Depth in hierarchy
-        max_depth: int = 3,              # NEW: Maximum recursion depth
+        max_depth: int = MAX_DEPTH,              # NEW: Maximum recursion depth
     ):
         self.agent_type = agent_type
         
@@ -57,10 +59,29 @@ class BaseAgent(ABC):
         if scope_paths:
             self.restricted_scope = True
             # Convert scope paths to absolute paths
-            self.allowed_paths = [
-                os.path.abspath(os.path.join(self.repo_path, p)) 
-                for p in scope_paths
-            ]
+            self.allowed_paths = []
+            for p in scope_paths:
+                # If path is already absolute and within repo_path, use it as-is
+                if os.path.isabs(p):
+                    abs_p = os.path.abspath(p)
+                    if abs_p.startswith(self.repo_path):
+                        self.allowed_paths.append(abs_p)
+                    else:
+                        # Absolute path outside repo - shouldn't happen but handle it
+                        self.allowed_paths.append(abs_p)
+                else:
+                    # Relative path - join with repo_path
+                    # Remove any leading repo directory names to avoid duplication
+                    # e.g. if p is "repos/xxx/programs/store/" and repo_path ends with "repos/xxx"
+                    clean_p = p
+                    repo_name = os.path.basename(self.repo_path)
+                    if clean_p.startswith('repos/'):
+                        # Strip everything up to and including the repo name
+                        parts = clean_p.split('/')
+                        if repo_name in parts:
+                            idx = parts.index(repo_name)
+                            clean_p = '/'.join(parts[idx+1:])
+                    self.allowed_paths.append(os.path.abspath(os.path.join(self.repo_path, clean_p)))
             # For sub-agents with single scope, use that as working directory
             # This allows tools to work with relative paths naturally
             if len(scope_paths) == 1:
@@ -74,6 +95,9 @@ class BaseAgent(ABC):
         
         # Track sub-agents spawned by this agent (NEW)
         self.sub_agent_reports: list = []  # Will hold SubAgentReport objects
+        
+        # Set exploits.json path based on working directory (dynamic per agent)
+        self.exploits_path = os.path.join(self.working_dir, "exploits.json")
         
         # Load the system prompt and add it to the conversation history
         # Use condensed prompt for sub-agents
@@ -96,6 +120,10 @@ class BaseAgent(ABC):
         self.max_tool_turns = max_tool_turns
         self.use_vllm = use_vllm
         self.use_openai = use_openai
+        
+        # Budget tracking
+        self.total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
+        self.estimated_cost = 0.0
 
         # Set model: use provided model, or fallback to OPENROUTER_STRONG_MODEL
         if model:
@@ -115,6 +143,33 @@ class BaseAgent(ABC):
     def can_spawn_sub_agent(self) -> bool:
         """Check if this agent can spawn sub-agents based on depth."""
         return self.depth < self.max_depth
+    
+    def calculate_cost(self, usage_data: Dict[str, int]) -> float:
+        """
+        Calculate cost from usage data using dynamic pricing.
+        
+        Args:
+            usage_data: Dict with prompt_tokens and completion_tokens
+            
+        Returns:
+            Cost in dollars
+        """
+        pricing = get_model_pricing(self.model, self.use_openai)
+        prompt_cost = usage_data.get("prompt_tokens", 0) * pricing["prompt"]
+        completion_cost = usage_data.get("completion_tokens", 0) * pricing["completion"]
+        return prompt_cost + completion_cost
+    
+    def update_budget(self, usage_data: Dict[str, int]):
+        """
+        Update token usage and estimated cost.
+        
+        Args:
+            usage_data: Dict with prompt_tokens, completion_tokens, total_tokens
+        """
+        self.total_tokens["prompt_tokens"] += usage_data.get("prompt_tokens", 0)
+        self.total_tokens["completion_tokens"] += usage_data.get("completion_tokens", 0)
+        cost = self.calculate_cost(usage_data)
+        self.estimated_cost += cost
     
     def _get_remaining_turns(self) -> int:
         """Get the number of remaining turns for this agent."""
@@ -188,9 +243,9 @@ class BaseAgent(ABC):
 
         return thoughts, python_code
 
-    def chat(self, message: str) -> AgentResponse:
+    async def chat(self, message: str) -> AgentResponse:
         """
-        Chat with the agent.
+        Chat with the agent (async).
 
         Args:
             message: The message to chat with the agent.
@@ -202,13 +257,16 @@ class BaseAgent(ABC):
         self._add_message(ChatMessage(role=Role.USER, content=message))
 
         # Get the response from the agent using this instance's clients
-        response = get_model_response(
+        response, usage_data = await get_model_response(
             messages=self.messages,
             model=self.model,
             client=self._client,
             use_vllm=self.use_vllm,
             use_openai=self.use_openai,
         )
+        
+        # Update budget tracking
+        self.update_budget(usage_data)
 
         # Extract the thoughts and python code from the response
         thoughts, python_code = self.extract_response_parts(response)
@@ -255,13 +313,16 @@ class BaseAgent(ABC):
                 self._add_message(
                     ChatMessage(role=Role.USER, content=format_results_and_remaining_turns(result[0], result[1], remaining_tool_turns))
                 )
-                response = get_model_response(
+                response, usage_data = await get_model_response(
                     messages=self.messages,
                     model=self.model,  
                     client=self._client,
                     use_vllm=self.use_vllm,
                     use_openai=self.use_openai,
                 )
+                
+                # Update budget tracking
+                self.update_budget(usage_data)
 
                 # Extract the thoughts and python code from the response
                 thoughts, python_code = self.extract_response_parts(response)
@@ -295,6 +356,10 @@ class BaseAgent(ABC):
                     # Update postfix with exploit count
                     exploit_count = len(self.sub_agent_reports) if hasattr(self, 'sub_agent_reports') else 0
                     pbar.set_postfix_str(f"Exploits: {exploit_count}")
+                    
+                    # Small delay to allow event loop to process cleanup tasks
+                    # This helps with memory management when spawning many sub-agents
+                    await asyncio.sleep(0.01)
                 else:
                     if self.agent_type == AgentType.FINDER:
                         self._add_message(ChatMessage(role=Role.USER, content="Don't stop yet, keep searching for exploits."))
@@ -348,6 +413,41 @@ class BaseAgent(ABC):
             for message in self.messages
         ]
         
+        # Load exploits from exploits.json if it exists
+        found_exploits = []
+        exploit_stats = {}
+        try:
+            if os.path.exists(self.exploits_path):
+                with open(self.exploits_path, 'r') as f:
+                    found_exploits = json.load(f)
+                    # Calculate exploit stats by severity
+                    for exploit in found_exploits:
+                        severity = exploit.get('severity', 'unknown')
+                        exploit_stats[severity] = exploit_stats.get(severity, 0) + 1
+        except Exception:
+            pass  # If file doesn't exist or can't be read, leave empty
+        
+        # Aggregate sub-agent costs and exploits
+        sub_agent_total_cost = 0.0
+        sub_agent_total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
+        sub_agent_exploits = []
+        
+        for sub_report in self.sub_agent_reports:
+            if "budget_used" in sub_report:
+                sub_agent_total_cost += sub_report["budget_used"].get("total_cost", 0.0)
+                tokens = sub_report["budget_used"].get("tokens", {})
+                sub_agent_total_tokens["prompt_tokens"] += tokens.get("prompt_tokens", 0)
+                sub_agent_total_tokens["completion_tokens"] += tokens.get("completion_tokens", 0)
+            if "exploits" in sub_report:
+                sub_agent_exploits.extend(sub_report["exploits"])
+        
+        # Calculate combined totals
+        combined_total_cost = self.estimated_cost + sub_agent_total_cost
+        combined_total_tokens = {
+            "prompt_tokens": self.total_tokens["prompt_tokens"] + sub_agent_total_tokens["prompt_tokens"],
+            "completion_tokens": self.total_tokens["completion_tokens"] + sub_agent_total_tokens["completion_tokens"]
+        }
+        
         # Build the conversation data structure
         conversation_data = {
             "agent_id": self.agent_id,
@@ -358,19 +458,23 @@ class BaseAgent(ABC):
             "repo_path": self.repo_path,
             "scope_paths": self.scope_paths,
             "messages": [message.model_dump() for message in messages],
-            "sub_agent_reports": [],  # Will hold nested sub-agent reports
-            "message_count": len(messages),
+            # Budget tracking - this agent only
+            "total_tokens": self.total_tokens,
+            "estimated_cost": self.estimated_cost,
+            # Budget tracking - sub-agents only
+            "sub_agent_total_tokens": sub_agent_total_tokens,
+            "sub_agent_total_cost": sub_agent_total_cost,
+            # Budget tracking - combined (this agent + all sub-agents)
+            "combined_total_tokens": combined_total_tokens,
+            "combined_total_cost": combined_total_cost,
+            # Exploit tracking - this agent only
+            "found_exploits": found_exploits,
+            "exploit_stats": exploit_stats,
+            # Exploit tracking - sub-agents only
+            "sub_agent_exploits": sub_agent_exploits,
+            # Exploit tracking - combined (this agent + all sub-agents)
+            "combined_exploits": found_exploits + sub_agent_exploits,
         }
-        
-        # Add sub-agent reports if they exist (NEW)
-        if self.sub_agent_reports:
-            for report in self.sub_agent_reports:
-                # Convert SubAgentReport to dict for JSON serialization
-                try:
-                    conversation_data["sub_agent_reports"].append(report.model_dump())
-                except AttributeError:
-                    # If report is already a dict, use it as-is
-                    conversation_data["sub_agent_reports"].append(report)
         
         try:
             with open(file_path, "w") as f:
@@ -387,3 +491,15 @@ class BaseAgent(ABC):
                     f.write(error_msg)
             except:
                 pass
+    
+    async def close(self):
+        """
+        Clean up resources used by the agent, including closing the HTTP client.
+        Should be called when the agent is no longer needed.
+        """
+        try:
+            if hasattr(self, '_client') and self._client is not None:
+                await self._client.aclose()
+                self._client = None
+        except Exception:
+            pass  # Ignore errors during cleanup

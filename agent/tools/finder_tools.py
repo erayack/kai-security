@@ -3,24 +3,29 @@ import tempfile
 import uuid
 import json
 import subprocess
+import fcntl
+import time
 from pathlib import Path
 from typing import Union, Optional, List
 
-from agent.schemas import GrepResponse, Exploit, ExploitLocation, ExploitSeverity, report_to_string
-from agent.settings import EXPLOITS_PATH, MAX_TOOL_TURNS
+from agent.schemas import GrepResponse, Exploit, ExploitLocation, ExploitSeverity
+from agent.settings import MAX_TOOL_TURNS, MAX_SUBAGENT_TURNS
 from agent.tools.tools import read_file, list_files, grep
 from tqdm import tqdm
 
-def delegate_to_sub_agent(
+async def delegate_to_sub_agent(
     scope_path: str,
     task_description: str,
-) -> str:
+) -> dict:
     """
-    Spawn a sub-agent to explore a specific scope and return a structured report.
+    Spawn a sub-agent to explore a specific scope and return exploits found.
     
     This function creates a new FinderAgent instance with restricted scope and limited
     turn budget to explore a specific directory or area of the codebase. The sub-agent
     can recursively spawn its own sub-agents up to the maximum depth limit.
+    
+    The sub-agent writes its findings to an exploits.json file in its scope directory,
+    which is then read and returned as a dict containing all exploits found.
     
     Args:
         scope_path: Path to directory or file (relative to repo root) to explore.
@@ -29,26 +34,31 @@ def delegate_to_sub_agent(
                          Example: "Find all unchecked arithmetic operations"
         
     Returns:
-        A formatted string representation of the SubAgentReport containing:
-        - Files explored and exploits found
-        - Code references for follow-up investigation
-        - Summary of findings
-        - Nested sub-reports if the sub-agent delegated further
+        A dict with the following structure:
+        {
+            "exploits": [...],  # List of exploit dicts from exploits.json
+            "scope_path": "...",  # The scope that was explored
+            "summary": "...",  # Brief summary of what was found
+            "sub_agent_id": "..."  # ID of the sub-agent for tracking
+        }
         
     Examples:
         # Delegate exploration of a large directory
-        report = delegate_to_sub_agent(
+        result = delegate_to_sub_agent(
             scope_path="programs/store/src/instructions/",
             task_description="Find access control vulnerabilities"
         )
+        # Access exploits: result["exploits"]
         
         # Focus on specific module
-        report = delegate_to_sub_agent(
+        result = delegate_to_sub_agent(
             scope_path="programs/store/src/states/market/",
             task_description="Analyze state management for race conditions"
         )
+        # result["exploits"] contains all vulnerabilities found
     """
-    max_turns = int((MAX_TOOL_TURNS / 4) * 3)
+    max_turns = MAX_SUBAGENT_TURNS
+
     # Access parent agent from execution context (injected by engine)
     try:
         parent = _get_current_agent()
@@ -59,7 +69,15 @@ def delegate_to_sub_agent(
     
     # Check depth limit
     if not parent.can_spawn_sub_agent():
-        return f"Error: Maximum recursion depth ({parent.max_depth}) reached. Cannot spawn sub-agent."
+        return {
+            "exploits": [],
+            "scope_path": scope_path,
+            "summary": f"Error: Maximum recursion depth ({parent.max_depth}) reached. Cannot spawn sub-agent.",
+            "sub_agent_id": "none",
+            "turns_used": 0,
+            "turns_allocated": 0,
+            "error": "max_depth_reached"
+        }
     
     # Import FinderAgent here to avoid circular imports
     from agent.agents import FinderAgent
@@ -77,28 +95,46 @@ def delegate_to_sub_agent(
         max_depth=parent.max_depth       # Propagate limit
     )
     
+    # Use the sub-agent's normalized working_dir for exploits.json path
+    # This ensures path consistency after normalization in agent.py
+    sub_agent_exploits_path = sub_agent.exploits_path
+    
+    # Ensure the scope directory exists
+    os.makedirs(os.path.dirname(sub_agent_exploits_path), exist_ok=True)
+    
+    # Initialize empty exploits.json for sub-agent
+    if not os.path.exists(sub_agent_exploits_path):
+        with open(sub_agent_exploits_path, 'w') as f:
+            json.dump([], f)
+    
+    # Track sub-agent for cleanup
+    try:
+        _created_sub_agents.append(sub_agent)
+    except (NameError, AttributeError):
+        pass  # _created_sub_agents not available in this context
+    
     # Build short instruction to minimize context
     can_delegate = sub_agent.can_spawn_sub_agent()
     
     instruction = f"""Focused exploration of: {scope_path}
 Task: {task_description}
 
-{'You can delegate to sub-agents for large areas.' if can_delegate else 'Max depth reached - direct exploration only.'}
+{'You can delegate to sub-agents for large areas. Sub-agents are encouraged for better coverage!' if can_delegate else 'Max depth reached - direct exploration only.'}
 
-Start exploring and add exploits as you find them. When done, create a <sub_agent_report>.
+Start exploring and add exploits as you find them using add_exploit(). Use your full turn budget to find as many vulnerabilities as possible.
 """
     
-    # Execute sub-agent with progress indication
-    print(f"\n{'  ' * parent.depth}🔀 Spawning sub-agent for: {scope_path}")
-    
     # Create conversation directory
-    import os
     repo_slug = os.path.basename(parent.repo_path) if parent.repo_path else "unknown"
     convo_dir = os.path.join("output", repo_slug, "sub_agent_convos")
     os.makedirs(convo_dir, exist_ok=True)
     
+    # Notify parent about sub-agent spawn (only at depth 0)
+    if parent.depth == 0:
+        print(f"\n🔀 Spawning sub-agent for: {scope_path}")
+    
     try:
-        sub_agent.chat(instruction)
+        await sub_agent.chat(instruction)
     except Exception as e:
         # Save sub-agent's conversation on error for debugging
         error_msg = str(e)
@@ -117,60 +153,95 @@ Start exploring and add exploits as you find them. When done, create a <sub_agen
             prefix=f"error_subagent_depth{sub_agent.depth}_{scope_path.replace('/', '_')}"
         )
         
-        print(f"{'  ' * parent.depth}❌ Sub-agent failed: {error_msg}")
-        print(f"{'  ' * parent.depth}   Conversation saved to: {convo_dir}")
-        
         # Provide helpful error message
+        error_summary = ""
         if is_context_error:
-            return (
-                f"Error: Sub-agent exceeded context limit while exploring {scope_path}.\n"
-                f"The scope may be too large or complex for a single sub-agent.\n"
-                f"Suggestions:\n"
-                f"1. Break down {scope_path} into smaller subdirectories\n"
-                f"2. Explore this area directly with targeted read_file() calls\n"
-                f"3. Use grep to find specific patterns before diving deep\n"
-                f"Conversation saved for debugging."
+            error_summary = (
+                f"Error: Sub-agent exceeded context limit while exploring {scope_path}. "
+                f"The scope may be too large or complex for a single sub-agent. "
+                f"Suggestions: Break down {scope_path} into smaller subdirectories, "
+                f"explore this area directly with targeted read_file() calls, or "
+                f"use grep to find specific patterns before diving deep."
             )
         else:
-            return f"Error: Sub-agent execution failed: {error_msg}\nConversation saved for debugging."
+            error_summary = f"Error: Sub-agent execution failed: {error_msg}"
+        
+        # Return error as dict
+        return {
+            "exploits": [],
+            "scope_path": scope_path,
+            "summary": error_summary,
+            "sub_agent_id": sub_agent.agent_id,
+            "turns_used": 0,
+            "turns_allocated": max_turns,
+            "error": error_msg
+        }
+    finally:
+        # CRITICAL: Close sub-agent's HTTP client to prevent resource leaks
+        # This must happen before we return to avoid accumulating open connections
+        try:
+            await sub_agent.close()
+        except Exception:
+            pass  # Ignore errors during cleanup
     
     # Save sub-agent's conversation after successful completion
     sub_agent.save_conversation(
         save_folder=convo_dir,
         prefix=f"subagent_depth{sub_agent.depth}_{scope_path.replace('/', '_')}"
     )
-    print(f"{'  ' * parent.depth}💾 Sub-agent conversation saved to: {convo_dir}")
     
-    # Generate structured report
+    # Read the exploits.json from the sub-agent's scope directory
+    exploits_found = []
     try:
-        report = sub_agent.generate_report()
-    except Exception as e:
-        # If report generation fails, create a minimal report
-        print(f"{'  ' * parent.depth}⚠️  Report generation failed: {e}")
-        from agent.schemas import SubAgentReport
-        report = SubAgentReport(
-            agent_id=sub_agent.agent_id,
-            parent_agent_id=parent.agent_id,
-            depth=sub_agent.depth,
-            scope_path=scope_path,
-            task_description=task_description,
-            turns_used=sub_agent.max_tool_turns - sub_agent._get_remaining_turns(),
-            turns_allocated=sub_agent.max_tool_turns,
-            summary=f"Sub-agent encountered an error and could not complete exploration: {str(e)}",
-            exploration_complete=False,
-            requires_followup=True
-        )
+        if os.path.exists(sub_agent_exploits_path):
+            with open(sub_agent_exploits_path, 'r') as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    exploits_found = data
+                elif isinstance(data, dict):
+                    exploits_found = [data]
+    except Exception:
+        exploits_found = []
     
-    # Store report in parent's sub_reports list
-    parent.sub_agent_reports.append(report)
+    # Generate summary
+    if exploits_found:
+        summary = f"Sub-agent explored {scope_path} and found {len(exploits_found)} exploits."
+        severity_counts = {}
+        for exploit in exploits_found:
+            sev = exploit.get("severity", "unknown")
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+        if severity_counts:
+            summary += f" Severity breakdown: {', '.join(f'{count} {sev}' for sev, count in severity_counts.items())}."
+    else:
+        summary = f"Sub-agent explored {scope_path} but found no exploits."
     
-    print(f"{'  ' * parent.depth}✓ Sub-agent completed: {len(report.exploits_found)} exploits found\n")
+    # Extract result data before deleting sub-agent
+    result = {
+        "exploits": exploits_found,
+        "scope_path": scope_path,
+        "summary": summary,
+        "sub_agent_id": sub_agent.agent_id,
+        "turns_used": sub_agent.max_tool_turns - sub_agent._get_remaining_turns(),
+        "turns_allocated": sub_agent.max_tool_turns,
+        "budget_used": {
+            "total_cost": sub_agent.estimated_cost,
+            "tokens": sub_agent.total_tokens
+        }
+    }
     
-    # Convert to formatted string for parent's context
-    return report_to_string(report)
+    # Store result in parent's sub_reports list for tracking
+    parent.sub_agent_reports.append(result)
+    
+    # Force garbage collection to free memory
+    # This is important when many sub-agents are spawned
+    del sub_agent
+    import gc
+    gc.collect()
+    
+    return result
 
 
-def add_exploit(exploit: Exploit) -> str:
+async def add_exploit(exploit: Exploit) -> str:
     """
     Add an exploit to the exploits.json file.
 
@@ -181,12 +252,34 @@ def add_exploit(exploit: Exploit) -> str:
         A string indicating whether the exploit 
         was added successfully or not.
     """
-    # Inline verification of non-duplicate
-    exploits_json_string = read_file(EXPLOITS_PATH)
+    # Get agent instance to access dynamic exploits path
+    try:
+        agent = _get_current_agent()
+        if agent is None:
+            return "Error: add_exploit can only be called from within an agent context."
+        exploits_path = agent.exploits_path
+    except (NameError, TypeError):
+        return "Error: add_exploit can only be called from within an agent context."
     
+    # Inline verification of non-duplicate
+    # Only send last 50 exploits to verifier to avoid context length issues
     from agent.model import get_model_response
     from agent.settings import OPENROUTER_GEMINI_FLASH
     from agent.utils import load_system_prompt, extract_decision, AgentType
+    
+    # Read existing exploits (limited)
+    existing_exploits = []
+    try:
+        if os.path.exists(exploits_path) and os.path.getsize(exploits_path) > 0:
+            with open(exploits_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    # Only use last 50 exploits for comparison to avoid huge context
+                    existing_exploits = data[-50:] if len(data) > 50 else data
+    except Exception:
+        existing_exploits = []
+    
+    exploits_json_string = json.dumps(existing_exploits, indent=2)
     
     VERIFIER_INSTRUCTION = """
 Here is the new exploit:
@@ -194,7 +287,7 @@ Here is the new exploit:
 {exploit}
 </exploit>
 
-And here is the `exploits.json` file containing all the previously found exploits:
+And here are the most recent exploits from the `exploits.json` file:
 <previous_exploits>
 {exploits}
 </previous_exploits>
@@ -203,7 +296,7 @@ Now you can decide whether the exploit is a non-duplicate or not.
 """
     
     verifier_instruction = VERIFIER_INSTRUCTION.format(exploit=exploit.model_dump_json(indent=2), exploits=exploits_json_string)
-    response = get_model_response(
+    response, _ = await get_model_response(
         system_prompt=load_system_prompt(AgentType.NON_DUPLICATE_VERIFIER),
         message=verifier_instruction,
         model=OPENROUTER_GEMINI_FLASH
@@ -217,31 +310,69 @@ Now you can decide whether the exploit is a non-duplicate or not.
     exploit_id = exploit.id if exploit.id else str(uuid.uuid4())[:6]
     exploit.id = exploit_id
 
-    try:
-        path = Path(EXPLOITS_PATH)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if not path.exists():
-            path.touch(exist_ok=True)
-
+    # Use file locking to prevent concurrent writes from corrupting the file
+    lock_path = Path(exploits_path).parent / ".exploits.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    max_retries = 10
+    retry_delay = 0.5
+    
+    for attempt in range(max_retries):
         try:
-            raw = path.read_text(encoding="utf-8") if path.stat().st_size else ""
-            data = json.loads(raw) if raw else []
-            exploits = (
-                data if isinstance(data, list)
-                else [data] if isinstance(data, dict)
-                else []
-            )
-        except Exception:
-            exploits = []
+            # Create and acquire lock file
+            with open(lock_path, 'w') as lock_file:
+                try:
+                    # Try to acquire exclusive lock with timeout
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        return "Error: Could not acquire file lock after multiple retries"
+                
+                try:
+                    path = Path(exploits_path)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    if not path.exists():
+                        path.touch(exist_ok=True)
 
-        new_data = exploits + [exploit.model_dump()]
-        with tempfile.NamedTemporaryFile("w", delete=False, dir=str(path.parent), encoding="utf-8") as tmp:
-            json.dump(new_data, tmp, indent=2)
-            tmp.flush()
-            os.fsync(tmp.fileno())
-            temp_name = tmp.name
-        os.replace(temp_name, path)
-    except Exception as e:
-        return f"Error: {e}"
-    return "Exploit added successfully"
+                    # Read existing exploits
+                    try:
+                        raw = path.read_text(encoding="utf-8") if path.stat().st_size else ""
+                        data = json.loads(raw) if raw else []
+                        exploits = (
+                            data if isinstance(data, list)
+                            else [data] if isinstance(data, dict)
+                            else []
+                        )
+                    except Exception:
+                        exploits = []
+
+                    # Add new exploit
+                    new_data = exploits + [exploit.model_dump()]
+                    
+                    # Write atomically using temp file
+                    with tempfile.NamedTemporaryFile("w", delete=False, dir=str(path.parent), encoding="utf-8") as tmp:
+                        json.dump(new_data, tmp, indent=2)
+                        tmp.flush()
+                        os.fsync(tmp.fileno())
+                        temp_name = tmp.name
+                    os.replace(temp_name, path)
+                    
+                    # Success - break out of retry loop
+                    return "Exploit added successfully"
+                    
+                finally:
+                    # Release lock
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                    
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                continue
+            else:
+                return f"Error: {e}"
+    
+    return "Error: Failed to add exploit after multiple retries"
 

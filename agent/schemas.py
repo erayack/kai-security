@@ -85,6 +85,18 @@ class SubAgentReport(BaseModel):
     turns_used: int
     turns_allocated: int
     
+    # Budget tracking (this agent only)
+    total_tokens: Dict[str, int] = Field(default_factory=dict)  # {"prompt_tokens": X, "completion_tokens": Y}
+    estimated_cost: float = 0.0
+    
+    # Budget tracking (sub-agents only)
+    sub_agent_total_tokens: Dict[str, int] = Field(default_factory=dict)
+    sub_agent_total_cost: float = 0.0
+    
+    # Budget tracking (combined: this agent + all sub-agents)
+    combined_total_tokens: Dict[str, int] = Field(default_factory=dict)
+    combined_total_cost: float = 0.0
+    
     # Exploration results
     files_explored: List[str] = Field(default_factory=list)
     exploits_found: List[ExploitSummary] = Field(default_factory=list)
@@ -116,6 +128,8 @@ def report_to_string(report: SubAgentReport, indent: int = 0) -> str:
         f"{prefix}Agent ID: {report.agent_id}",
         f"{prefix}Turns Used: {report.turns_used}/{report.turns_allocated}",
         f"{prefix}Files Explored: {len(report.files_explored)}",
+        f"{prefix}Cost (Combined): ${report.combined_total_cost:.4f}",
+        f"{prefix}Tokens (Combined): {report.combined_total_tokens.get('prompt_tokens', 0) + report.combined_total_tokens.get('completion_tokens', 0)}",
         "",
         f"{prefix}EXPLOITS FOUND: {len(report.exploits_found)}",
     ]

@@ -9,8 +9,20 @@ import pickle
 import subprocess
 import base64
 import threading
+import warnings
 
 from agent.settings import SANDBOX_TIMEOUT
+
+# Filter out event loop cleanup warnings (harmless during shutdown)
+warnings.filterwarnings("ignore", message=".*Event loop is closed.*")
+warnings.filterwarnings("ignore", message=".*coroutine.*was never awaited.*", category=RuntimeWarning)
+
+# Suppress httpx/anyio cleanup warnings when event loop closes in threads
+# These are harmless - the OS will clean up the connections
+import logging
+logging.getLogger("httpx").setLevel(logging.ERROR)
+logging.getLogger("httpcore").setLevel(logging.ERROR)
+logging.getLogger("anyio").setLevel(logging.ERROR)
 
 # Configure a logger for the sandbox (in real use, configure handlers/level as needed)
 logger = logging.getLogger(__name__)
@@ -214,25 +226,21 @@ def _run_user_code(
         return None, f"Sandbox worker error: {str(e)}"
 
 
-def _execute_with_delegation(
+async def _execute_with_delegation_async(
     code: str,
     allowed_path: str,
     import_module: str,
     agent_instance,
 ) -> tuple[dict, str]:
     """
-    Execute code that contains delegate_to_sub_agent or add_exploit calls directly in main process.
-    This is necessary because these functions need HTTP clients and agent context.
+    Execute async code directly in the current event loop (used when agent calls async tools).
     """
-    # Save current directory to restore later
-    original_cwd = os.getcwd()
+    import asyncio
     
     try:
         # Import the tools module
         if import_module:
             module = importlib.import_module(import_module)
-            # CRITICAL: Inject _get_current_agent into the module's namespace
-            # so delegate_to_sub_agent can access it
             module.__dict__['_get_current_agent'] = lambda: agent_instance
             
             available_functions = {}
@@ -244,35 +252,45 @@ def _execute_with_delegation(
         else:
             available_functions = {}
         
-        # Add agent accessor to execution globals as well
+        # Add agent accessor and asyncio
         available_functions['_get_current_agent'] = lambda: agent_instance
+        available_functions['asyncio'] = asyncio
         
-        # Change to allowed path
-        if allowed_path:
-            os.chdir(allowed_path)
+        # DON'T change directory - it's not thread-safe and causes conflicts
+        # Instead, ensure agent's working_dir is used by tools via agent instance
         
-        # Execute code
+        # Execute code in async context
         exec_globals = {"__builtins__": __builtins__}
         exec_globals.update(available_functions)
         exec_locals = {}
         
-        # Try to capture unassigned expression results
-        # If code is a single expression, try eval first to capture result
-        code_stripped = code.strip()
-        lines = [line for line in code_stripped.split('\n') if line.strip() and not line.strip().startswith('#')]
+        # Check if code contains await
+        has_await = 'await ' in code
         
-        # If it's a single line expression, try eval to capture result
-        if len(lines) == 1:
-            try:
-                result = eval(code_stripped, exec_globals, exec_locals)
-                if result is not None:
-                    exec_locals['_last_result'] = result
-            except SyntaxError:
-                # Not an expression, fall back to exec
-                exec(code, exec_globals, exec_locals)
+        if has_await:
+            # Wrap in async function and await it
+            async_code = f"""
+async def _async_wrapper():
+{chr(10).join('    ' + line for line in code.split(chr(10)))}
+    return locals()
+"""
+            exec(async_code, exec_globals, exec_locals)
+            result_locals = await exec_locals['_async_wrapper']()
+            exec_locals.update(result_locals)
         else:
-            # Multiple lines or statements, use exec
-            exec(code, exec_globals, exec_locals)
+            # Sync code - execute normally
+            code_stripped = code.strip()
+            lines = [line for line in code_stripped.split('\n') if line.strip() and not line.strip().startswith('#')]
+            
+            if len(lines) == 1:
+                try:
+                    result = eval(code_stripped, exec_globals, exec_locals)
+                    if result is not None:
+                        exec_locals['_last_result'] = result
+                except SyntaxError:
+                    exec(code, exec_globals, exec_locals)
+            else:
+                exec(code, exec_globals, exec_locals)
         
         # Filter out non-picklable objects
         safe_locals = {}
@@ -287,12 +305,146 @@ def _execute_with_delegation(
     except Exception as e:
         tb = traceback.format_exc()
         return {}, f"Exception in code execution:\n{tb}"
-    finally:
-        # Always restore original working directory
+
+def _execute_with_delegation(
+    code: str,
+    allowed_path: str,
+    import_module: str,
+    agent_instance,
+) -> tuple[dict, str]:
+    """
+    Sync wrapper that runs async execution in a new thread with its own event loop.
+    """
+    import asyncio
+    import threading
+    
+    result_container = []
+    exception_container = []
+    
+    def run_in_thread():
+        loop = None
         try:
-            os.chdir(original_cwd)
-        except Exception:
-            pass  # Ignore errors when restoring cwd
+            # Create new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            # Set custom exception handler to suppress harmless cleanup errors
+            def handle_exception(loop, context):
+                exception = context.get('exception')
+                message = context.get('message', '')
+                
+                # Suppress "Event loop is closed" errors from httpx/anyio cleanup
+                # These happen when httpx tries to close connections after the loop is closed
+                # They're harmless - the OS will clean up the connections
+                if isinstance(exception, RuntimeError) and 'Event loop is closed' in str(exception):
+                    return
+                
+                # For other exceptions, use default handling
+                loop.default_exception_handler(context)
+            
+            loop.set_exception_handler(handle_exception)
+            
+            # Run the main async function
+            result = loop.run_until_complete(
+                _execute_with_delegation_async(code, allowed_path, import_module, agent_instance)
+            )
+            result_container.append(result)
+            
+        except Exception as e:
+            exception_container.append(e)
+        finally:
+            # Clean shutdown of the event loop
+            if loop is not None:
+                try:
+                    # Give httpx and other libraries time to schedule their cleanup tasks
+                    # This is crucial because AsyncClient.aclose() schedules cleanup but doesn't block
+                    loop.run_until_complete(asyncio.sleep(0.1))
+                except Exception:
+                    pass
+                
+                # Now wait for ALL pending tasks to complete
+                max_cleanup_attempts = 3
+                for attempt in range(max_cleanup_attempts):
+                    try:
+                        pending = asyncio.all_tasks(loop)
+                        if not pending:
+                            break
+                        
+                        # Wait for all pending tasks with a timeout
+                        loop.run_until_complete(
+                            asyncio.wait_for(
+                                asyncio.gather(*pending, return_exceptions=True),
+                                timeout=2.0
+                            )
+                        )
+                    except asyncio.TimeoutError:
+                        # If tasks don't complete, cancel them
+                        pending = asyncio.all_tasks(loop)
+                        for task in pending:
+                            task.cancel()
+                        # Give cancelled tasks a moment to finish cancelling
+                        try:
+                            loop.run_until_complete(
+                                asyncio.gather(*pending, return_exceptions=True)
+                            )
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+                
+                # Shutdown async generators
+                try:
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                except Exception:
+                    pass
+                
+                # Shutdown default executor
+                try:
+                    loop.run_until_complete(loop.shutdown_default_executor())
+                except Exception:
+                    pass
+                
+                # Final delay to let the system finish any remaining cleanup
+                try:
+                    loop.run_until_complete(asyncio.sleep(0.1))
+                except Exception:
+                    pass
+                
+                # Check one more time for any straggler tasks
+                try:
+                    pending = asyncio.all_tasks(loop)
+                    if pending:
+                        for task in pending:
+                            task.cancel()
+                        loop.run_until_complete(
+                            asyncio.gather(*pending, return_exceptions=True)
+                        )
+                except Exception:
+                    pass
+                
+                # Finally, close the loop
+                try:
+                    loop.close()
+                except Exception:
+                    pass
+    
+    thread = threading.Thread(target=run_in_thread, daemon=False)
+    thread.start()
+    thread.join(timeout=600)  # 10 minute timeout for the thread
+    
+    if thread.is_alive():
+        # Thread is still running after timeout
+        return {}, "Thread execution timed out"
+    
+    if exception_container:
+        raise exception_container[0]
+    
+    if not result_container:
+        return {}, "No result returned from thread"
+    
+    return result_container[0]
+
+
 
 
 def execute_sandboxed_code(

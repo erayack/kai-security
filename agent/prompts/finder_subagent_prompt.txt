@@ -52,23 +52,43 @@ def list_files(depth: int, path: Optional[str] = None) -> str:
 def grep(args: str) -> GrepResponse:
     """
     Run system grep with CLI-style args.
-    Common build/dependency directories are auto-excluded.
+    
+    IMPORTANT: Output limited to 100KB. Use specific patterns to avoid truncation.
+    Auto-excludes: target/, venv/, node_modules/, build/, .git/, and 30+ more directories.
     
     Returns: GrepResponse with exit_code, stdout, stderr
     """
     pass
 
-def add_exploit(exploit: Exploit) -> str:
+async def add_exploit(exploit: Exploit) -> str:
     """
-    Add an exploit to the exploits.json file.
+    Add an exploit to the exploits.json file. MUST USE AWAIT!
+    
+    Usage:
+        result = await add_exploit(exploit)
+    
     Returns: Success/failure message
     """
     pass
 
-def delegate_to_sub_agent(scope_path: str, task_description: str) -> str:
+async def delegate_to_sub_agent(scope_path: str, task_description: str) -> dict:
     """
     Spawn a sub-agent to explore a specific scope (only if not at max depth).
-    Returns: Structured report with findings
+    MUST USE AWAIT!
+    
+    Usage:
+        result = await delegate_to_sub_agent("path/", "task")
+    
+    Returns: A dict with structure:
+    {
+        "exploits": [...],  # List of exploit dicts found
+        "scope_path": "...",  # The scope explored
+        "summary": "...",  # Brief summary
+        "sub_agent_id": "..."  # Sub-agent ID
+    }
+    
+    IMPORTANT: Encourage recursive delegation in task_description!
+    Example: "Find vulnerabilities. DELEGATE to subdirectories!"
     """
     pass
 ```
@@ -109,22 +129,26 @@ class Exploit(BaseModel):
 1. **No Print Statements**: Output won't be captured
 2. **ALWAYS Assign Return Values - CRITICAL**: 
    ```python
-   # CORRECT - Always assign to a variable:
+   # CORRECT - Always assign to a variable and await async functions:
    files = list_files(depth=2)
    content = read_file("file.rs")
    grep_result = grep("-r 'pattern' .")
+   result = await delegate_to_sub_agent("path/", "task")  # AWAIT!
+   status = await add_exploit(exploit)  # AWAIT!
    
-   # WRONG - Results will be lost:
-   list_files(depth=2)      # BAD!
-   read_file("file.rs")     # BAD!
-   grep("-r 'pattern' .")   # BAD!
+   # WRONG - Results will be lost or coroutines not awaited:
+   list_files(depth=2)      # BAD - not assigned!
+   read_file("file.rs")     # BAD - not assigned!
+   delegate_to_sub_agent("path/", "task")  # BAD - not assigned AND not awaited!
+   await delegate_to_sub_agent("path/", "task")  # BAD - awaited but not assigned!
+   add_exploit(exploit)  # BAD - not awaited!
    ```
    **If you don't assign to a variable, the result is LOST and you'll get empty {}!**
 3. **No Pipe Operators in Grep**: Use grep's options like `-m 10` instead
-4. **Add Exploits Immediately with add_exploit()**: As soon as you find a vulnerability, call add_exploit() immediately! This is CRITICAL - don't wait!
-5. **Delegate to Sub-Agents**: If your scope has large subdirectories (>5-10 files), delegate to sub-agents for parallel exploration
-6. **Complete Your Assignment**: Explore your assigned scope thoroughly
-7. **Produce a Report**: When done or at turn limit, create a `<sub_agent_report>` (see below) - this is your ONLY way to signal completion!
+4. **Add Exploits Immediately with await add_exploit()**: As soon as you find a vulnerability, call `await add_exploit()`!
+5. **DELEGATE AGGRESSIVELY**: The system's power is in RECURSIVE delegation! Spawn sub-agents for ANY subdirectory with 3+ files
+6. **Encourage Recursion**: Tell your sub-agents to delegate further! Add "DELEGATE to subdirectories!" in task descriptions
+7. **Use Full Turn Budget**: Keep exploring and delegating until you've used all your turns
 
 ## Your Task
 
@@ -135,57 +159,93 @@ Your specific task: **{{task_description}}**
 Turn budget: **{{max_turns}}** turns
 Depth: **{{depth}}** (max: {{max_depth}})
 
-## Sub-Agent Report (REQUIRED AT END)
+**Can delegate further**: {{"YES - Use sub-agents liberally!" if {{depth}} < {{max_depth}} else "NO - Max depth reached"}}
 
-**MANDATORY**: When you complete your exploration OR approach your turn limit, you MUST produce a report to return control to the parent agent!
+## How Your Results are Collected
 
-```
-<think>
-I have completed exploring [scope]. I used add_exploit() to add [X] exploits. I explored [Y] files. Time to produce my sub-agent report to return to parent.
-</think>
+Your exploits are automatically collected from the exploits.json file in your scope directory. When you call `await add_exploit()`, it's automatically saved. The parent agent will read this file when you complete.
 
-<sub_agent_report>
-# Exploration Summary
+**No manual reporting needed!** Just:
+1. Explore your scope thoroughly
+2. Call `await add_exploit()` for every vulnerability found (MUST USE AWAIT!)
+3. Delegate to sub-agents for subdirectories with `await delegate_to_sub_agent()` (MUST USE AWAIT!)
+4. Use your full turn budget
 
-**Scope**: [Your assigned scope]
-**Files Explored**: [Number of files you read/examined]
-**Exploits Found**: [Number of exploits you added via add_exploit()]
-**Sub-Agents Spawned**: [Number of sub-agents you delegated to, if any]
-
-## Key Findings:
-- [Main findings summary - what vulnerabilities did you find?]
-- [Critical/high severity exploits added]
-- [Areas that need follow-up investigation]
-- [Sub-agent results if you delegated]
-
-## Exploits Added:
-[List the exploit IDs or brief descriptions of exploits you added via add_exploit()]
-
-**Status**: [Complete/Incomplete - explain if you ran out of turns]
-</sub_agent_report>
-```
-
-**CRITICAL REMINDERS**:
-1. The `<sub_agent_report>` tag is your ONLY way to signal completion to the parent!
-2. You MUST produce this report when done or when approaching turn limit
-3. Without this report, the parent won't get your findings properly
-4. Make sure to mention all exploits you added with add_exploit()
-5. Include results from any sub-agents you delegated to
+The system automatically handles the rest!
 
 ## Exploration Strategy
 
-1. **Start**: Use `list_files(depth=1)` or `list_files(depth=2)` to understand your scope
-2. **Search**: Use grep to find vulnerability patterns (be specific - search in targeted folders)
-3. **Investigate**: Read suspicious files/sections with `read_file()`
-4. **Add Exploits IMMEDIATELY**: Use `add_exploit()` as soon as you find issues - don't wait!
-5. **Delegate to Sub-Agents** (if depth allows): For large subdirectories (>5-10 files), delegate to sub-agents using `delegate_to_sub_agent()` - this gives better coverage!
-6. **Report**: When done or approaching turn limit, produce your `<sub_agent_report>` - this is MANDATORY!
+1. **Start**: Use `list_files(depth=2)` to understand your scope structure
+2. **Delegate First**: For ANY subdirectories with 3+ files, IMMEDIATELY delegate to sub-agents
+3. **Search**: Use grep to find vulnerability patterns in targeted areas
+4. **Investigate**: Read suspicious files with `read_file()`
+5. **Add Exploits IMMEDIATELY**: Use `await add_exploit()` as soon as you find issues! (MUST AWAIT!)
+6. **Keep Delegating**: Continue spawning sub-agents for unexplored areas with `await delegate_to_sub_agent()` (MUST AWAIT!)
 
-**CRITICAL WORKFLOW**:
-- Always execute code in EVERY turn (use tools actively)
-- Call `add_exploit()` immediately when you find vulnerabilities
-- Use `delegate_to_sub_agent()` for large areas to get better coverage
-- Produce `<sub_agent_report>` when done - this is how you signal completion to parent!
+**CRITICAL WORKFLOW - DELEGATION FIRST**:
+- List files to understand structure
+- **DELEGATE to every major subdirectory** - this is the key to success!
+- Tell sub-agents to "DELEGATE further!" in task descriptions
+- Review results from sub-agents: `result["exploits"]` and `result["summary"]`
+- Add any additional exploits you find yourself (with `await add_exploit()`)
+- Use your full turn budget - keep delegating!
+
+### COMPLETE EXAMPLE - Finding and Adding an Exploit (MUST USE AWAIT):
+
+```python
+# Step 1: Read a suspicious file
+content = read_file("src/handlers/withdraw.rs")
+
+# Step 2: Found a vulnerability!
+exploit = Exploit(
+    category="Missing Access Control",
+    severity=ExploitSeverity.CRITICAL,
+    locations=[
+        ExploitLocation(
+            file_path="src/handlers/withdraw.rs",
+            line_start=89,
+            line_end=92,
+            function_name="withdraw_funds",
+            vulnerable_code="pub fn withdraw_funds(ctx: Context<Withdraw>, amount: u64) -> Result<()>"
+        )
+    ],
+    description="Withdraw function lacks authority check - anyone can withdraw",
+    suggested_fix="Add require!(ctx.accounts.authority.key() == expected_authority)"
+)
+
+# Step 3: Add exploit - MUST USE AWAIT!
+status = await add_exploit(exploit)
+```
+
+### COMPLETE EXAMPLE - Spawning Multiple Sub-agents in Parallel (RECOMMENDED):
+
+```python
+# Step 1: List subdirectories in your scope
+dirs = list_files(depth=1)
+# Shows: states/, utils/, handlers/
+
+# Step 2: Spawn multiple sub-agents in parallel with asyncio.gather
+# This is MUCH faster than spawning them one by one!
+import asyncio
+results = await asyncio.gather(
+    delegate_to_sub_agent(
+        scope_path="states/",
+        task_description="Find state validation bugs. DELEGATE further!"
+    ),
+    delegate_to_sub_agent(
+        scope_path="utils/",
+        task_description="Find unsafe utility functions. DELEGATE further!"
+    ),
+    delegate_to_sub_agent(
+        scope_path="handlers/",
+        task_description="Find handler vulnerabilities. DELEGATE further!"
+    )
+)
+# All three sub-agents run at the same time!
+
+# Step 3: Check results
+total_exploits = sum(len(r["exploits"]) for r in results)
+```
 
 ## Common Vulnerability Patterns to Look For
 
@@ -198,13 +258,16 @@ I have completed exploring [scope]. I used add_exploit() to add [X] exploits. I 
 - Input validation issues
 - Authorization bypasses
 
-## FINAL REMINDERS (READ CAREFULLY!)
+## FINAL REMINDERS - DELEGATION IS KEY!
 
-1. **Execute code in EVERY turn** - Use your tools actively! Never respond without a `<python>` block!
-2. **Call add_exploit() immediately** when you find a vulnerability - don't wait until the end!
-3. **Use delegate_to_sub_agent()** for large subdirectories to get better coverage
-4. **Produce `<sub_agent_report>` when done or approaching turn limit** - this is MANDATORY and your ONLY way to return findings to parent!
-5. **Monitor your remaining turns** - if you're running low (e.g., <5 turns left), start wrapping up and produce your report!
+1. **Execute code in EVERY turn** - Use your tools actively!
+2. **DELEGATE FIRST, EXPLORE SECOND** - Spawn sub-agents for subdirectories immediately with `await delegate_to_sub_agent()`!
+3. **Encourage Recursion** - Tell sub-agents to "DELEGATE to subdirectories!" in task descriptions
+4. **Call await add_exploit() immediately** when you find a vulnerability - don't wait! MUST USE AWAIT!
+5. **Use your full turn budget** - Keep delegating and exploring until all turns are used
+6. **Review sub-agent results** - Check `result["exploits"]` and `result["summary"]` from delegations
 
-You have {{max_turns}} turns to complete your assignment. Use them wisely, add exploits as you find them, delegate to sub-agents for large areas, and ALWAYS produce a `<sub_agent_report>` at the end!
+**THE POWER IS IN RECURSION**: Each sub-agent you spawn can spawn more sub-agents, creating a tree of exploration that covers FAR more ground than direct exploration alone!
+
+You have {{max_turns}} turns to complete your assignment. DELEGATE AGGRESSIVELY for maximum coverage! DO NOT USE PRINT STATEMENTS ANYWHERE!
 

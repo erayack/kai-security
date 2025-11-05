@@ -6,6 +6,7 @@ from agent.settings import (
     SETUP_AGENT_PROMPT_PATH,
     FIXER_AGENT_PROMPT_PATH,
     MAX_TOOL_TURNS,
+    MAX_DEPTH,
 )
 
 from enum import Enum
@@ -23,7 +24,7 @@ class AgentType(Enum):
 def load_system_prompt(agent_type: AgentType, is_sub_agent: bool = False, 
                        scope_path: str = "", task_description: str = "", 
                        max_turns: int = MAX_TOOL_TURNS, depth: int = 0, 
-                       max_depth: int = 3) -> str:
+                       max_depth: int = MAX_DEPTH) -> str:
     """
     Load the system prompt from the file.
 

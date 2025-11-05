@@ -327,7 +327,7 @@ This schema is available in the global scope, so you can use it without importin
 
 ## Important Operating Rules
 
-1. **No Print Statements**: Never use print statements in the python blovk you provide, as their output won't be captured and given back in the <result> blocks.
+1. **No Print Statements**: Never use print statements in the python block you provide, as their output won't be captured and given back in the <result> blocks.
 2. **Valid Python Only**: Ensure syntactically correct code
 3. **Execution Timeout**: Keep code blocks concise (10-second timeout)
 4. **CRITICAL - Use Variables**: ALWAYS capture return values for inspection

@@ -6,7 +6,9 @@ from pathlib import Path
 load_dotenv()
 
 # Agent settings
-MAX_TOOL_TURNS = 32
+MAX_TOOL_TURNS = 24
+MAX_SUBAGENT_TURNS = 24
+MAX_DEPTH = 2
 
 # OpenRouter
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"

@@ -8,6 +8,7 @@ from agent.schemas import (
     Exploit,
     Role
 )
+from agent.settings import MAX_DEPTH
 import os
 import json
 from typing import List
@@ -26,7 +27,7 @@ class FinderAgent(BaseAgent):
         scope_paths: list = None,
         parent_agent_id: str = None,
         depth: int = 0,
-        max_depth: int = 3,
+        max_depth: int = MAX_DEPTH,
     ):
         from agent.settings import MAX_TOOL_TURNS
         if max_tool_turns is None:
@@ -47,20 +48,19 @@ class FinderAgent(BaseAgent):
     
     def check_termination(self, response: str, python_code: str) -> bool:
         """
-        Finder agent terminates when:
-        - (Sub-agents only) It produces a <sub_agent_report> tag
-        - (Main agent) Never terminates early, runs until max_tool_turns
+        Finder agent never terminates early - always runs until max_tool_turns.
+        
+        This allows both main agents and sub-agents to use their full turn budget
+        to find as many exploits as possible.
         
         Args:
             response: The full response from the model.
             python_code: The extracted python code from the response.
             
         Returns:
-            True if sub-agent has produced report, False otherwise.
+            Always returns False to continue until max turns exhausted.
         """
-        # Sub-agents terminate when they produce a sub_agent_report tag
-        if self.depth > 0 and "<sub_agent_report>" in response and "</sub_agent_report>" in response:
-            return True
+        # Finder agents always use their full turn budget
         return False
     
     def get_tools_module(self) -> str:
@@ -88,13 +88,11 @@ class FinderAgent(BaseAgent):
     
     def _extract_exploits_from_messages(self) -> List[Exploit]:
         """Extract exploits that were found during this agent's execution."""
-        from agent.settings import EXPLOITS_PATH
-        
         exploits = []
         try:
-            # Read the exploits.json file
-            if os.path.exists(EXPLOITS_PATH):
-                with open(EXPLOITS_PATH, 'r') as f:
+            # Read the exploits.json file from agent's working directory
+            if os.path.exists(self.exploits_path):
+                with open(self.exploits_path, 'r') as f:
                     data = json.load(f)
                     if isinstance(data, list):
                         for exploit_data in data:
@@ -202,6 +200,27 @@ class FinderAgent(BaseAgent):
                     # Skip invalid exploits rather than crashing
                     pass
         
+        # Aggregate sub-agent costs and exploits
+        sub_agent_total_cost = 0.0
+        sub_agent_total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
+        sub_agent_exploits_count = 0
+        
+        for sub_report in self.sub_agent_reports:
+            if "budget_used" in sub_report:
+                sub_agent_total_cost += sub_report["budget_used"].get("total_cost", 0.0)
+                tokens = sub_report["budget_used"].get("tokens", {})
+                sub_agent_total_tokens["prompt_tokens"] += tokens.get("prompt_tokens", 0)
+                sub_agent_total_tokens["completion_tokens"] += tokens.get("completion_tokens", 0)
+            if "exploits" in sub_report:
+                sub_agent_exploits_count += len(sub_report["exploits"])
+        
+        # Calculate combined totals (this agent + all sub-agents)
+        combined_total_cost = self.estimated_cost + sub_agent_total_cost
+        combined_total_tokens = {
+            "prompt_tokens": self.total_tokens["prompt_tokens"] + sub_agent_total_tokens["prompt_tokens"],
+            "completion_tokens": self.total_tokens["completion_tokens"] + sub_agent_total_tokens["completion_tokens"]
+        }
+        
         # Generate natural language summary
         summary = self._generate_summary_text(exploits_found, files_explored)
         
@@ -224,6 +243,16 @@ class FinderAgent(BaseAgent):
             task_description=self._extract_task_from_messages(),
             turns_used=turns_used,
             turns_allocated=self.max_tool_turns,
+            # Budget tracking (this agent only)
+            total_tokens=self.total_tokens,
+            estimated_cost=self.estimated_cost,
+            # Budget tracking (sub-agents only)
+            sub_agent_total_tokens=sub_agent_total_tokens,
+            sub_agent_total_cost=sub_agent_total_cost,
+            # Budget tracking (combined)
+            combined_total_tokens=combined_total_tokens,
+            combined_total_cost=combined_total_cost,
+            # Exploration results
             files_explored=files_explored,
             exploits_found=exploit_summaries,
             code_references=code_references[:10],  # Top 10

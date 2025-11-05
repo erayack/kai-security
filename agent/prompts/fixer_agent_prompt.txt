@@ -115,10 +115,17 @@ def list_files(path: Optional[str] = None, depth: Optional[int] = None) -> str:
 def grep(args: str) -> GrepResponse:
     """
     Run system grep with the provided CLI-style arg string.
-    Prints output passthrough; returns grep's exit code (0/1/2).
     
-    Common build/dependency directories are always excluded for faster searches:
-    (target, out, cache, node_modules, __pycache__, .git, build, dist, venv, .env)
+    IMPORTANT: Output is automatically limited to 100KB to prevent context overflow.
+    If output is truncated, use more specific patterns or the -m flag to limit results.
+    
+    Comprehensive exclusions are auto-applied (build artifacts, dependencies, caches):
+    - Rust: target/
+    - Python: venv/, .venv/, env/, __pycache__/, site-packages/, .tox/
+    - JavaScript: node_modules/, .npm/, .yarn/
+    - Build outputs: build/, dist/, out/, bin/, obj/
+    - Version control: .git/, .svn/, .hg/
+    - And many more (see implementation for full list)
 
     Args:
         args: The arguments to pass to grep.
@@ -303,7 +310,7 @@ This schema is available in the global scope, so you can use it without importin
 
 ## Important Operating Rules
 
-1. **No Print Statements**: Never use print statements in the python blovk you provide, as their output won't be captured and given back in the <result> blocks.
+1. **No Print Statements**: Never use print statements in the python block you provide, as their output won't be captured and given back in the <result> blocks.
 2. **Valid Python Only**: Ensure syntactically correct code
 3. **Execution Timeout**: Keep code blocks concise (10-second timeout)
 4. **CRITICAL - Use Variables**: ALWAYS capture return values for inspection
