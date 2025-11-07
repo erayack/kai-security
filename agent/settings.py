@@ -25,7 +25,8 @@ VLLM_HOST = os.getenv("VLLM_HOST", "0.0.0.0")
 VLLM_PORT = int(os.getenv("VLLM_PORT", "8000"))
 
 # Engine
-SANDBOX_TIMEOUT = 200 
+# Increased timeout for depth-1 agents that spawn many sub-agents (can take 10+ minutes)
+SANDBOX_TIMEOUT = 3600  # 1 hour
 
 # Path settings
 FINDER_AGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "finder_agent_prompt.txt"

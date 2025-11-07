@@ -430,7 +430,7 @@ def _execute_with_delegation(
     
     thread = threading.Thread(target=run_in_thread, daemon=False)
     thread.start()
-    thread.join(timeout=600)  # 10 minute timeout for the thread
+    thread.join(SANDBOX_TIMEOUT)
     
     if thread.is_alive():
         # Thread is still running after timeout

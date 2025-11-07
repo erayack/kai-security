@@ -97,6 +97,15 @@ class SubAgentReport(BaseModel):
     combined_total_tokens: Dict[str, int] = Field(default_factory=dict)
     combined_total_cost: float = 0.0
     
+    # Time tracking (this agent only)
+    time_spent: float = 0.0  # Time in seconds
+    
+    # Time tracking (sub-agents only)
+    sub_agent_total_time: float = 0.0  # Time in seconds
+    
+    # Time tracking (combined: this agent + all sub-agents)
+    combined_time_spent: float = 0.0  # Time in seconds
+    
     # Exploration results
     files_explored: List[str] = Field(default_factory=list)
     exploits_found: List[ExploitSummary] = Field(default_factory=list)
@@ -137,6 +146,7 @@ def report_to_string(report: SubAgentReport, indent: int = 0) -> str:
         f"{prefix}Files Explored: {len(report.files_explored)}",
         f"{prefix}Cost (Combined): ${report.combined_total_cost:.4f}",
         f"{prefix}Tokens (Combined): {report.combined_total_tokens.get('prompt_tokens', 0) + report.combined_total_tokens.get('completion_tokens', 0)}",
+        f"{prefix}Time (Combined): {report.combined_time_spent:.2f}s",
         "",
         f"{prefix}EXPLOITS FOUND (This Agent): {len(report.exploits_found)}",
     ]

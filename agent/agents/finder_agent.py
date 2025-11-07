@@ -206,9 +206,10 @@ class FinderAgent(BaseAgent):
             severity = exploit.severity.value
             exploit_stats[severity] = exploit_stats.get(severity, 0) + 1
         
-        # Aggregate sub-agent costs and exploits
+        # Aggregate sub-agent costs, exploits, and time
         sub_agent_total_cost = 0.0
         sub_agent_total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
+        sub_agent_total_time = 0.0
         sub_agent_exploits_count = 0
         sub_agent_exploit_stats = {}
         
@@ -218,6 +219,10 @@ class FinderAgent(BaseAgent):
                 tokens = sub_report["budget_used"].get("tokens", {})
                 sub_agent_total_tokens["prompt_tokens"] += tokens.get("prompt_tokens", 0)
                 sub_agent_total_tokens["completion_tokens"] += tokens.get("completion_tokens", 0)
+            if "time_used" in sub_report:
+                # time_used contains combined_time_spent for sub-agents with their own sub-agents
+                sub_agent_total_time += sub_report["time_used"].get("combined_time_spent",
+                                                                     sub_report["time_used"].get("time_spent", 0.0))
             if "exploits" in sub_report:
                 exploits_list = sub_report["exploits"]
                 sub_agent_exploits_count += len(exploits_list)
@@ -232,6 +237,7 @@ class FinderAgent(BaseAgent):
             "prompt_tokens": self.total_tokens["prompt_tokens"] + sub_agent_total_tokens["prompt_tokens"],
             "completion_tokens": self.total_tokens["completion_tokens"] + sub_agent_total_tokens["completion_tokens"]
         }
+        combined_total_time = self.time_spent + sub_agent_total_time
         
         # Calculate combined exploit stats (this agent + all sub-agents)
         combined_exploit_stats = {}
@@ -271,6 +277,12 @@ class FinderAgent(BaseAgent):
             # Budget tracking (combined)
             combined_total_tokens=combined_total_tokens,
             combined_total_cost=combined_total_cost,
+            # Time tracking (this agent only)
+            time_spent=self.time_spent,
+            # Time tracking (sub-agents only)
+            sub_agent_total_time=sub_agent_total_time,
+            # Time tracking (combined)
+            combined_time_spent=combined_total_time,
             # Exploration results
             files_explored=files_explored,
             exploits_found=exploit_summaries,

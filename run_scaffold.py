@@ -27,6 +27,8 @@ else:
     os.environ["PYTHONPATH"] = _PROJECT_ROOT
 
 from agent.agents import FinderAgent, GeneratorAgent, SetupAgent, FixerAgent
+from agent.report_generator import generate_comprehensive_report, save_report
+from agent.settings import MAX_SUBAGENT_TURNS, MAX_DEPTH
 
 
 BASE_INSTRUCTION = "You must start your search for exploits now"
@@ -63,13 +65,6 @@ def clone_repo(repo_url: str) -> str:
     return dest
 
 
-def delete_repo(repo_url: str) -> None:
-    """Delete the deterministic clone folder for the given repository URL if it exists."""
-    dest = _repo_path(repo_url)
-    if os.path.exists(dest):
-        shutil.rmtree(dest)
-
-
 async def run_finder_agent(
     repo_url: str, 
     num_turns: int, 
@@ -88,11 +83,11 @@ async def run_finder_agent(
     )
 
     response = None
+    exception_occurred = False
     try:
         response = await agent.chat(BASE_INSTRUCTION)
-        prefix = "convo"
     except Exception:
-        prefix = "error_convo"
+        exception_occurred = True
     finally:
         # Always close the agent to clean up resources
         try:
@@ -100,9 +95,42 @@ async def run_finder_agent(
         except Exception:
             pass
 
-    # Save conversation under a per-repo folder inside output/conversations
-    save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url))
-    agent.save_conversation(save_folder=save_folder, prefix=prefix)
+    # Save conversation ONLY for the main finder agent (depth 0)
+    # Sub-agents save their own conversations in finder_tools.py
+    if agent.depth == 0:
+        save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url))
+        prefix = "error_convo" if exception_occurred else "convo"
+        agent.save_conversation(save_folder=save_folder, prefix=prefix)
+    
+    # Generate comprehensive report ONLY if agent completed successfully (no exception)
+    # This ensures all sub-agents have finished before report generation
+    if not exception_occurred and agent.depth == 0:
+        hyperparams = {
+            "main_agent_turns": num_turns,  # Actual turns used for main agent
+            "MAX_SUBAGENT_TURNS": MAX_SUBAGENT_TURNS,
+            "MAX_DEPTH": MAX_DEPTH,
+            "model": model_name,
+            "use_openai": use_openai
+        }
+        
+        try:
+            report = generate_comprehensive_report(
+                repo_slug=_repo_slug(repo_url),
+                output_dir=os.path.join(_project_root(), "output"),
+                hyperparams=hyperparams
+            )
+            report_path = save_report(
+                report=report,
+                output_dir=os.path.join(_project_root(), "output"),
+                repo_slug=_repo_slug(repo_url)
+            )
+            print(f"\n📊 Comprehensive report saved to: {report_path}")
+            print(f"   Total cost: ${report['summary']['total_combined_cost']:.4f}")
+            print(f"   Total time: {report['summary']['total_combined_time']}")
+            print(f"   Total exploits: {report['summary']['total_combined_exploits']}")
+            print(f"   Total agents: {report['summary']['total_agents']}")
+        except Exception as e:
+            print(f"\n⚠️  Warning: Failed to generate report: {e}")
     
     return {
         "response": response,
@@ -274,7 +302,8 @@ Start exploring the codebase and fix the exploit.
     }
 
 async def main():
-    repo_url = "https://github.com/gmsol-labs/gmx-solana.git"
+    #repo_url = "https://github.com/gmsol-labs/gmx-solana.git"
+    repo_url = "https://github.com/code-423n4/2025-10-hybra-finance.git"
     num_turns = 32
     use_openai = False
     model_name = "gpt-5-2025-08-07" if use_openai else "z-ai/glm-4.6"

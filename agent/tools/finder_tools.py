@@ -124,9 +124,11 @@ Task: {task_description}
 Start exploring and add exploits as you find them using add_exploit(). Use your full turn budget to find as many vulnerabilities as possible.
 """
     
-    # Create conversation directory
+    # Create conversation directory with ABSOLUTE PATH
+    # Need to find project root - go up from repo_path
+    project_root = Path(parent.repo_path).parent.parent  # Go up from repos/<repo> to project root
     repo_slug = os.path.basename(parent.repo_path) if parent.repo_path else "unknown"
-    convo_dir = os.path.join("output", repo_slug, "sub_agent_convos")
+    convo_dir = os.path.join(str(project_root), "output", repo_slug, "sub_agent_convos")
     os.makedirs(convo_dir, exist_ok=True)
     
     # Notify parent about sub-agent spawn (only at depth 0)
@@ -216,6 +218,24 @@ Start exploring and add exploits as you find them using add_exploit(). Use your 
         summary = f"Sub-agent explored {scope_path} but found no exploits."
     
     # Extract result data before deleting sub-agent
+    # Determine if this sub-agent has its own sub-agents
+    has_sub_agents = len(sub_agent.sub_agent_reports) > 0
+    
+    # For time_used, include combined_time_spent if sub-agent has sub-agents,
+    # otherwise just time_spent
+    time_used_dict = {
+        "time_spent": sub_agent.time_spent
+    }
+    if has_sub_agents:
+        # Calculate sub-agent total time
+        sub_agent_total_time = 0.0
+        for sub_report in sub_agent.sub_agent_reports:
+            if "time_used" in sub_report:
+                sub_agent_total_time += sub_report["time_used"].get("combined_time_spent",
+                                                                     sub_report["time_used"].get("time_spent", 0.0))
+        time_used_dict["sub_agent_total_time"] = sub_agent_total_time
+        time_used_dict["combined_time_spent"] = sub_agent.time_spent + sub_agent_total_time
+    
     result = {
         "exploits": exploits_found,
         "scope_path": scope_path,
@@ -226,7 +246,8 @@ Start exploring and add exploits as you find them using add_exploit(). Use your 
         "budget_used": {
             "total_cost": sub_agent.estimated_cost,
             "tokens": sub_agent.total_tokens
-        }
+        },
+        "time_used": time_used_dict
     }
     
     # Store result in parent's sub_reports list for tracking

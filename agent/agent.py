@@ -124,6 +124,10 @@ class BaseAgent(ABC):
         # Budget tracking
         self.total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
         self.estimated_cost = 0.0
+        
+        # Time tracking
+        self.time_spent = 0.0  # Time spent by this agent only (seconds)
+        self.start_time = None  # Will be set when chat() starts
 
         # Set model: use provided model, or fallback to OPENROUTER_STRONG_MODEL
         if model:
@@ -253,6 +257,12 @@ class BaseAgent(ABC):
         Returns:
             The response from the agent.
         """
+        import time
+        
+        # Start timing if this is the first call to chat()
+        if self.start_time is None:
+            self.start_time = time.time()
+        
         # Add the user message to the conversation history
         self._add_message(ChatMessage(role=Role.USER, content=message))
 
@@ -270,6 +280,33 @@ class BaseAgent(ABC):
 
         # Extract the thoughts and python code from the response
         thoughts, python_code = self.extract_response_parts(response)
+
+        # CRITICAL ERROR HANDLING: Check if initial response is empty or malformed
+        response_is_empty = not response or not response.strip()
+        response_is_malformed = not thoughts and not python_code and not response_is_empty
+        
+        if response_is_empty or response_is_malformed:
+            # Provide clear error feedback for malformed initial response
+            error_feedback = (
+                "ERROR: Your response was empty or missing required tags.\n\n"
+                "REMINDER: EVERY response MUST follow this EXACT structure:\n"
+                "1. Start with <think>...</think> - Your reasoning\n"
+                "2. Follow with <python>...</python> - Python code to use tools\n\n"
+                "Please provide a valid response with both <think> and <python> blocks."
+            )
+            # Add error feedback and retry
+            self._add_message(ChatMessage(role=Role.USER, content=error_feedback))
+            
+            # Get a new response
+            response, usage_data = await get_model_response(
+                messages=self.messages,
+                model=self.model,
+                client=self._client,
+                use_vllm=self.use_vllm,
+                use_openai=self.use_openai,
+            )
+            self.update_budget(usage_data)
+            thoughts, python_code = self.extract_response_parts(response)
 
         # Execute the code from the agent's response
         result = ({}, "")
@@ -327,6 +364,26 @@ class BaseAgent(ABC):
                 # Extract the thoughts and python code from the response
                 thoughts, python_code = self.extract_response_parts(response)
 
+                # CRITICAL ERROR HANDLING: Check if response is empty or malformed
+                # The model MUST provide either <think> or <python> blocks per the system prompt
+                response_is_empty = not response or not response.strip()
+                response_is_malformed = not thoughts and not python_code and not response_is_empty
+                
+                if response_is_empty or response_is_malformed:
+                    # Don't add the malformed response to conversation
+                    # Instead, provide clear feedback to the model about the format violation
+                    error_feedback = (
+                        "ERROR: Your previous response was empty or missing required tags.\n\n"
+                        "REMINDER: EVERY response MUST follow this EXACT structure:\n"
+                        "1. Start with <think>...</think> - Your reasoning\n"
+                        "2. Follow with <python>...</python> - Python code to use tools\n\n"
+                        "Please provide a valid response with both <think> and <python> blocks."
+                    )
+                    self._add_message(ChatMessage(role=Role.USER, content=error_feedback))
+                    # Don't decrement remaining_tool_turns for this error case
+                    # Give the model another chance to provide a valid response
+                    continue
+
                 # Add the assistant message BEFORE checking termination
                 self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
 
@@ -372,6 +429,10 @@ class BaseAgent(ABC):
             if remaining_tool_turns == 0:
                 pbar.set_postfix_str("✓ Completed (max turns)")
 
+        # Update time_spent when chat() finishes
+        if self.start_time is not None:
+            self.time_spent = time.time() - self.start_time
+        
         return self.extract_final_result(thoughts, python_code, response)
 
     def save_conversation(
@@ -427,9 +488,10 @@ class BaseAgent(ABC):
         except Exception:
             pass  # If file doesn't exist or can't be read, leave empty
         
-        # Aggregate sub-agent costs and exploits
+        # Aggregate sub-agent costs, exploits, and time
         sub_agent_total_cost = 0.0
         sub_agent_total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
+        sub_agent_total_time = 0.0
         sub_agent_exploits = []
         sub_agent_exploit_stats = {}
         
@@ -439,6 +501,10 @@ class BaseAgent(ABC):
                 tokens = sub_report["budget_used"].get("tokens", {})
                 sub_agent_total_tokens["prompt_tokens"] += tokens.get("prompt_tokens", 0)
                 sub_agent_total_tokens["completion_tokens"] += tokens.get("completion_tokens", 0)
+            if "time_used" in sub_report:
+                # time_used contains combined_time_spent for sub-agents with their own sub-agents
+                sub_agent_total_time += sub_report["time_used"].get("combined_time_spent", 
+                                                                     sub_report["time_used"].get("time_spent", 0.0))
             if "exploits" in sub_report:
                 exploits_list = sub_report["exploits"]
                 sub_agent_exploits.extend(exploits_list)
@@ -453,6 +519,7 @@ class BaseAgent(ABC):
             "prompt_tokens": self.total_tokens["prompt_tokens"] + sub_agent_total_tokens["prompt_tokens"],
             "completion_tokens": self.total_tokens["completion_tokens"] + sub_agent_total_tokens["completion_tokens"]
         }
+        combined_total_time = self.time_spent + sub_agent_total_time
         
         # Calculate combined exploit stats (this agent + all sub-agents)
         combined_exploit_stats = {}
@@ -480,6 +547,12 @@ class BaseAgent(ABC):
             # Budget tracking - combined (this agent + all sub-agents)
             "combined_total_tokens": combined_total_tokens,
             "combined_total_cost": combined_total_cost,
+            # Time tracking - this agent only
+            "time_spent": self.time_spent,
+            # Time tracking - sub-agents only
+            "sub_agent_total_time": sub_agent_total_time,
+            # Time tracking - combined (this agent + all sub-agents)
+            "combined_time_spent": combined_total_time,
             # Exploit tracking - this agent only
             "found_exploits": found_exploits,
             "exploit_stats": exploit_stats,
