@@ -31,7 +31,7 @@ from agent.report_generator import generate_comprehensive_report, save_report
 from agent.settings import MAX_SUBAGENT_TURNS, MAX_DEPTH
 
 
-BASE_INSTRUCTION = "You must start your search for exploits now"
+BASE_INSTRUCTION = "You must start your search for exploits now. Pay attention to the instructions in the codebase, especially the ones in the README.md file."
 SETUP_INSTRUCTION = "You must start setting up the repository now"
 
 def _project_root() -> str:
@@ -303,7 +303,7 @@ Start exploring the codebase and fix the exploit.
 
 async def main():
     #repo_url = "https://github.com/gmsol-labs/gmx-solana.git"
-    repo_url = "https://github.com/code-423n4/2025-10-hybra-finance.git"
+    repo_url = "https://github.com/code-423n4/2025-09-monad.git"
     num_turns = 32
     use_openai = False
     model_name = "gpt-5-2025-08-07" if use_openai else "z-ai/glm-4.6"

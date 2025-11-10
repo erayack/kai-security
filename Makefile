@@ -14,6 +14,9 @@ help:
 	@echo "  4. extract-metrics   - Extract and analyze metrics from benchmark results"
 	@echo "  5. analyse-costs     - Comprehensive cost analysis with OpenRouter data"
 	@echo ""
+	@echo "Exploit Analysis Targets:"
+	@echo "  6. combine-exploits  - Combine all exploits from conversation files (requires REPO_SLUG)"
+	@echo ""
 	@echo "Quick Start:"
 	@echo "  make install"
 
@@ -38,3 +41,17 @@ extract-metrics:
 
 analyse-costs:
 	cd benchmark && uv run analyse_costs.py
+
+combine-exploits:
+	@if [ -z "$(REPO_SLUG)" ]; then \
+		echo "Error: REPO_SLUG is not set"; \
+		echo "Usage: make combine-exploits REPO_SLUG=2025-09-monad-60078b9e [COPY_TO_REPO=1]"; \
+		echo "Example: make combine-exploits REPO_SLUG=2025-09-monad-60078b9e"; \
+		echo "         make combine-exploits REPO_SLUG=2025-09-monad-60078b9e COPY_TO_REPO=1"; \
+		exit 1; \
+	fi
+	@if [ -n "$(COPY_TO_REPO)" ]; then \
+		uv run combine_exploits.py $(REPO_SLUG) --copy-to-repo; \
+	else \
+		uv run combine_exploits.py $(REPO_SLUG); \
+	fi
