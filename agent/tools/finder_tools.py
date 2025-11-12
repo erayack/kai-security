@@ -13,16 +13,7 @@ from agent.schemas import GrepResponse, Exploit, ExploitLocation, ExploitSeverit
 from agent.settings import MAX_TOOL_TURNS, MAX_SUBAGENT_TURNS
 from agent.tools.tools import read_file, list_files, grep
 from tqdm import tqdm
-from observability.logger import OtelLogger
-
-exploit_logger = OtelLogger(
-    otlp_endpoint="http://localhost:4318/v1/logs",
-    service_name="exploit-agent",
-    logger_name="exploit_tracker",
-)
-
-# Register cleanup handler
-atexit.register(lambda: exploit_logger.shutdown() if exploit_logger else None)
+from observability.logger import exploit_logger
 
 
 async def delegate_to_sub_agent(
