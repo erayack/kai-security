@@ -12,7 +12,7 @@ processors:
   attributes:
     actions:
       - key: loki.attribute.labels
-        value: severity, category, exploit_id, file_path, service_name
+        value: service_name, event_type, agent_id, severity, category, exploit_id, file_path, depth, state
         action: insert
 
 exporters:

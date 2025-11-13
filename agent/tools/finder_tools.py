@@ -85,6 +85,9 @@ async def delegate_to_sub_agent(
     # Import FinderAgent here to avoid circular imports
     from agent.agents import FinderAgent
 
+    # Calculate sibling index (how many sub-agents parent has already spawned)
+    sibling_index = len(parent.sub_agent_reports) if hasattr(parent, 'sub_agent_reports') else 0
+
     # Create sub-agent with restricted scope and incremented depth
     sub_agent = FinderAgent(
         repo_path=parent.repo_path,
@@ -97,6 +100,28 @@ async def delegate_to_sub_agent(
         depth=parent.depth + 1,  # Increment depth
         max_depth=parent.max_depth,  # Propagate limit
     )
+
+    # Log sub-agent spawn event for radar view positioning
+    try:
+        from observability.logger import exploit_logger
+        import time
+        exploit_logger.send(
+            message=f"Sub-agent spawned at depth {sub_agent.depth}",
+            severity="INFO",
+            attrs={
+                "event_type": "sub_agent_spawn",
+                "agent_id": sub_agent.agent_id,
+                "parent_agent_id": parent.agent_id,
+                "depth": str(sub_agent.depth),
+                "sibling_index": str(sibling_index),
+                "scope_path": scope_path,
+                "task_description": task_description,
+                "max_turns": str(max_turns),
+                "timestamp": str(time.time()),
+            }
+        )
+    except Exception:
+        pass  # Don't fail if logging fails
 
     # Use the sub-agent's normalized working_dir for exploits.json path
     # This ensures path consistency after normalization in agent.py
@@ -404,11 +429,15 @@ Now you can decide whether the exploit is a non-duplicate or not.
                     # Log the exploit to Loki
                     if exploit_logger:
                         try:
+                            # Get agent ID for filtering and correlation
+                            agent_id = agent.agent_id if agent else "unknown"
+
                             # Prepare structured attributes
                             log_attrs = {
                                 "exploit_id": exploit.id or "unknown",
                                 "category": exploit.category,
                                 "severity": exploit.severity.value,
+                                "agent_id": agent_id,  # Add agent_id for filtering
                                 "file_path": (
                                     exploit.locations[0].file_path
                                     if exploit.locations
@@ -433,11 +462,40 @@ Now you can decide whether the exploit is a non-duplicate or not.
                                 if loc.function_name:
                                     log_attrs["function_name"] = loc.function_name
 
+                            # Add suggested fix if available
+                            if exploit.suggested_fix:
+                                log_attrs["suggested_fix"] = exploit.suggested_fix[:200]  # Truncate long fixes
+
                             exploit_logger.send(
                                 message=f"New {exploit.severity.value} exploit found: {exploit.category} in {exploit.locations[0].file_path if exploit.locations else 'unknown'}",
                                 severity="INFO",
                                 attrs=log_attrs,
                             )
+
+                            # Log category distribution counter
+                            exploit_logger.send(
+                                message=f"Exploit category counter: {exploit.category}",
+                                severity="INFO",
+                                attrs={
+                                    "event_type": "exploit_category_counter",
+                                    "category": exploit.category,
+                                    "severity": exploit.severity.value,
+                                    "count": "1",
+                                }
+                            )
+
+                            # Log file distribution counter
+                            if exploit.locations and exploit.locations[0].file_path:
+                                exploit_logger.send(
+                                    message=f"Exploit file counter: {exploit.locations[0].file_path}",
+                                    severity="INFO",
+                                    attrs={
+                                        "event_type": "exploit_file_counter",
+                                        "file_path": exploit.locations[0].file_path,
+                                        "severity": exploit.severity.value,
+                                        "count": "1",
+                                    }
+                                )
                         except Exception:
                             # Don't fail the operation if logging fails
                             pass

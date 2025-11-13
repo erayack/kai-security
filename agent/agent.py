@@ -258,11 +258,32 @@ class BaseAgent(ABC):
             The response from the agent.
         """
         import time
-        
+
         # Start timing if this is the first call to chat()
         if self.start_time is None:
             self.start_time = time.time()
-        
+
+            # Log agent start event for timeline tracking
+            try:
+                from observability.logger import exploit_logger
+                exploit_logger.send(
+                    message=f"Agent started: {self.agent_type.value if self.agent_type else 'unknown'}",
+                    severity="INFO",
+                    attrs={
+                        "event_type": "agent_start",
+                        "agent_id": self.agent_id,
+                        "parent_agent_id": self.parent_agent_id or "",
+                        "depth": str(self.depth),
+                        "max_depth": str(self.max_depth),
+                        "scope_paths": ",".join(self.scope_paths) if self.scope_paths else "",
+                        "model": self.model,
+                        "max_turns": str(self.max_tool_turns),
+                        "timestamp": str(self.start_time),
+                    }
+                )
+            except Exception:
+                pass  # Don't fail if logging fails
+
         # Add the user message to the conversation history
         self._add_message(ChatMessage(role=Role.USER, content=message))
 
@@ -277,6 +298,25 @@ class BaseAgent(ABC):
         
         # Update budget tracking
         self.update_budget(usage_data)
+
+        # Log real-time metrics after each API call
+        try:
+            from observability.logger import exploit_logger
+            exploit_logger.send(
+                message=f"Metrics update for agent {self.agent_id}",
+                severity="INFO",
+                attrs={
+                    "event_type": "metrics_update",
+                    "agent_id": self.agent_id,
+                    "current_cost": str(self.estimated_cost),
+                    "prompt_tokens": str(self.total_tokens.get("prompt_tokens", 0)),
+                    "completion_tokens": str(self.total_tokens.get("completion_tokens", 0)),
+                    "total_tokens": str(self.total_tokens.get("prompt_tokens", 0) + self.total_tokens.get("completion_tokens", 0)),
+                    "timestamp": str(time.time()),
+                }
+            )
+        except Exception:
+            pass  # Don't fail if logging fails
 
         # Extract the thoughts and python code from the response
         thoughts, python_code = self.extract_response_parts(response)
@@ -352,17 +392,40 @@ class BaseAgent(ABC):
                 )
                 response, usage_data = await get_model_response(
                     messages=self.messages,
-                    model=self.model,  
+                    model=self.model,
                     client=self._client,
                     use_vllm=self.use_vllm,
                     use_openai=self.use_openai,
                 )
-                
+
                 # Update budget tracking
                 self.update_budget(usage_data)
 
                 # Extract the thoughts and python code from the response
                 thoughts, python_code = self.extract_response_parts(response)
+
+                # Log turn-by-turn progress for timeline tracking
+                try:
+                    from observability.logger import exploit_logger
+                    turn_index = self.max_tool_turns - remaining_tool_turns
+                    action_type = "code_execution" if python_code else "no_code"
+
+                    exploit_logger.send(
+                        message=f"Turn {turn_index} completed for agent {self.agent_id}",
+                        severity="INFO",
+                        attrs={
+                            "event_type": "turn_progress",
+                            "agent_id": self.agent_id,
+                            "turn_index": str(turn_index),
+                            "remaining_turns": str(remaining_tool_turns),
+                            "action_type": action_type,
+                            "code_length": str(len(python_code)) if python_code else "0",
+                            "has_thoughts": str(bool(thoughts)),
+                            "timestamp": str(time.time()),
+                        }
+                    )
+                except Exception:
+                    pass  # Don't fail if logging fails
 
                 # CRITICAL ERROR HANDLING: Check if response is empty or malformed
                 # The model MUST provide either <think> or <python> blocks per the system prompt
@@ -432,7 +495,28 @@ class BaseAgent(ABC):
         # Update time_spent when chat() finishes
         if self.start_time is not None:
             self.time_spent = time.time() - self.start_time
-        
+
+            # Log agent completion event for timeline tracking
+            try:
+                from observability.logger import exploit_logger
+                exploit_logger.send(
+                    message=f"Agent completed: {self.agent_type.value if self.agent_type else 'unknown'}",
+                    severity="INFO",
+                    attrs={
+                        "event_type": "agent_complete",
+                        "agent_id": self.agent_id,
+                        "parent_agent_id": self.parent_agent_id or "",
+                        "depth": str(self.depth),
+                        "time_spent": str(self.time_spent),
+                        "total_cost": str(self.estimated_cost),
+                        "total_tokens": str(self.total_tokens.get("prompt_tokens", 0) + self.total_tokens.get("completion_tokens", 0)),
+                        "exploit_count": str(len(self.sub_agent_reports)) if hasattr(self, 'sub_agent_reports') else "0",
+                        "timestamp": str(time.time()),
+                    }
+                )
+            except Exception:
+                pass  # Don't fail if logging fails
+
         return self.extract_final_result(thoughts, python_code, response)
 
     def save_conversation(

@@ -74,22 +74,94 @@ async def run_finder_agent(
     repo_url: str, num_turns: int, model_name: str, use_openai: bool = False
 ):
     """Run the FinderAgent against the cloned repo for the requested number of user turns (async)."""
+    print("🔍 Starting FinderAgent...")
     repo_path = _repo_path(repo_url)
     if not os.path.exists(repo_path):
+        print(f"⬇️  Cloning to {repo_path}...")
         repo_path = clone_repo(repo_url)
+    else:
+        print(f"✅ Using existing repo at {repo_path}")
+
+    print("🤖 Initializing agent...")
     agent = FinderAgent(
         repo_path=repo_path,
         model=model_name,
         max_tool_turns=num_turns,
         use_openai=use_openai,
     )
+    print("✅ Agent ready, starting chat...")
+
+    # Log scan state transition to scanning
+    try:
+        from observability.logger import exploit_logger
+        import time
+        exploit_logger.send(
+            message=f"Scan state: scanning started for {repo_url}",
+            severity="INFO",
+            attrs={
+                "event_type": "scan_state",
+                "state": "scanning",
+                "repo_url": repo_url,
+                "repo_slug": _repo_slug(repo_url),
+                "agent_type": "finder",
+                "model": model_name,
+                "max_turns": str(num_turns),
+                "timestamp": str(time.time()),
+            }
+        )
+    except Exception:
+        pass  # Don't fail if logging fails
 
     response = None
     exception_occurred = False
     try:
         response = await agent.chat(BASE_INSTRUCTION)
-    except Exception:
+
+        # Log scan completion state
+        try:
+            from observability.logger import exploit_logger
+            import time
+            exploit_logger.send(
+                message=f"Scan state: completed for {repo_url}",
+                severity="INFO",
+                attrs={
+                    "event_type": "scan_state",
+                    "state": "completed",
+                    "repo_url": repo_url,
+                    "repo_slug": _repo_slug(repo_url),
+                    "agent_type": "finder",
+                    "timestamp": str(time.time()),
+                }
+            )
+        except Exception:
+            pass
+
+    except Exception as e:
+        print(f"❌ ERROR: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         exception_occurred = True
+
+        # Log scan failure state
+        try:
+            from observability.logger import exploit_logger
+            import time
+            exploit_logger.send(
+                message=f"Scan state: failed for {repo_url}",
+                severity="ERROR",
+                attrs={
+                    "event_type": "scan_state",
+                    "state": "failed",
+                    "repo_url": repo_url,
+                    "repo_slug": _repo_slug(repo_url),
+                    "agent_type": "finder",
+                    "error": str(e),
+                    "timestamp": str(time.time()),
+                }
+            )
+        except Exception:
+            pass
+
     finally:
         # Always close the agent to clean up resources
         try:
@@ -304,11 +376,16 @@ Start exploring the codebase and fix the exploit.
 
 
 async def main():
+    print("🚀 Starting exploit agent...")
     # repo_url = "https://github.com/gmsol-labs/gmx-solana.git"
-    repo_url = "https://github.com/fatihbugrakdogan/publicis-trigger.git"
+    repo_url = "https://github.com/aktasbatuhan/tally-weijl.git"
     num_turns = 32
     use_openai = False
     model_name = "gpt-5-2025-08-07" if use_openai else "z-ai/glm-4.6"
+
+    print(f"📂 Repo: {repo_url}")
+    print(f"🤖 Model: {model_name}")
+    print(f"🔄 Max turns: {num_turns}")
 
     finder_result = await run_finder_agent(repo_url, num_turns, model_name, use_openai)
     # setup_result = await run_setup_agent(repo_url, num_turns, model_name, use_openai)
