@@ -13,7 +13,7 @@ from agent.schemas import GrepResponse, Exploit, ExploitLocation, ExploitSeverit
 from agent.settings import MAX_TOOL_TURNS, MAX_SUBAGENT_TURNS
 from agent.tools.tools import read_file, list_files, grep
 from tqdm import tqdm
-from observability.logger import exploit_logger
+from logger import logging
 
 
 async def delegate_to_sub_agent(
@@ -86,7 +86,9 @@ async def delegate_to_sub_agent(
     from agent.agents import FinderAgent
 
     # Calculate sibling index (how many sub-agents parent has already spawned)
-    sibling_index = len(parent.sub_agent_reports) if hasattr(parent, 'sub_agent_reports') else 0
+    sibling_index = (
+        len(parent.sub_agent_reports) if hasattr(parent, "sub_agent_reports") else 0
+    )
 
     # Create sub-agent with restricted scope and incremented depth
     sub_agent = FinderAgent(
@@ -103,12 +105,10 @@ async def delegate_to_sub_agent(
 
     # Log sub-agent spawn event for radar view positioning
     try:
-        from observability.logger import exploit_logger
-        import time
-        exploit_logger.send(
-            message=f"Sub-agent spawned at depth {sub_agent.depth}",
-            severity="INFO",
-            attrs={
+        logging.info(
+            f"Sub-agent spawned at depth {sub_agent.depth}",
+            extra={
+                "mongo": True,
                 "event_type": "sub_agent_spawn",
                 "agent_id": sub_agent.agent_id,
                 "parent_agent_id": parent.agent_id,
@@ -118,7 +118,7 @@ async def delegate_to_sub_agent(
                 "task_description": task_description,
                 "max_turns": str(max_turns),
                 "timestamp": str(time.time()),
-            }
+            },
         )
     except Exception:
         pass  # Don't fail if logging fails
@@ -427,78 +427,81 @@ Now you can decide whether the exploit is a non-duplicate or not.
                     os.replace(temp_name, path)
 
                     # Log the exploit to Loki
-                    if exploit_logger:
-                        try:
-                            # Get agent ID for filtering and correlation
-                            agent_id = agent.agent_id if agent else "unknown"
+                    try:
+                        # Get agent ID for filtering and correlation
+                        agent_id = agent.agent_id if agent else "unknown"
 
-                            # Prepare structured attributes
-                            log_attrs = {
-                                "exploit_id": exploit.id or "unknown",
+                        # Prepare structured attributes
+                        log_attrs = {
+                            "exploit_id": exploit.id or "unknown",
+                            "category": exploit.category,
+                            "severity": exploit.severity.value,
+                            "agent_id": agent_id,  # Add agent_id for filtering
+                            "file_path": (
+                                exploit.locations[0].file_path
+                                if exploit.locations
+                                else "unknown"
+                            ),
+                            "line_start": (
+                                str(exploit.locations[0].line_start)
+                                if exploit.locations
+                                else "0"
+                            ),
+                            "description": exploit.description[
+                                :200
+                            ],  # Truncate long descriptions
+                            "agent_path": exploits_path,
+                        }
+
+                        # Add optional location details if available
+                        if exploit.locations:
+                            loc = exploit.locations[0]
+                            if loc.class_name:
+                                log_attrs["class_name"] = loc.class_name
+                            if loc.function_name:
+                                log_attrs["function_name"] = loc.function_name
+
+                        # Add suggested fix if available
+                        if exploit.suggested_fix:
+                            log_attrs["suggested_fix"] = exploit.suggested_fix[
+                                :200
+                            ]  # Truncate long fixes
+
+                        logging.info(
+                            f"New {exploit.severity.value} exploit found: {exploit.category} in {exploit.locations[0].file_path if exploit.locations else 'unknown'}",
+                            extra={
+                                "mongo": True,
+                                **log_attrs,
+                            },
+                        )
+
+                        # Log category distribution counter
+                        logging.info(
+                            f"Exploit category counter: {exploit.category}",
+                            extra={
+                                "mongo": True,
+                                "event_type": "exploit_category_counter",
                                 "category": exploit.category,
                                 "severity": exploit.severity.value,
-                                "agent_id": agent_id,  # Add agent_id for filtering
-                                "file_path": (
-                                    exploit.locations[0].file_path
-                                    if exploit.locations
-                                    else "unknown"
-                                ),
-                                "line_start": (
-                                    str(exploit.locations[0].line_start)
-                                    if exploit.locations
-                                    else "0"
-                                ),
-                                "description": exploit.description[
-                                    :200
-                                ],  # Truncate long descriptions
-                                "agent_path": exploits_path,
-                            }
+                                "count": "1",
+                            },
+                        )
 
-                            # Add optional location details if available
-                            if exploit.locations:
-                                loc = exploit.locations[0]
-                                if loc.class_name:
-                                    log_attrs["class_name"] = loc.class_name
-                                if loc.function_name:
-                                    log_attrs["function_name"] = loc.function_name
-
-                            # Add suggested fix if available
-                            if exploit.suggested_fix:
-                                log_attrs["suggested_fix"] = exploit.suggested_fix[:200]  # Truncate long fixes
-
-                            exploit_logger.send(
-                                message=f"New {exploit.severity.value} exploit found: {exploit.category} in {exploit.locations[0].file_path if exploit.locations else 'unknown'}",
-                                severity="INFO",
-                                attrs=log_attrs,
-                            )
-
-                            # Log category distribution counter
-                            exploit_logger.send(
-                                message=f"Exploit category counter: {exploit.category}",
-                                severity="INFO",
-                                attrs={
-                                    "event_type": "exploit_category_counter",
-                                    "category": exploit.category,
+                        # Log file distribution counter
+                        if exploit.locations and exploit.locations[0].file_path:
+                            logging.info(
+                                f"Exploit file counter: {exploit.locations[0].file_path}",
+                                extra={
+                                    "mongo": True,
+                                    "event_type": "exploit_file_counter",
+                                    "file_path": exploit.locations[0].file_path,
                                     "severity": exploit.severity.value,
                                     "count": "1",
-                                }
+                                },
                             )
-
-                            # Log file distribution counter
-                            if exploit.locations and exploit.locations[0].file_path:
-                                exploit_logger.send(
-                                    message=f"Exploit file counter: {exploit.locations[0].file_path}",
-                                    severity="INFO",
-                                    attrs={
-                                        "event_type": "exploit_file_counter",
-                                        "file_path": exploit.locations[0].file_path,
-                                        "severity": exploit.severity.value,
-                                        "count": "1",
-                                    }
-                                )
-                        except Exception:
-                            # Don't fail the operation if logging fails
-                            pass
+                    except Exception:
+                        # Don't fail the operation if logging fails
+                        pass
 
                     # Success - break out of retry loop
                     return "Exploit added successfully"

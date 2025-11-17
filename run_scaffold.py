@@ -10,6 +10,8 @@ import uuid
 from tqdm import tqdm
 import asyncio
 import warnings
+from logger import logging
+
 
 # Suppress asyncio/event loop cleanup warnings (harmless during multi-threaded async execution)
 warnings.filterwarnings(
@@ -93,12 +95,12 @@ async def run_finder_agent(
 
     # Log scan state transition to scanning
     try:
-        from observability.logger import exploit_logger
         import time
-        exploit_logger.send(
-            message=f"Scan state: scanning started for {repo_url}",
-            severity="INFO",
-            attrs={
+
+        logging.info(
+            f"Scan state: scanning started for {repo_url}",
+            extra={
+                "mongo": True,
                 "event_type": "scan_state",
                 "state": "scanning",
                 "repo_url": repo_url,
@@ -107,7 +109,7 @@ async def run_finder_agent(
                 "model": model_name,
                 "max_turns": str(num_turns),
                 "timestamp": str(time.time()),
-            }
+            },
         )
     except Exception:
         pass  # Don't fail if logging fails
@@ -119,19 +121,19 @@ async def run_finder_agent(
 
         # Log scan completion state
         try:
-            from observability.logger import exploit_logger
             import time
-            exploit_logger.send(
-                message=f"Scan state: completed for {repo_url}",
-                severity="INFO",
-                attrs={
+
+            logging.info(
+                f"Scan state: completed for {repo_url}",
+                extra={
+                    "mongo": True,
                     "event_type": "scan_state",
                     "state": "completed",
                     "repo_url": repo_url,
                     "repo_slug": _repo_slug(repo_url),
                     "agent_type": "finder",
                     "timestamp": str(time.time()),
-                }
+                },
             )
         except Exception:
             pass
@@ -139,17 +141,17 @@ async def run_finder_agent(
     except Exception as e:
         print(f"❌ ERROR: {type(e).__name__}: {str(e)}")
         import traceback
+
         traceback.print_exc()
         exception_occurred = True
 
         # Log scan failure state
         try:
-            from observability.logger import exploit_logger
-            import time
-            exploit_logger.send(
-                message=f"Scan state: failed for {repo_url}",
-                severity="ERROR",
-                attrs={
+
+            logging.error(
+                f"Scan state: failed for {repo_url}",
+                extra={
+                    "mongo": True,
                     "event_type": "scan_state",
                     "state": "failed",
                     "repo_url": repo_url,
@@ -157,7 +159,7 @@ async def run_finder_agent(
                     "agent_type": "finder",
                     "error": str(e),
                     "timestamp": str(time.time()),
-                }
+                },
             )
         except Exception:
             pass
@@ -378,7 +380,7 @@ Start exploring the codebase and fix the exploit.
 async def main():
     print("🚀 Starting exploit agent...")
     # repo_url = "https://github.com/gmsol-labs/gmx-solana.git"
-    repo_url = "https://github.com/aktasbatuhan/tally-weijl.git"
+    repo_url = "https://github.com/fatihbugrakdogan/publicis-trigger.git"
     num_turns = 32
     use_openai = False
     model_name = "gpt-5-2025-08-07" if use_openai else "z-ai/glm-4.6"

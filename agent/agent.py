@@ -1,5 +1,10 @@
 from agent.engine import execute_sandboxed_code
-from agent.model import get_model_response, create_openai_client, create_vllm_client, get_model_pricing
+from agent.model import (
+    get_model_response,
+    create_openai_client,
+    create_vllm_client,
+    get_model_pricing,
+)
 from agent.utils import (
     load_system_prompt,
     extract_python_code,
@@ -27,10 +32,12 @@ import json
 import os
 import uuid
 
+from logger import logging
+
 
 class BaseAgent(ABC):
     """Abstract base class for all agents."""
-    
+
     def __init__(
         self,
         max_tool_turns: int = MAX_TOOL_TURNS,
@@ -40,22 +47,22 @@ class BaseAgent(ABC):
         agent_type: AgentType = None,
         use_openai: bool = False,
         scope_paths: list[str] = None,  # NEW: Restrict file access to these paths
-        parent_agent_id: str = None,    # NEW: Track hierarchy
-        depth: int = 0,                  # NEW: Depth in hierarchy
-        max_depth: int = MAX_DEPTH,              # NEW: Maximum recursion depth
+        parent_agent_id: str = None,  # NEW: Track hierarchy
+        depth: int = 0,  # NEW: Depth in hierarchy
+        max_depth: int = MAX_DEPTH,  # NEW: Maximum recursion depth
     ):
         self.agent_type = agent_type
-        
+
         # Agent identification and hierarchy (NEW)
         self.agent_id = str(uuid.uuid4())
         self.parent_agent_id = parent_agent_id
         self.depth = depth
         self.max_depth = max_depth
-        
+
         # Scope restriction (NEW)
         self.scope_paths = scope_paths
         self.repo_path = os.path.abspath(repo_path) if repo_path else None
-        
+
         if scope_paths:
             self.restricted_scope = True
             # Convert scope paths to absolute paths
@@ -75,13 +82,15 @@ class BaseAgent(ABC):
                     # e.g. if p is "repos/xxx/programs/store/" and repo_path ends with "repos/xxx"
                     clean_p = p
                     repo_name = os.path.basename(self.repo_path)
-                    if clean_p.startswith('repos/'):
+                    if clean_p.startswith("repos/"):
                         # Strip everything up to and including the repo name
-                        parts = clean_p.split('/')
+                        parts = clean_p.split("/")
                         if repo_name in parts:
                             idx = parts.index(repo_name)
-                            clean_p = '/'.join(parts[idx+1:])
-                    self.allowed_paths.append(os.path.abspath(os.path.join(self.repo_path, clean_p)))
+                            clean_p = "/".join(parts[idx + 1 :])
+                    self.allowed_paths.append(
+                        os.path.abspath(os.path.join(self.repo_path, clean_p))
+                    )
             # For sub-agents with single scope, use that as working directory
             # This allows tools to work with relative paths naturally
             if len(scope_paths) == 1:
@@ -92,25 +101,25 @@ class BaseAgent(ABC):
             self.restricted_scope = False
             self.allowed_paths = []
             self.working_dir = self.repo_path
-        
+
         # Track sub-agents spawned by this agent (NEW)
         self.sub_agent_reports: list = []  # Will hold SubAgentReport objects
-        
+
         # Set exploits.json path based on working directory (dynamic per agent)
         self.exploits_path = os.path.join(self.working_dir, "exploits.json")
-        
+
         # Load the system prompt and add it to the conversation history
         # Use condensed prompt for sub-agents
         is_sub_agent = depth > 0
         scope_path_str = scope_paths[0] if scope_paths else ""
         self.system_prompt = load_system_prompt(
-            agent_type, 
+            agent_type,
             is_sub_agent=is_sub_agent,
             scope_path=scope_path_str,
             task_description="",  # Will be set in delegation instruction
             max_turns=max_tool_turns,
             depth=depth,
-            max_depth=max_depth
+            max_depth=max_depth,
         )
         self.messages: list[ChatMessage] = [
             ChatMessage(role=Role.SYSTEM, content=self.system_prompt)
@@ -120,11 +129,11 @@ class BaseAgent(ABC):
         self.max_tool_turns = max_tool_turns
         self.use_vllm = use_vllm
         self.use_openai = use_openai
-        
+
         # Budget tracking
         self.total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
         self.estimated_cost = 0.0
-        
+
         # Time tracking
         self.time_spent = 0.0  # Time spent by this agent only (seconds)
         self.start_time = None  # Will be set when chat() starts
@@ -135,7 +144,7 @@ class BaseAgent(ABC):
         else:
             if use_openai:
                 self.model = OPENAI_STRONG_MODEL
-            else:   
+            else:
                 self.model = OPENROUTER_STRONG_MODEL
 
         # Each Agent instance gets its own clients to avoid bottlenecks
@@ -147,14 +156,14 @@ class BaseAgent(ABC):
     def can_spawn_sub_agent(self) -> bool:
         """Check if this agent can spawn sub-agents based on depth."""
         return self.depth < self.max_depth
-    
+
     def calculate_cost(self, usage_data: Dict[str, int]) -> float:
         """
         Calculate cost from usage data using dynamic pricing.
-        
+
         Args:
             usage_data: Dict with prompt_tokens and completion_tokens
-            
+
         Returns:
             Cost in dollars
         """
@@ -162,11 +171,11 @@ class BaseAgent(ABC):
         prompt_cost = usage_data.get("prompt_tokens", 0) * pricing["prompt"]
         completion_cost = usage_data.get("completion_tokens", 0) * pricing["completion"]
         return prompt_cost + completion_cost
-    
+
     def update_budget(self, usage_data: Dict[str, int]):
         """
         Update token usage and estimated cost.
-        
+
         Args:
             usage_data: Dict with prompt_tokens, completion_tokens, total_tokens
         """
@@ -174,50 +183,53 @@ class BaseAgent(ABC):
         self.total_tokens["completion_tokens"] += usage_data.get("completion_tokens", 0)
         cost = self.calculate_cost(usage_data)
         self.estimated_cost += cost
-    
+
     def _get_remaining_turns(self) -> int:
         """Get the number of remaining turns for this agent."""
         # Count assistant messages with python code to determine turns used
         turns_used = sum(
-            1 for msg in self.messages 
+            1
+            for msg in self.messages
             if msg.role == Role.ASSISTANT and "<python>" in msg.content
         )
         return self.max_tool_turns - turns_used
-    
+
     @abstractmethod
     def check_termination(self, response: str, python_code: str) -> bool:
         """
         Check if the agent should terminate based on the response.
-        
+
         Args:
             response: The full response from the model.
             python_code: The extracted python code from the response.
-            
+
         Returns:
             True if the agent should terminate, False otherwise.
         """
         pass
-    
+
     @abstractmethod
     def get_tools_module(self) -> str:
         """
         Get the tools module name for execute_sandboxed_code.
-        
+
         Returns:
             The module name to import for tools.
         """
         pass
-    
+
     @abstractmethod
-    def extract_final_result(self, thoughts: str, python_code: str, response: str) -> AgentResponse:
+    def extract_final_result(
+        self, thoughts: str, python_code: str, response: str
+    ) -> AgentResponse:
         """
         Extract the final result from the agent's work.
-        
+
         Args:
             thoughts: The extracted thoughts.
             python_code: The extracted python code.
             response: The full response.
-            
+
         Returns:
             An AgentResponse object with the final result.
         """
@@ -265,21 +277,22 @@ class BaseAgent(ABC):
 
             # Log agent start event for timeline tracking
             try:
-                from observability.logger import exploit_logger
-                exploit_logger.send(
-                    message=f"Agent started: {self.agent_type.value if self.agent_type else 'unknown'}",
-                    severity="INFO",
-                    attrs={
+                logging.info(
+                    f"Agent started: {self.agent_type.value if self.agent_type else 'unknown'}",
+                    extra={
+                        "mongo": True,
                         "event_type": "agent_start",
                         "agent_id": self.agent_id,
                         "parent_agent_id": self.parent_agent_id or "",
                         "depth": str(self.depth),
                         "max_depth": str(self.max_depth),
-                        "scope_paths": ",".join(self.scope_paths) if self.scope_paths else "",
+                        "scope_paths": (
+                            ",".join(self.scope_paths) if self.scope_paths else ""
+                        ),
                         "model": self.model,
                         "max_turns": str(self.max_tool_turns),
                         "timestamp": str(self.start_time),
-                    }
+                    },
                 )
             except Exception:
                 pass  # Don't fail if logging fails
@@ -295,25 +308,29 @@ class BaseAgent(ABC):
             use_vllm=self.use_vllm,
             use_openai=self.use_openai,
         )
-        
+
         # Update budget tracking
         self.update_budget(usage_data)
 
         # Log real-time metrics after each API call
         try:
-            from observability.logger import exploit_logger
-            exploit_logger.send(
-                message=f"Metrics update for agent {self.agent_id}",
-                severity="INFO",
-                attrs={
+            logging.info(
+                f"Metrics update for agent {self.agent_id}",
+                extra={
+                    "mongo": True,
                     "event_type": "metrics_update",
                     "agent_id": self.agent_id,
                     "current_cost": str(self.estimated_cost),
                     "prompt_tokens": str(self.total_tokens.get("prompt_tokens", 0)),
-                    "completion_tokens": str(self.total_tokens.get("completion_tokens", 0)),
-                    "total_tokens": str(self.total_tokens.get("prompt_tokens", 0) + self.total_tokens.get("completion_tokens", 0)),
+                    "completion_tokens": str(
+                        self.total_tokens.get("completion_tokens", 0)
+                    ),
+                    "total_tokens": str(
+                        self.total_tokens.get("prompt_tokens", 0)
+                        + self.total_tokens.get("completion_tokens", 0)
+                    ),
                     "timestamp": str(time.time()),
-                }
+                },
             )
         except Exception:
             pass  # Don't fail if logging fails
@@ -323,8 +340,10 @@ class BaseAgent(ABC):
 
         # CRITICAL ERROR HANDLING: Check if initial response is empty or malformed
         response_is_empty = not response or not response.strip()
-        response_is_malformed = not thoughts and not python_code and not response_is_empty
-        
+        response_is_malformed = (
+            not thoughts and not python_code and not response_is_empty
+        )
+
         if response_is_empty or response_is_malformed:
             # Provide clear error feedback for malformed initial response
             error_feedback = (
@@ -336,7 +355,7 @@ class BaseAgent(ABC):
             )
             # Add error feedback and retry
             self._add_message(ChatMessage(role=Role.USER, content=error_feedback))
-            
+
             # Get a new response
             response, usage_data = await get_model_response(
                 messages=self.messages,
@@ -373,22 +392,35 @@ class BaseAgent(ABC):
             return self.extract_final_result(thoughts, python_code, response)
 
         remaining_tool_turns = self.max_tool_turns
-        
+
         # Only enter loop if there was Python code in the first response (except for finder agent)
         # Setup progress bar
         agent_desc = f"{'Sub-' if self.depth > 0 else ''}Agent (Depth {self.depth})"
         if self.scope_paths:
             agent_desc += f" [{self.scope_paths[0]}]"
-        
-        with tqdm(total=self.max_tool_turns, desc=agent_desc, unit="turn", 
-                  leave=True, position=self.depth, ncols=100) as pbar:
+
+        with tqdm(
+            total=self.max_tool_turns,
+            desc=agent_desc,
+            unit="turn",
+            leave=True,
+            position=self.depth,
+            ncols=100,
+        ) as pbar:
             # Update to show initial turn
             turns_done = self.max_tool_turns - remaining_tool_turns
             pbar.update(turns_done)
-            
-            while remaining_tool_turns > 0 and (python_code or self.agent_type == AgentType.FINDER):
+
+            while remaining_tool_turns > 0 and (
+                python_code or self.agent_type == AgentType.FINDER
+            ):
                 self._add_message(
-                    ChatMessage(role=Role.USER, content=format_results_and_remaining_turns(result[0], result[1], remaining_tool_turns))
+                    ChatMessage(
+                        role=Role.USER,
+                        content=format_results_and_remaining_turns(
+                            result[0], result[1], remaining_tool_turns
+                        ),
+                    )
                 )
                 response, usage_data = await get_model_response(
                     messages=self.messages,
@@ -406,23 +438,24 @@ class BaseAgent(ABC):
 
                 # Log turn-by-turn progress for timeline tracking
                 try:
-                    from observability.logger import exploit_logger
                     turn_index = self.max_tool_turns - remaining_tool_turns
                     action_type = "code_execution" if python_code else "no_code"
 
-                    exploit_logger.send(
-                        message=f"Turn {turn_index} completed for agent {self.agent_id}",
-                        severity="INFO",
-                        attrs={
+                    logging.info(
+                        f"Turn {turn_index} completed for agent {self.agent_id}",
+                        extra={
+                            "mongo": True,
                             "event_type": "turn_progress",
                             "agent_id": self.agent_id,
                             "turn_index": str(turn_index),
                             "remaining_turns": str(remaining_tool_turns),
                             "action_type": action_type,
-                            "code_length": str(len(python_code)) if python_code else "0",
+                            "code_length": (
+                                str(len(python_code)) if python_code else "0"
+                            ),
                             "has_thoughts": str(bool(thoughts)),
                             "timestamp": str(time.time()),
-                        }
+                        },
                     )
                 except Exception:
                     pass  # Don't fail if logging fails
@@ -430,8 +463,10 @@ class BaseAgent(ABC):
                 # CRITICAL ERROR HANDLING: Check if response is empty or malformed
                 # The model MUST provide either <think> or <python> blocks per the system prompt
                 response_is_empty = not response or not response.strip()
-                response_is_malformed = not thoughts and not python_code and not response_is_empty
-                
+                response_is_malformed = (
+                    not thoughts and not python_code and not response_is_empty
+                )
+
                 if response_is_empty or response_is_malformed:
                     # Don't add the malformed response to conversation
                     # Instead, provide clear feedback to the model about the format violation
@@ -442,7 +477,9 @@ class BaseAgent(ABC):
                         "2. Follow with <python>...</python> - Python code to use tools\n\n"
                         "Please provide a valid response with both <think> and <python> blocks."
                     )
-                    self._add_message(ChatMessage(role=Role.USER, content=error_feedback))
+                    self._add_message(
+                        ChatMessage(role=Role.USER, content=error_feedback)
+                    )
                     # Don't decrement remaining_tool_turns for this error case
                     # Give the model another chance to provide a valid response
                     continue
@@ -472,22 +509,31 @@ class BaseAgent(ABC):
                         result = ({}, error_msg)
                     remaining_tool_turns -= 1
                     pbar.update(1)
-                    
+
                     # Update postfix with exploit count
-                    exploit_count = len(self.sub_agent_reports) if hasattr(self, 'sub_agent_reports') else 0
+                    exploit_count = (
+                        len(self.sub_agent_reports)
+                        if hasattr(self, "sub_agent_reports")
+                        else 0
+                    )
                     pbar.set_postfix_str(f"Exploits: {exploit_count}")
-                    
+
                     # Small delay to allow event loop to process cleanup tasks
                     # This helps with memory management when spawning many sub-agents
                     await asyncio.sleep(0.01)
                 else:
                     if self.agent_type == AgentType.FINDER:
-                        self._add_message(ChatMessage(role=Role.USER, content="Don't stop yet, keep searching for exploits."))
+                        self._add_message(
+                            ChatMessage(
+                                role=Role.USER,
+                                content="Don't stop yet, keep searching for exploits.",
+                            )
+                        )
                     else:
                         # Other agents terminate when there's no more python code to execute
                         pbar.set_postfix_str("✓ Completed (no more code)")
                         break
-            
+
             # Final update
             if remaining_tool_turns == 0:
                 pbar.set_postfix_str("✓ Completed (max turns)")
@@ -498,21 +544,27 @@ class BaseAgent(ABC):
 
             # Log agent completion event for timeline tracking
             try:
-                from observability.logger import exploit_logger
-                exploit_logger.send(
-                    message=f"Agent completed: {self.agent_type.value if self.agent_type else 'unknown'}",
-                    severity="INFO",
-                    attrs={
+                logging.info(
+                    f"Agent completed: {self.agent_type.value if self.agent_type else 'unknown'}",
+                    extra={
+                        "mongo": True,
                         "event_type": "agent_complete",
                         "agent_id": self.agent_id,
                         "parent_agent_id": self.parent_agent_id or "",
                         "depth": str(self.depth),
                         "time_spent": str(self.time_spent),
                         "total_cost": str(self.estimated_cost),
-                        "total_tokens": str(self.total_tokens.get("prompt_tokens", 0) + self.total_tokens.get("completion_tokens", 0)),
-                        "exploit_count": str(len(self.sub_agent_reports)) if hasattr(self, 'sub_agent_reports') else "0",
+                        "total_tokens": str(
+                            self.total_tokens.get("prompt_tokens", 0)
+                            + self.total_tokens.get("completion_tokens", 0)
+                        ),
+                        "exploit_count": (
+                            str(len(self.sub_agent_reports))
+                            if hasattr(self, "sub_agent_reports")
+                            else "0"
+                        ),
                         "timestamp": str(time.time()),
-                    }
+                    },
                 )
             except Exception:
                 pass  # Don't fail if logging fails
@@ -520,15 +572,15 @@ class BaseAgent(ABC):
         return self.extract_final_result(thoughts, python_code, response)
 
     def save_conversation(
-        self, 
-        log: bool = False, 
+        self,
+        log: bool = False,
         save_folder: str = None,
         prefix: Optional[str] = None,
     ):
         """
         Save the conversation messages to a JSON file in
         the output/conversations directory.
-        
+
         For agents with sub-agent reports, the conversation will include
         nested sub-agent data for building a hierarchical web viewer.
         """
@@ -557,61 +609,75 @@ class BaseAgent(ABC):
             )
             for message in self.messages
         ]
-        
+
         # Load exploits from exploits.json if it exists
         found_exploits = []
         exploit_stats = {}
         try:
             if os.path.exists(self.exploits_path):
-                with open(self.exploits_path, 'r') as f:
+                with open(self.exploits_path, "r") as f:
                     found_exploits = json.load(f)
                     # Calculate exploit stats by severity
                     for exploit in found_exploits:
-                        severity = exploit.get('severity', 'unknown')
+                        severity = exploit.get("severity", "unknown")
                         exploit_stats[severity] = exploit_stats.get(severity, 0) + 1
         except Exception:
             pass  # If file doesn't exist or can't be read, leave empty
-        
+
         # Aggregate sub-agent costs, exploits, and time
         sub_agent_total_cost = 0.0
         sub_agent_total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
         sub_agent_total_time = 0.0
         sub_agent_exploits = []
         sub_agent_exploit_stats = {}
-        
+
         for sub_report in self.sub_agent_reports:
             if "budget_used" in sub_report:
                 sub_agent_total_cost += sub_report["budget_used"].get("total_cost", 0.0)
                 tokens = sub_report["budget_used"].get("tokens", {})
-                sub_agent_total_tokens["prompt_tokens"] += tokens.get("prompt_tokens", 0)
-                sub_agent_total_tokens["completion_tokens"] += tokens.get("completion_tokens", 0)
+                sub_agent_total_tokens["prompt_tokens"] += tokens.get(
+                    "prompt_tokens", 0
+                )
+                sub_agent_total_tokens["completion_tokens"] += tokens.get(
+                    "completion_tokens", 0
+                )
             if "time_used" in sub_report:
                 # time_used contains combined_time_spent for sub-agents with their own sub-agents
-                sub_agent_total_time += sub_report["time_used"].get("combined_time_spent", 
-                                                                     sub_report["time_used"].get("time_spent", 0.0))
+                sub_agent_total_time += sub_report["time_used"].get(
+                    "combined_time_spent",
+                    sub_report["time_used"].get("time_spent", 0.0),
+                )
             if "exploits" in sub_report:
                 exploits_list = sub_report["exploits"]
                 sub_agent_exploits.extend(exploits_list)
                 # Aggregate exploit stats from sub-agents
                 for exploit in exploits_list:
-                    severity = exploit.get('severity', 'unknown')
-                    sub_agent_exploit_stats[severity] = sub_agent_exploit_stats.get(severity, 0) + 1
-        
+                    severity = exploit.get("severity", "unknown")
+                    sub_agent_exploit_stats[severity] = (
+                        sub_agent_exploit_stats.get(severity, 0) + 1
+                    )
+
         # Calculate combined totals
         combined_total_cost = self.estimated_cost + sub_agent_total_cost
         combined_total_tokens = {
-            "prompt_tokens": self.total_tokens["prompt_tokens"] + sub_agent_total_tokens["prompt_tokens"],
-            "completion_tokens": self.total_tokens["completion_tokens"] + sub_agent_total_tokens["completion_tokens"]
+            "prompt_tokens": self.total_tokens["prompt_tokens"]
+            + sub_agent_total_tokens["prompt_tokens"],
+            "completion_tokens": self.total_tokens["completion_tokens"]
+            + sub_agent_total_tokens["completion_tokens"],
         }
         combined_total_time = self.time_spent + sub_agent_total_time
-        
+
         # Calculate combined exploit stats (this agent + all sub-agents)
         combined_exploit_stats = {}
         for severity, count in exploit_stats.items():
-            combined_exploit_stats[severity] = combined_exploit_stats.get(severity, 0) + count
+            combined_exploit_stats[severity] = (
+                combined_exploit_stats.get(severity, 0) + count
+            )
         for severity, count in sub_agent_exploit_stats.items():
-            combined_exploit_stats[severity] = combined_exploit_stats.get(severity, 0) + count
-        
+            combined_exploit_stats[severity] = (
+                combined_exploit_stats.get(severity, 0) + count
+            )
+
         # Build the conversation data structure
         conversation_data = {
             "agent_id": self.agent_id,
@@ -647,7 +713,7 @@ class BaseAgent(ABC):
             "combined_exploits": found_exploits + sub_agent_exploits,
             "combined_exploit_stats": combined_exploit_stats,
         }
-        
+
         try:
             with open(file_path, "w") as f:
                 json.dump(conversation_data, f, indent=4)
@@ -663,14 +729,14 @@ class BaseAgent(ABC):
                     f.write(error_msg)
             except:
                 pass
-    
+
     async def close(self):
         """
         Clean up resources used by the agent, including closing the HTTP client.
         Should be called when the agent is no longer needed.
         """
         try:
-            if hasattr(self, '_client') and self._client is not None:
+            if hasattr(self, "_client") and self._client is not None:
                 await self._client.aclose()
                 self._client = None
         except Exception:

@@ -11,22 +11,20 @@ import base64
 import threading
 import warnings
 
+from logger import logging
 from agent.settings import SANDBOX_TIMEOUT
 
 # Filter out event loop cleanup warnings (harmless during shutdown)
 warnings.filterwarnings("ignore", message=".*Event loop is closed.*")
-warnings.filterwarnings("ignore", message=".*coroutine.*was never awaited.*", category=RuntimeWarning)
+warnings.filterwarnings(
+    "ignore", message=".*coroutine.*was never awaited.*", category=RuntimeWarning
+)
 
 # Suppress httpx/anyio cleanup warnings when event loop closes in threads
 # These are harmless - the OS will clean up the connections
-import logging
 logging.getLogger("httpx").setLevel(logging.ERROR)
 logging.getLogger("httpcore").setLevel(logging.ERROR)
 logging.getLogger("anyio").setLevel(logging.ERROR)
-
-# Configure a logger for the sandbox (in real use, configure handlers/level as needed)
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)  # or DEBUG for more verbosity
 
 # Global registry for agent instances (to avoid pickling)
 _agent_registry = {}
@@ -60,7 +58,7 @@ def _run_user_code(
                 os.chdir(allowed)  # Change working dir to the allowed_path
             except Exception as e:
                 # If we cannot chdir, log but continue (the open wrapper will still enforce path)
-                logger.warning(
+                logging.warning(
                     "Could not change working directory to %s: %s", allowed, e
                 )
             # Wrap builtins.open to restrict file access
@@ -145,7 +143,7 @@ def _run_user_code(
                     return orig_import(name, globals, locals, fromlist, level)
                 except ImportError as e:
                     pkg = name.split(".")[0]
-                    logger.info(
+                    logging.info(
                         "Sandbox: attempting to install missing package '%s'", pkg
                     )
                     try:
@@ -157,7 +155,7 @@ def _run_user_code(
                         )
                     except Exception as inst_err:
                         # If installation fails, re-raise the original ImportError
-                        logger.error(
+                        logging.error(
                             "Sandbox: failed to install package %s: %s", pkg, inst_err
                         )
                         raise e
@@ -172,11 +170,13 @@ def _run_user_code(
         # Add any provided functions to the execution environment
         if available_functions:
             exec_globals.update(available_functions)
-        
+
         # Add agent accessor function if agent_id provided
         if agent_id:
-            exec_globals['_get_current_agent'] = lambda: get_agent_from_registry(agent_id)
-            exec_globals['_agent_id'] = agent_id
+            exec_globals["_get_current_agent"] = lambda: get_agent_from_registry(
+                agent_id
+            )
+            exec_globals["_agent_id"] = agent_id
 
         exec_locals = {}  # local variables will be collected here
 
@@ -188,14 +188,14 @@ def _run_user_code(
             tb = traceback.format_exc()
             error_msg = f"Exception in sandboxed code:\n{tb}"
             if log:
-                logger.error("Sandbox: code raised an exception: %s", e)
+                logging.error("Sandbox: code raised an exception: %s", e)
         except SystemExit as e:
             # Handle sys.exit calls (which raise SystemExit)
             code_val = e.code if isinstance(e.code, int) or e.code else 0
             if code_val != 0:
                 error_msg = f"Sandboxed code called sys.exit({code_val})"
                 if log:
-                    logger.warning(
+                    logging.warning(
                         "Sandbox: code exited with non-zero status %s", code_val
                     )
             # For sys.exit(0), we treat it as normal termination (no error)
@@ -213,14 +213,14 @@ def _run_user_code(
                 safe_locals[var] = repr(val)  # fallback: use string representation
 
         if log:
-            logger.info("Sandbox execution finished")
+            logging.info("Sandbox execution finished")
 
         return safe_locals, error_msg
 
     except Exception as e:
         # Catch any unhandled exceptions in the worker process
         if log:
-            logger.error(
+            logging.error(
                 "Unhandled exception in sandbox worker: %s", traceback.format_exc()
             )
         return None, f"Sandbox worker error: {str(e)}"
@@ -236,13 +236,13 @@ async def _execute_with_delegation_async(
     Execute async code directly in the current event loop (used when agent calls async tools).
     """
     import asyncio
-    
+
     try:
         # Import the tools module
         if import_module:
             module = importlib.import_module(import_module)
-            module.__dict__['_get_current_agent'] = lambda: agent_instance
-            
+            module.__dict__["_get_current_agent"] = lambda: agent_instance
+
             available_functions = {}
             for name in dir(module):
                 if not name.startswith("_"):
@@ -251,22 +251,22 @@ async def _execute_with_delegation_async(
                         available_functions[name] = attr
         else:
             available_functions = {}
-        
+
         # Add agent accessor and asyncio
-        available_functions['_get_current_agent'] = lambda: agent_instance
-        available_functions['asyncio'] = asyncio
-        
+        available_functions["_get_current_agent"] = lambda: agent_instance
+        available_functions["asyncio"] = asyncio
+
         # DON'T change directory - it's not thread-safe and causes conflicts
         # Instead, ensure agent's working_dir is used by tools via agent instance
-        
+
         # Execute code in async context
         exec_globals = {"__builtins__": __builtins__}
         exec_globals.update(available_functions)
         exec_locals = {}
-        
+
         # Check if code contains await
-        has_await = 'await ' in code
-        
+        has_await = "await " in code
+
         if has_await:
             # Wrap in async function and await it
             async_code = f"""
@@ -275,23 +275,27 @@ async def _async_wrapper():
     return locals()
 """
             exec(async_code, exec_globals, exec_locals)
-            result_locals = await exec_locals['_async_wrapper']()
+            result_locals = await exec_locals["_async_wrapper"]()
             exec_locals.update(result_locals)
         else:
             # Sync code - execute normally
             code_stripped = code.strip()
-            lines = [line for line in code_stripped.split('\n') if line.strip() and not line.strip().startswith('#')]
-            
+            lines = [
+                line
+                for line in code_stripped.split("\n")
+                if line.strip() and not line.strip().startswith("#")
+            ]
+
             if len(lines) == 1:
                 try:
                     result = eval(code_stripped, exec_globals, exec_locals)
                     if result is not None:
-                        exec_locals['_last_result'] = result
+                        exec_locals["_last_result"] = result
                 except SyntaxError:
                     exec(code, exec_globals, exec_locals)
             else:
                 exec(code, exec_globals, exec_locals)
-        
+
         # Filter out non-picklable objects
         safe_locals = {}
         for var, val in exec_locals.items():
@@ -300,11 +304,12 @@ async def _async_wrapper():
                 safe_locals[var] = val
             except Exception:
                 safe_locals[var] = repr(val)
-        
+
         return safe_locals, ""
     except Exception as e:
         tb = traceback.format_exc()
         return {}, f"Exception in code execution:\n{tb}"
+
 
 def _execute_with_delegation(
     code: str,
@@ -317,39 +322,43 @@ def _execute_with_delegation(
     """
     import asyncio
     import threading
-    
+
     result_container = []
     exception_container = []
-    
+
     def run_in_thread():
         loop = None
         try:
             # Create new event loop for this thread
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
+
             # Set custom exception handler to suppress harmless cleanup errors
             def handle_exception(loop, context):
-                exception = context.get('exception')
-                message = context.get('message', '')
-                
+                exception = context.get("exception")
+                message = context.get("message", "")
+
                 # Suppress "Event loop is closed" errors from httpx/anyio cleanup
                 # These happen when httpx tries to close connections after the loop is closed
                 # They're harmless - the OS will clean up the connections
-                if isinstance(exception, RuntimeError) and 'Event loop is closed' in str(exception):
+                if isinstance(
+                    exception, RuntimeError
+                ) and "Event loop is closed" in str(exception):
                     return
-                
+
                 # For other exceptions, use default handling
                 loop.default_exception_handler(context)
-            
+
             loop.set_exception_handler(handle_exception)
-            
+
             # Run the main async function
             result = loop.run_until_complete(
-                _execute_with_delegation_async(code, allowed_path, import_module, agent_instance)
+                _execute_with_delegation_async(
+                    code, allowed_path, import_module, agent_instance
+                )
             )
             result_container.append(result)
-            
+
         except Exception as e:
             exception_container.append(e)
         finally:
@@ -361,7 +370,7 @@ def _execute_with_delegation(
                     loop.run_until_complete(asyncio.sleep(0.1))
                 except Exception:
                     pass
-                
+
                 # Now wait for ALL pending tasks to complete
                 max_cleanup_attempts = 3
                 for attempt in range(max_cleanup_attempts):
@@ -369,12 +378,12 @@ def _execute_with_delegation(
                         pending = asyncio.all_tasks(loop)
                         if not pending:
                             break
-                        
+
                         # Wait for all pending tasks with a timeout
                         loop.run_until_complete(
                             asyncio.wait_for(
                                 asyncio.gather(*pending, return_exceptions=True),
-                                timeout=2.0
+                                timeout=2.0,
                             )
                         )
                     except asyncio.TimeoutError:
@@ -391,25 +400,25 @@ def _execute_with_delegation(
                             pass
                     except Exception:
                         pass
-                
+
                 # Shutdown async generators
                 try:
                     loop.run_until_complete(loop.shutdown_asyncgens())
                 except Exception:
                     pass
-                
+
                 # Shutdown default executor
                 try:
                     loop.run_until_complete(loop.shutdown_default_executor())
                 except Exception:
                     pass
-                
+
                 # Final delay to let the system finish any remaining cleanup
                 try:
                     loop.run_until_complete(asyncio.sleep(0.1))
                 except Exception:
                     pass
-                
+
                 # Check one more time for any straggler tasks
                 try:
                     pending = asyncio.all_tasks(loop)
@@ -421,30 +430,28 @@ def _execute_with_delegation(
                         )
                 except Exception:
                     pass
-                
+
                 # Finally, close the loop
                 try:
                     loop.close()
                 except Exception:
                     pass
-    
+
     thread = threading.Thread(target=run_in_thread, daemon=False)
     thread.start()
     thread.join(SANDBOX_TIMEOUT)
-    
+
     if thread.is_alive():
         # Thread is still running after timeout
         return {}, "Thread execution timed out"
-    
+
     if exception_container:
         raise exception_container[0]
-    
+
     if not result_container:
         return {}, "No result returned from thread"
-    
+
     return result_container[0]
-
-
 
 
 def execute_sandboxed_code(
@@ -482,7 +489,7 @@ def execute_sandboxed_code(
     # Step 1: If package installs are allowed, handle requirements and prepare environment
     if requirements_path:
         if os.path.isfile(requirements_path):
-            logger.info(
+            logging.info(
                 "Installing packages from requirements file: %s", requirements_path
             )
             try:
@@ -493,13 +500,13 @@ def execute_sandboxed_code(
                     stderr=subprocess.DEVNULL,
                 )
             except Exception as e:
-                logger.error(
+                logging.error(
                     "Failed to install requirements from %s: %s", requirements_path, e
                 )
                 # If requirements fail to install, we can choose to abort or continue. Here, abort execution.
                 return None, f"Failed to install requirements: {e}"
         else:
-            logger.error("Requirements file %s not found.", requirements_path)
+            logging.error("Requirements file %s not found.", requirements_path)
             return None, f"Requirements file not found: {requirements_path}"
 
     # Check if this is a sub-agent or code contains special functions - if so, execute in main process
@@ -507,8 +514,10 @@ def execute_sandboxed_code(
     # delegate_to_sub_agent and add_exploit need main process for HTTP clients
     if agent_instance is not None:
         # Always run in main process if agent instance is provided (handles sub-agents + special functions)
-        return _execute_with_delegation(code, allowed_path, import_module, agent_instance)
-    
+        return _execute_with_delegation(
+            code, allowed_path, import_module, agent_instance
+        )
+
     # If a module name is provided, import it and add its functions to available_functions
     if isinstance(available_functions, str) and not import_module:
         import_module = available_functions
@@ -525,9 +534,9 @@ def execute_sandboxed_code(
                     if callable(attr):
                         available_functions[name] = attr
         except ImportError as e:
-            logger.error(f"Failed to import module {import_module}: {e}")
+            logging.error(f"Failed to import module {import_module}: {e}")
             return None, f"Failed to import module {import_module}: {e}"
-    
+
     # Add agent instance to registry and pass only the ID (NEW)
     agent_id = None
     if agent_instance is not None:
@@ -559,7 +568,7 @@ def execute_sandboxed_code(
             env=env,
         )
     except subprocess.TimeoutExpired:
-        logger.error(
+        logging.error(
             "Sandboxed code exceeded time limit of %d seconds; terminating.", timeout
         )
         # Clean up agent from registry
