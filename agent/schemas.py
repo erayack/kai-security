@@ -109,14 +109,10 @@ class SubAgentReport(BaseModel):
     # Exploration results
     files_explored: List[str] = Field(default_factory=list)
     exploits_found: List[ExploitSummary] = Field(default_factory=list)
-    exploit_stats: Dict[str, int] = Field(default_factory=dict)  # {"critical": 2, "high": 5, ...}
+    # For finder agents: {"critical": 2, "high": 5, ...}
+    # For generator agents: {"category_name": {"verified": int, "unverified": int}, ...}
+    exploit_stats: Dict[str, Any] = Field(default_factory=dict)
     code_references: List[CodeReference] = Field(default_factory=list, max_length=10)
-    
-    # Sub-agent exploit tracking
-    sub_agent_exploit_stats: Dict[str, int] = Field(default_factory=dict)
-    
-    # Combined exploit stats (this agent + all sub-agents)
-    combined_exploit_stats: Dict[str, int] = Field(default_factory=dict)
     
     # Sub-reports from recursive delegation
     sub_reports: List['SubAgentReport'] = Field(default_factory=list)
@@ -151,11 +147,22 @@ def report_to_string(report: SubAgentReport, indent: int = 0) -> str:
         f"{prefix}EXPLOITS FOUND (This Agent): {len(report.exploits_found)}",
     ]
     
-    # Add combined exploit stats if available
-    if report.combined_exploit_stats:
-        total_combined = sum(report.combined_exploit_stats.values())
-        stats_str = ", ".join(f"{count} {sev}" for sev, count in sorted(report.combined_exploit_stats.items()))
-        lines.append(f"{prefix}EXPLOITS FOUND (Combined): {total_combined} - [{stats_str}]")
+    # Add exploit stats based on structure (finder vs generator)
+    if report.exploit_stats:
+        # Check if it's generator-style (category-based with verified/unverified)
+        first_value = next(iter(report.exploit_stats.values()), None)
+        if isinstance(first_value, dict) and "verified" in first_value:
+            # Generator agent stats
+            total_verified = sum(cat_stats.get("verified", 0) for cat_stats in report.exploit_stats.values())
+            total_unverified = sum(cat_stats.get("unverified", 0) for cat_stats in report.exploit_stats.values())
+            lines.append(f"{prefix}EXPLOIT STATS: {total_verified} verified, {total_unverified} unverified")
+            for category, stats in sorted(report.exploit_stats.items()):
+                lines.append(f"{prefix}  {category}: {stats.get('verified', 0)} verified, {stats.get('unverified', 0)} unverified")
+        else:
+            # Finder agent stats (severity-based)
+            total = sum(report.exploit_stats.values())
+            stats_str = ", ".join(f"{count} {sev}" for sev, count in sorted(report.exploit_stats.items()))
+            lines.append(f"{prefix}EXPLOIT STATS: {total} total - [{stats_str}]")
     
     lines.append("")  # Empty line before exploit details
     

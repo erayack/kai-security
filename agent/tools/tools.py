@@ -13,6 +13,24 @@ from typing import Optional, Union
 from agent.utils import load_gitignore_spec, should_ignore_path
 
 
+def _get_current_agent():
+    """
+    Get the current agent instance from the global registry.
+    This is set during sandboxed code execution.
+    """
+    try:
+        # Try to get from local scope first (passed via execute_sandboxed_code)
+        import inspect
+        frame = inspect.currentframe()
+        while frame:
+            if '_agent_instance' in frame.f_locals:
+                return frame.f_locals['_agent_instance']
+            frame = frame.f_back
+    except:
+        pass
+    return None
+
+
 def read_file(file_path: str, start_line: Optional[int] = None, end_line: Optional[int] = None) -> str:
     """
     Read a file with a given path, optionally specifying a line range.
@@ -30,11 +48,21 @@ def read_file(file_path: str, start_line: Optional[int] = None, end_line: Option
         read_file("foo.rs", 100, 150)    # Lines 100-150 only
     """
     try:
+        # Resolve relative paths relative to agent's working_dir
+        try:
+            agent = _get_current_agent()
+            if agent and not os.path.isabs(file_path):
+                file_path = os.path.join(agent.working_dir, file_path)
+        except (NameError, TypeError):
+            pass
+        
+        # Now convert to absolute path for scope validation
+        abs_path = os.path.abspath(file_path)
+        
         # Scope validation (if _get_current_agent is available)
         try:
             agent = _get_current_agent()
             if agent and hasattr(agent, 'restricted_scope') and agent.restricted_scope:
-                abs_path = os.path.abspath(file_path)
                 if not any(abs_path.startswith(allowed) for allowed in agent.allowed_paths):
                     return f"Error: Access denied. File '{file_path}' is outside assigned scope."
         except (NameError, TypeError):
@@ -42,13 +70,13 @@ def read_file(file_path: str, start_line: Optional[int] = None, end_line: Option
             pass
         
         # Ensure the file path is properly resolved
-        if not os.path.exists(file_path):
+        if not os.path.exists(abs_path):
             return f"Error: File {file_path} does not exist"
         
-        if not os.path.isfile(file_path):
+        if not os.path.isfile(abs_path):
             return f"Error: {file_path} is not a file"
         
-        with open(file_path, "r") as f:
+        with open(abs_path, "r") as f:
             if start_line is None and end_line is None:
                 # Read entire file
                 return f.read()
@@ -77,10 +105,9 @@ def read_file(file_path: str, start_line: Optional[int] = None, end_line: Option
         return f"Error: {e}"
 
 
-def list_files(depth: int, path: Optional[str] = None) -> str:
+def list_files(path: Optional[str] = None, depth: int = 2) -> str:
     """
-    Display all files and directories in the current working directory as a tree structure. 
-    If given a path, display the files and directories in the given path.
+    Display all files and directories as a tree structure. 
     
     Example output:
     ```
@@ -92,13 +119,24 @@ def list_files(depth: int, path: Optional[str] = None) -> str:
     ```
 
     Args:
-        depth: Maximum depth to traverse.
+        path: Optional path to the directory to display. If None, uses current working directory.
+        depth: Maximum depth to traverse. Default is 2.
            depth=0 shows only the root directory contents,
            depth=1 shows root and one level of subdirectories, etc.
-        path: The path to the directory to display.
+               Set to a large number (e.g., 10) for deep exploration.
 
     Returns:
         A string representation of the directory tree.
+        
+    Examples:
+        # List current directory with default depth of 2
+        tree = list_files()
+        
+        # List specific directory with custom depth
+        tree = list_files(path="bft", depth=1)
+        
+        # Deep exploration
+        tree = list_files(depth=10)
     """
     try:
         # Use agent's working_dir if available and no path specified, otherwise os.getcwd()
@@ -109,7 +147,18 @@ def list_files(depth: int, path: Optional[str] = None) -> str:
             except (NameError, TypeError):
                 dir_path = os.getcwd()
         else:
-            dir_path = path
+            # Resolve relative paths relative to agent's working_dir
+            if not os.path.isabs(path):
+                try:
+                    agent = _get_current_agent()
+                    if agent:
+                        dir_path = os.path.join(agent.working_dir, path)
+                    else:
+                        dir_path = os.path.abspath(path)
+                except (NameError, TypeError):
+                    dir_path = os.path.abspath(path)
+            else:
+                dir_path = path
         
         # Scope validation (if _get_current_agent is available)
         try:
@@ -529,12 +578,28 @@ def cargo_test(
             else:
                 cmd_parts.extend(additional_args.split())
         
+        # Resolve working_dir relative to agent's working_dir
+        resolved_dir = working_dir
+        if working_dir is not None:
+            try:
+                agent = _get_current_agent()
+                if agent and not os.path.isabs(working_dir):
+                    resolved_dir = os.path.join(agent.working_dir, working_dir)
+            except (NameError, TypeError):
+                pass
+        else:
+            try:
+                agent = _get_current_agent()
+                resolved_dir = agent.working_dir if agent else os.getcwd()
+            except (NameError, TypeError):
+                resolved_dir = os.getcwd()
+        
         # Run the command
         result = subprocess.run(
             cmd_parts,
             capture_output=True,
             text=True,
-            cwd=working_dir
+            cwd=resolved_dir
         )
         
         # Try to parse JSON output if requested
@@ -646,12 +711,124 @@ def anchor_test(
         if additional_args:
             cmd_parts.extend(additional_args.split())
         
+        # Resolve working_dir relative to agent's working_dir
+        resolved_dir = working_dir
+        if working_dir is not None:
+            try:
+                agent = _get_current_agent()
+                if agent and not os.path.isabs(working_dir):
+                    resolved_dir = os.path.join(agent.working_dir, working_dir)
+            except (NameError, TypeError):
+                pass
+        else:
+            try:
+                agent = _get_current_agent()
+                resolved_dir = agent.working_dir if agent else os.getcwd()
+            except (NameError, TypeError):
+                resolved_dir = os.getcwd()
+        
         # Run the command
         result = subprocess.run(
             cmd_parts,
             capture_output=True,
             text=True,
-            cwd=working_dir
+            cwd=resolved_dir
+        )
+        
+        # Return raw output
+        return {
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode
+        }
+            
+    except Exception as e:
+        return {
+            "error": str(e),
+            "stdout": "",
+            "stderr": "",
+            "returncode": -1
+        }
+
+
+def ctest(
+    build_dir: str,
+    test_regex: Optional[str] = None,
+    parallel: bool = True,
+    verbose: bool = False,
+    additional_args: Optional[str] = None
+) -> dict:
+    """
+    Run tests for a C++ project using CTest.
+    
+    CTest is CMake's test runner. Tests must be registered with CMake (add_test() in CMakeLists.txt)
+    and the project must be built before running tests.
+
+    Args:
+        build_dir: The directory containing the CMake build files (where you ran cmake_build).
+        test_regex: Optional regex pattern to filter tests by name.
+                   For example: "unit_.*" to run only unit tests.
+        parallel: If True, runs tests in parallel using available CPU cores.
+                 Default is True.
+        verbose: If True, enables verbose output (shows test output even for passing tests).
+                Default is False.
+        additional_args: Any additional ctest arguments as a string.
+                        For example: "--rerun-failed --output-on-failure"
+
+    Returns:
+        A dictionary containing the test results:
+        - stdout: The standard output from ctest
+        - stderr: The standard error from ctest
+        - returncode: The exit code (0 for success, non-zero for failure)
+        
+    Examples:
+        # Run all tests in parallel
+        result = ctest(build_dir="monad/build")
+        
+        # Run specific test pattern with verbose output
+        result = ctest(build_dir="monad/build", test_regex="unit_.*", verbose=True)
+        
+        # Run tests serially (no parallelization)
+        result = ctest(build_dir="monad/build", parallel=False)
+        
+        # Run with custom flags
+        result = ctest(build_dir="monad/build", additional_args="--output-on-failure --timeout 300")
+    """
+    try:
+        # Build the ctest command
+        cmd_parts = ["ctest"]
+        
+        # Add test regex filter if specified
+        if test_regex:
+            cmd_parts.extend(["-R", test_regex])
+        
+        # Add parallel flag if requested
+        if parallel:
+            cmd_parts.append("--parallel")
+        
+        # Add verbose flag if requested
+        if verbose:
+            cmd_parts.append("--verbose")
+        
+        # Add any additional arguments
+        if additional_args:
+            cmd_parts.extend(additional_args.split())
+        
+        # Resolve build_dir relative to agent's working_dir
+        resolved_build_dir = build_dir
+        try:
+            agent = _get_current_agent()
+            if agent and not os.path.isabs(build_dir):
+                resolved_build_dir = os.path.join(agent.working_dir, build_dir)
+        except (NameError, TypeError):
+            pass
+        
+        # Run the command from the build directory
+        result = subprocess.run(
+            cmd_parts,
+            capture_output=True,
+            text=True,
+            cwd=resolved_build_dir
         )
         
         # Return raw output
@@ -753,6 +930,14 @@ def create_file(file_path: str, content: str = "") -> bool:
     """
     temp_file_path = None
     try:
+        # Resolve relative paths relative to agent's working_dir
+        try:
+            agent = _get_current_agent()
+            if agent and not os.path.isabs(file_path):
+                file_path = os.path.join(agent.working_dir, file_path)
+        except (NameError, TypeError):
+            pass
+        
         # Create parent directories if they don't exist
         parent_dir = os.path.dirname(file_path)
         if parent_dir and not os.path.exists(parent_dir):

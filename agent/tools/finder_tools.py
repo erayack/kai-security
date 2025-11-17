@@ -17,6 +17,25 @@ from logger import logging
 from logger.mongo_logger import log_exploit_discovered
 
 
+def _get_current_agent():
+    """
+    Get the current agent instance from the global registry.
+    This is set during sandboxed code execution.
+    """
+    try:
+        # Try to get from local scope first (passed via execute_sandboxed_code)
+        import inspect
+
+        frame = inspect.currentframe()
+        while frame:
+            if "_agent_instance" in frame.f_locals:
+                return frame.f_locals["_agent_instance"]
+            frame = frame.f_back
+    except:
+        pass
+    return None
+
+
 async def delegate_to_sub_agent(
     scope_path: str,
     task_description: str,
@@ -398,8 +417,14 @@ Now you can decide whether the exploit is a non-duplicate or not.
                     except Exception:
                         exploits = []
 
+                    # Add timestamp to exploit before saving
+                    import datetime
+
+                    exploit_dict = exploit.model_dump()
+                    exploit_dict["created_at"] = datetime.datetime.now().isoformat()
+
                     # Add new exploit
-                    new_data = exploits + [exploit.model_dump()]
+                    new_data = exploits + [exploit_dict]
 
                     # Write atomically using temp file
                     with tempfile.NamedTemporaryFile(

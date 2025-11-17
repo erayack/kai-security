@@ -259,42 +259,55 @@ async def _execute_with_delegation_async(
         # DON'T change directory - it's not thread-safe and causes conflicts
         # Instead, ensure agent's working_dir is used by tools via agent instance
 
-        # Execute code in async context
+        # Execute code in async context with stdout/stderr captured
         exec_globals = {"__builtins__": __builtins__}
         exec_globals.update(available_functions)
         exec_locals = {}
 
-        # Check if code contains await
-        has_await = "await " in code
+        # Capture stdout/stderr to suppress agent's print statements
+        import io
 
-        if has_await:
-            # Wrap in async function and await it
-            async_code = f"""
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
+
+        try:
+            # Check if code contains await
+            has_await = "await " in code
+
+            if has_await:
+                # Wrap in async function and await it
+                async_code = f"""
 async def _async_wrapper():
 {chr(10).join('    ' + line for line in code.split(chr(10)))}
     return locals()
 """
-            exec(async_code, exec_globals, exec_locals)
-            result_locals = await exec_locals["_async_wrapper"]()
-            exec_locals.update(result_locals)
-        else:
-            # Sync code - execute normally
-            code_stripped = code.strip()
-            lines = [
-                line
-                for line in code_stripped.split("\n")
-                if line.strip() and not line.strip().startswith("#")
-            ]
-
-            if len(lines) == 1:
-                try:
-                    result = eval(code_stripped, exec_globals, exec_locals)
-                    if result is not None:
-                        exec_locals["_last_result"] = result
-                except SyntaxError:
-                    exec(code, exec_globals, exec_locals)
+                exec(async_code, exec_globals, exec_locals)
+                result_locals = await exec_locals["_async_wrapper"]()
+                exec_locals.update(result_locals)
             else:
-                exec(code, exec_globals, exec_locals)
+                # Sync code - execute normally
+                code_stripped = code.strip()
+                lines = [
+                    line
+                    for line in code_stripped.split("\n")
+                    if line.strip() and not line.strip().startswith("#")
+                ]
+
+                if len(lines) == 1:
+                    try:
+                        result = eval(code_stripped, exec_globals, exec_locals)
+                        if result is not None:
+                            exec_locals["_last_result"] = result
+                    except SyntaxError:
+                        exec(code, exec_globals, exec_locals)
+                else:
+                    exec(code, exec_globals, exec_locals)
+        finally:
+            # Restore stdout/stderr
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
 
         # Filter out non-picklable objects
         safe_locals = {}

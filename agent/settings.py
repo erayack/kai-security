@@ -10,6 +10,9 @@ MAX_TOOL_TURNS = 24
 MAX_SUBAGENT_TURNS = 24
 MAX_DEPTH = 2
 
+# Generator settings
+GENERATOR_BATCH_SIZE = 1  # Number of exploits.json files to process in parallel
+
 # OpenRouter
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -33,6 +36,7 @@ FINDER_AGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "finder
 FINDER_SUBAGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "finder_subagent_prompt.txt"
 NON_DUPLICATE_VERIFIER_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "non_duplicate_verifier_prompt.txt"
 TEST_GENERATOR_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "test_generator_prompt.txt"
+GENERATOR_SUBAGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "generator_subagent_prompt.txt"
 SETUP_AGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "setup_agent_prompt.txt"
 FIXER_AGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "fixer_agent_prompt.txt"
 SAVE_CONVERSATION_PATH = "output/conversations/"

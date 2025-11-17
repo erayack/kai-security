@@ -3,6 +3,7 @@ from agent.settings import (
     FINDER_SUBAGENT_PROMPT_PATH,
     NON_DUPLICATE_VERIFIER_PROMPT_PATH,
     TEST_GENERATOR_PROMPT_PATH,
+    GENERATOR_SUBAGENT_PROMPT_PATH,
     SETUP_AGENT_PROMPT_PATH,
     FIXER_AGENT_PROMPT_PATH,
     MAX_TOOL_TURNS,
@@ -41,9 +42,11 @@ def load_system_prompt(agent_type: AgentType, is_sub_agent: bool = False,
         The system prompt as a string.
     """
     try:
-        # Use condensed prompt for sub-agents of FINDER type
+        # Use sub-agent prompts for sub-agents
         if is_sub_agent and agent_type == AgentType.FINDER:
             prompt_path = FINDER_SUBAGENT_PROMPT_PATH
+        elif is_sub_agent and agent_type == AgentType.TEST_GENERATOR:
+            prompt_path = GENERATOR_SUBAGENT_PROMPT_PATH
         else:
             prompt_path = agent_type.value
             
