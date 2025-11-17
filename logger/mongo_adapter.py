@@ -1,31 +1,37 @@
 import logging
 from datetime import datetime, timezone
 from logging import Handler, LogRecord
-from typing import TypeAlias
-
 from pymongo import MongoClient
-from pymongo.collection import Collection
 from pymongo.database import Database
 from pymongo.errors import PyMongoError
 from typing_extensions import override
 
-Document: TypeAlias = dict[str, str | int | float | bool | datetime | None]
-
 
 class MongoDBHandler(Handler):
-    """Logging handler that stores MongoDB-specific events into a collection."""
+    """Logging handler that stores structured execution data."""
 
     def __init__(
         self,
         uri: str,
         db_name: str,
-        collection_name: str,
         level: int = logging.INFO,
     ) -> None:
         super().__init__(level)
-        self.client: MongoClient[Document] = MongoClient[Document](host=uri)
-        self.db: Database[Document] = self.client[db_name]
-        self.collection: Collection[Document] = self.db[collection_name]
+        self.client = MongoClient(host=uri)
+        self.db: Database = self.client[db_name]
+
+        # Three main collections
+        self.executions = self.db["executions"]
+        self.agents = self.db["agents"]
+        self.exploits = self.db["exploits"]
+
+        # Create indexes for performance
+        self.executions.create_index("status")
+        self.agents.create_index("executionId")
+        self.agents.create_index("parentAgentId")
+        self.exploits.create_index("executionId")
+        self.exploits.create_index("agentId")
+        self.exploits.create_index("filePath")
 
     @override
     def emit(self, record: LogRecord) -> None:
@@ -33,24 +39,212 @@ class MongoDBHandler(Handler):
             if not getattr(record, "mongo", False):
                 return
 
-            doc: Document = {
-                "timestamp": datetime.now(timezone.utc),
-                "level": record.levelname,
-                "message": record.getMessage(),
-            }
+            event_type = getattr(record, "event_type", None)
 
-            for key, value in record.__dict__.items():
-                ## This sends all the fields also logging module fields /
-                # TODO: Maybe we should filter out the logging module fields
-                if isinstance(value, (str, int, float, bool, type(None))):
-                    doc[key] = value
-                else:
-                    doc[key] = str(value)
+            if event_type == "execution_state":
+                self._handle_execution_state(record)
+            elif event_type == "agent_start":
+                self._handle_agent_start(record)
+            elif event_type == "agent_update":
+                self._handle_agent_update(record)
+            elif event_type == "agent_complete":
+                self._handle_agent_complete(record)
+            elif event_type == "exploit_discovered":
+                self._handle_exploit(record)
 
-            self.collection.insert_one(document=doc)
-
-        except PyMongoError:
+        except PyMongoError as e:
+            print(f"MongoDB Error in {event_type}: {e}")
             self.handleError(record=record)
+        except Exception as e:
+            print(f"Error in {event_type}: {e}")
+            self.handleError(record=record)
+
+    def _handle_execution_state(self, record: LogRecord) -> None:
+        """Create or update execution document"""
+        execution_id = getattr(record, "execution_id", None)
+        status = getattr(record, "status", "pending")
+
+        existing = self.executions.find_one({"_id": execution_id})
+
+        if existing:
+            # Update execution status
+            update_data = {"status": status}
+
+            if status == "in_progress":
+                update_data["startedAt"] = datetime.now(timezone.utc)
+            elif status in ["completed", "failed"]:
+                update_data["completedAt"] = datetime.now(timezone.utc)
+                if status == "failed":
+                    update_data["error"] = getattr(record, "error", "Unknown error")
+
+            update_data["updatedAt"] = datetime.now(timezone.utc)
+            self.executions.update_one({"_id": execution_id}, {"$set": update_data})
+        else:
+            # Create new execution document
+            self.executions.insert_one(
+                {
+                    "_id": execution_id,
+                    "repoUrl": getattr(record, "repo_url", ""),
+                    "status": status,
+                    "model": getattr(record, "model", ""),
+                    "startedAt": (
+                        datetime.now(timezone.utc) if status == "in_progress" else None
+                    ),
+                    "completedAt": None,
+                    "totalCost": 0.0,
+                    "totalTokens": 0,
+                    "exploitCount": 0,
+                    "agentCount": 0,
+                    "updatedAt": datetime.now(timezone.utc),
+                }
+            )
+
+    def _handle_agent_start(self, record: LogRecord) -> None:
+        """Create agent document and increment execution agent count"""
+        agent_id = getattr(record, "agent_id", None)
+        execution_id = getattr(record, "execution_id", None)
+
+        # Check if execution exists
+        execution = self.executions.find_one({"_id": execution_id})
+        if not execution:
+            print(f"Warning: No execution found for agent {agent_id}")
+            return
+
+        # Create agent document with agent_id as _id
+        self.agents.insert_one(
+            {
+                "_id": agent_id,
+                "executionId": execution_id,
+                "parentAgentId": getattr(record, "parent_agent_id", None) or None,
+                "depth": int(getattr(record, "depth", 0)),
+                "scopePath": getattr(record, "scope_paths", ""),
+                "startedAt": datetime.now(timezone.utc),
+                "completedAt": None,
+                "cost": 0.0,
+                "tokens": {"prompt": 0, "completion": 0, "total": 0},
+                "exploitCount": 0,
+                "updatedAt": datetime.now(timezone.utc),
+            }
+        )
+
+        # Increment execution agent count
+        self.executions.update_one({"_id": execution_id}, {"$inc": {"agentCount": 1}})
+
+    def _handle_agent_update(self, record: LogRecord) -> None:
+        """Update agent metrics in real-time"""
+        agent_id = getattr(record, "agent_id", None)
+
+        self.agents.update_one(
+            {"_id": agent_id},
+            {
+                "$set": {
+                    "cost": float(getattr(record, "current_cost", 0)),
+                    "tokens.prompt": int(getattr(record, "prompt_tokens", 0)),
+                    "tokens.completion": int(getattr(record, "completion_tokens", 0)),
+                    "tokens.total": int(getattr(record, "total_tokens", 0)),
+                    "updatedAt": datetime.now(timezone.utc),
+                }
+            },
+        )
+
+        # Update execution totals
+        agent = self.agents.find_one({"_id": agent_id})
+        if agent:
+            pipeline = [
+                {"$match": {"executionId": agent["executionId"]}},
+                {
+                    "$group": {
+                        "_id": None,
+                        "totalCost": {"$sum": "$cost"},
+                        "totalTokens": {"$sum": "$tokens.total"},
+                    }
+                },
+            ]
+            result = list(self.agents.aggregate(pipeline))
+            if result:
+                self.executions.update_one(
+                    {"_id": agent["executionId"]},
+                    {
+                        "$set": {
+                            "totalCost": result[0]["totalCost"],
+                            "totalTokens": result[0]["totalTokens"],
+                        }
+                    },
+                )
+
+    def _handle_agent_complete(self, record: LogRecord) -> None:
+        """Mark agent as completed"""
+        agent_id = getattr(record, "agent_id", None)
+
+        self.agents.update_one(
+            {"_id": agent_id},
+            {
+                "$set": {
+                    "completedAt": datetime.now(timezone.utc),
+                    "cost": float(getattr(record, "total_cost", 0)),
+                    "tokens.total": int(getattr(record, "total_tokens", 0)),
+                    "updatedAt": datetime.now(timezone.utc),
+                }
+            },
+        )
+
+    def _handle_exploit(self, record: LogRecord) -> None:
+        """Create exploit document and increment counters"""
+        agent_id = getattr(record, "agent_id", None)
+        agent = self.agents.find_one({"_id": agent_id})
+
+        if not agent:
+            print(f"Warning: No agent found for exploit from agent_id: {agent_id}")
+            return
+
+        exploit_id = getattr(record, "exploit_id", "")
+
+        # Prepare lineChanges if we have old/new code
+        line_changes = None
+        old_code = getattr(record, "old_code", None)
+        new_code = getattr(record, "new_code", None)
+        if old_code and new_code:
+            line_changes = {"old": old_code, "new": new_code}
+
+        # Insert with exploit_id as _id
+        exploit_doc = {
+            "_id": exploit_id,
+            "executionId": agent["executionId"],
+            "agentId": agent_id,
+            "category": getattr(record, "category", ""),
+            "severity": getattr(record, "severity", ""),
+            "filePath": getattr(record, "file_path", ""),
+            "lineStart": int(getattr(record, "line_start", 0)),
+            "lineEnd": (
+                int(getattr(record, "line_end", 0))
+                if getattr(record, "line_end", None)
+                else None
+            ),
+            "className": getattr(record, "class_name", None),
+            "functionName": getattr(record, "function_name", None),
+            "description": getattr(record, "description", ""),
+            "suggestedFix": getattr(record, "suggested_fix", None),
+            "lineChanges": line_changes,
+            "foundAt": datetime.now(timezone.utc),
+            "updatedAt": datetime.now(timezone.utc),
+        }
+
+        # Add fixedAt if provided
+        fixed_at = getattr(record, "fixed_at", None)
+        if fixed_at:
+            exploit_doc["fixedAt"] = (
+                datetime.fromisoformat(fixed_at)
+                if isinstance(fixed_at, str)
+                else fixed_at
+            )
+
+        self.exploits.insert_one(exploit_doc)
+
+        # Increment exploit count for agent and execution
+        self.agents.update_one({"_id": agent_id}, {"$inc": {"exploitCount": 1}})
+        self.executions.update_one(
+            {"_id": agent["executionId"]}, {"$inc": {"exploitCount": 1}}
+        )
 
 
 __all__ = ["MongoDBHandler"]

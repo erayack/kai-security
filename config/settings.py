@@ -5,7 +5,6 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str
     MONGO_URI: str
     MONGO_DB_NAME: str
-    MONGO_COLLECTION_NAME: str
 
     class Config:
         env_file: str = ".env"

@@ -28,6 +28,7 @@ class FinderAgent(BaseAgent):
         parent_agent_id: str = None,
         depth: int = 0,
         max_depth: int = MAX_DEPTH,
+        execution_id: str = None,  # NEW: for sub-agents
     ):
         from agent.settings import MAX_TOOL_TURNS
         if max_tool_turns is None:
@@ -45,6 +46,10 @@ class FinderAgent(BaseAgent):
             depth=depth,
             max_depth=max_depth,
         )
+        
+        # Set execution_id for sub-agents
+        if execution_id:
+            self.execution_id = execution_id
     
     def check_termination(self, response: str, python_code: str) -> bool:
         """

@@ -11,7 +11,7 @@ from tqdm import tqdm
 import asyncio
 import warnings
 from logger import logging
-
+import time
 
 # Suppress asyncio/event loop cleanup warnings (harmless during multi-threaded async execution)
 warnings.filterwarnings(
@@ -35,6 +35,12 @@ else:
 from agent.agents import FinderAgent, GeneratorAgent, SetupAgent, FixerAgent
 from agent.report_generator import generate_comprehensive_report, save_report
 from agent.settings import MAX_SUBAGENT_TURNS, MAX_DEPTH
+from logger.mongo_logger import (
+    log_execution_pending,
+    log_execution_in_progress,
+    log_execution_complete,
+    log_execution_failed,
+)
 
 
 BASE_INSTRUCTION = "You must start your search for exploits now. Pay attention to the instructions in the codebase, especially the ones in the README.md file."
@@ -93,24 +99,11 @@ async def run_finder_agent(
     )
     print("✅ Agent ready, starting chat...")
 
-    # Log scan state transition to scanning
+    # Log execution start with pending status
+    # Use agent_id as execution_id for the main agent
+    execution_id = agent.agent_id
     try:
-        import time
-
-        logging.info(
-            f"Scan state: scanning started for {repo_url}",
-            extra={
-                "mongo": True,
-                "event_type": "scan_state",
-                "state": "scanning",
-                "repo_url": repo_url,
-                "repo_slug": _repo_slug(repo_url),
-                "agent_type": "finder",
-                "model": model_name,
-                "max_turns": str(num_turns),
-                "timestamp": str(time.time()),
-            },
-        )
+        log_execution_pending(execution_id, repo_url, model_name)
     except Exception:
         pass  # Don't fail if logging fails
 
@@ -119,22 +112,9 @@ async def run_finder_agent(
     try:
         response = await agent.chat(BASE_INSTRUCTION)
 
-        # Log scan completion state
+        # Log execution completion
         try:
-            import time
-
-            logging.info(
-                f"Scan state: completed for {repo_url}",
-                extra={
-                    "mongo": True,
-                    "event_type": "scan_state",
-                    "state": "completed",
-                    "repo_url": repo_url,
-                    "repo_slug": _repo_slug(repo_url),
-                    "agent_type": "finder",
-                    "timestamp": str(time.time()),
-                },
-            )
+            log_execution_complete(execution_id, "completed")
         except Exception:
             pass
 
@@ -145,22 +125,9 @@ async def run_finder_agent(
         traceback.print_exc()
         exception_occurred = True
 
-        # Log scan failure state
+        # Log execution failure
         try:
-
-            logging.error(
-                f"Scan state: failed for {repo_url}",
-                extra={
-                    "mongo": True,
-                    "event_type": "scan_state",
-                    "state": "failed",
-                    "repo_url": repo_url,
-                    "repo_slug": _repo_slug(repo_url),
-                    "agent_type": "finder",
-                    "error": str(e),
-                    "timestamp": str(time.time()),
-                },
-            )
+            log_execution_failed(execution_id, str(e))
         except Exception:
             pass
 
@@ -381,9 +348,11 @@ async def main():
     print("🚀 Starting exploit agent...")
     # repo_url = "https://github.com/gmsol-labs/gmx-solana.git"
     repo_url = "https://github.com/fatihbugrakdogan/publicis-trigger.git"
-    num_turns = 32
+    num_turns = 4
     use_openai = False
     model_name = "gpt-5-2025-08-07" if use_openai else "z-ai/glm-4.6"
+    user_id = "fatihbugrakdogan"
+    task_id = "1234567890"
 
     print(f"📂 Repo: {repo_url}")
     print(f"🤖 Model: {model_name}")

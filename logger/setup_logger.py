@@ -18,7 +18,6 @@ def setup_logger() -> Logger:
         mongo_handler: MongoDBHandler = MongoDBHandler(
             uri=settings.MONGO_URI,
             db_name=settings.MONGO_DB_NAME,
-            collection_name=settings.MONGO_COLLECTION_NAME,
         )
         logger.addHandler(mongo_handler)
 
