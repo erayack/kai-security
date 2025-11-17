@@ -281,18 +281,22 @@ class BaseAgent(ABC):
         # Extract the thoughts and python code from the response
         thoughts, python_code = self.extract_response_parts(response)
 
-        # CRITICAL ERROR HANDLING: Check if initial response is empty or malformed
+        # CRITICAL ERROR HANDLING: Check if initial response is empty or completely malformed
+        # At minimum, need either <python>, <done>, or meaningful content
         response_is_empty = not response or not response.strip()
-        response_is_malformed = not thoughts and not python_code and not response_is_empty
+        has_done_tag = "<done>" in response and "</done>" in response
+        has_any_structure = python_code or has_done_tag or thoughts
+        response_is_malformed = not has_any_structure and not response_is_empty
         
         if response_is_empty or response_is_malformed:
             # Provide clear error feedback for malformed initial response
             error_feedback = (
-                "ERROR: Your response was empty or missing required tags.\n\n"
-                "REMINDER: EVERY response MUST follow this EXACT structure:\n"
-                "1. Start with <think>...</think> - Your reasoning\n"
-                "2. Follow with <python>...</python> - Python code to use tools\n\n"
-                "Please provide a valid response with both <think> and <python> blocks."
+                "ERROR: Your response was empty or had no recognizable structure.\n\n"
+                "REMINDER: Include at least one of these in your response:\n"
+                "- <think>...</think> for your reasoning\n"
+                "- <python>...</python> for code to execute\n"
+                "- <done>...</done> when finished\n\n"
+                "Please provide a valid response with at least one structured tag."
             )
             # Add error feedback and retry
             self._add_message(ChatMessage(role=Role.USER, content=error_feedback))
@@ -364,25 +368,55 @@ class BaseAgent(ABC):
                 # Extract the thoughts and python code from the response
                 thoughts, python_code = self.extract_response_parts(response)
 
-                # CRITICAL ERROR HANDLING: Check if response is empty or malformed
-                # The model MUST provide either <think> or <python> blocks per the system prompt
+                # CRITICAL ERROR HANDLING: Check if response is empty or completely malformed
+                # At minimum, need either <python>, <done>, or meaningful content
                 response_is_empty = not response or not response.strip()
-                response_is_malformed = not thoughts and not python_code and not response_is_empty
+                has_done_tag = "<done>" in response and "</done>" in response
+                has_any_structure = python_code or has_done_tag or thoughts
+                response_is_malformed = not has_any_structure and not response_is_empty
+                
+                # Track consecutive malformed responses to prevent infinite loops
+                if not hasattr(self, '_malformed_count'):
+                    self._malformed_count = 0
                 
                 if response_is_empty or response_is_malformed:
+                    self._malformed_count += 1
+                    
+                    # If the malformed response comes after a successful tool execution,
+                    # treat it as intentional completion rather than an error
+                    last_message_was_tool_result = (
+                        len(self.messages) > 0 and 
+                        self.messages[-1].role == Role.USER and
+                        self.messages[-1].content.startswith("<result>")
+                    )
+                    
+                    if last_message_was_tool_result:
+                        # Model returned empty after tool result - treat as completion
+                        pbar.set_postfix_str("✓ Completed (no more responses)")
+                        break
+                    
+                    # If we get too many malformed responses in a row, terminate gracefully  
+                    if self._malformed_count >= 2:
+                        pbar.set_postfix_str("✓ Completed (no more structured responses)")
+                        break
+                    
                     # Don't add the malformed response to conversation
                     # Instead, provide clear feedback to the model about the format violation
                     error_feedback = (
-                        "ERROR: Your previous response was empty or missing required tags.\n\n"
-                        "REMINDER: EVERY response MUST follow this EXACT structure:\n"
-                        "1. Start with <think>...</think> - Your reasoning\n"
-                        "2. Follow with <python>...</python> - Python code to use tools\n\n"
-                        "Please provide a valid response with both <think> and <python> blocks."
+                        "ERROR: Your previous response was empty or had no recognizable structure.\n\n"
+                        "REMINDER: Include at least one of these in your response:\n"
+                        "- <think>...</think> for your reasoning\n"
+                        "- <python>...</python> for code to execute\n"
+                        "- <done>...</done> when finished\n\n"
+                        "Please provide a valid response with at least one structured tag."
                     )
                     self._add_message(ChatMessage(role=Role.USER, content=error_feedback))
                     # Don't decrement remaining_tool_turns for this error case
                     # Give the model another chance to provide a valid response
                     continue
+                else:
+                    # Reset counter on successful response
+                    self._malformed_count = 0
 
                 # Add the assistant message BEFORE checking termination
                 self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
@@ -474,26 +508,31 @@ class BaseAgent(ABC):
             for message in self.messages
         ]
         
-        # Load exploits from exploits.json if it exists
+        # Load exploits from exploits.json if it exists (ONLY for finder agent)
         found_exploits = []
         exploit_stats = {}
         try:
-            if os.path.exists(self.exploits_path):
+            from agent.utils import AgentType
+            
+            # Only load exploits for finder agent
+            if self.agent_type == AgentType.FINDER and os.path.exists(self.exploits_path):
                 with open(self.exploits_path, 'r') as f:
                     found_exploits = json.load(f)
-                    # Calculate exploit stats by severity
+                    
+                    
+                    # Finder agent: severity-based stats
                     for exploit in found_exploits:
                         severity = exploit.get('severity', 'unknown')
                         exploit_stats[severity] = exploit_stats.get(severity, 0) + 1
+            # Generator agent gets exploit_stats from sub-agent reports, not from exploits.json
+            # (exploit_stats will be populated from sub_agent_reports below)
         except Exception:
             pass  # If file doesn't exist or can't be read, leave empty
         
-        # Aggregate sub-agent costs, exploits, and time
+        # Aggregate sub-agent costs and time
         sub_agent_total_cost = 0.0
         sub_agent_total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
         sub_agent_total_time = 0.0
-        sub_agent_exploits = []
-        sub_agent_exploit_stats = {}
         
         for sub_report in self.sub_agent_reports:
             if "budget_used" in sub_report:
@@ -505,13 +544,21 @@ class BaseAgent(ABC):
                 # time_used contains combined_time_spent for sub-agents with their own sub-agents
                 sub_agent_total_time += sub_report["time_used"].get("combined_time_spent", 
                                                                      sub_report["time_used"].get("time_spent", 0.0))
-            if "exploits" in sub_report:
-                exploits_list = sub_report["exploits"]
-                sub_agent_exploits.extend(exploits_list)
-                # Aggregate exploit stats from sub-agents
-                for exploit in exploits_list:
-                    severity = exploit.get('severity', 'unknown')
-                    sub_agent_exploit_stats[severity] = sub_agent_exploit_stats.get(severity, 0) + 1
+            # Merge sub-agent exploit stats into main exploit_stats
+            if "exploit_stats" in sub_report:
+                sub_stats = sub_report["exploit_stats"]
+                # Check if it's generator-style (severity with verified/unverified) or finder-style (severity counts)
+                if sub_stats and isinstance(next(iter(sub_stats.values()), None), dict):
+                    # Generator-style: severity-based with verified/unverified
+                    for severity, stats in sub_stats.items():
+                        if severity not in exploit_stats:
+                            exploit_stats[severity] = {"verified": 0, "unverified": 0}
+                        exploit_stats[severity]["verified"] += stats.get("verified", 0)
+                        exploit_stats[severity]["unverified"] += stats.get("unverified", 0)
+                else:
+                    # Finder-style: severity-based counts
+                    for severity, count in sub_stats.items():
+                        exploit_stats[severity] = exploit_stats.get(severity, 0) + count
         
         # Calculate combined totals
         combined_total_cost = self.estimated_cost + sub_agent_total_cost
@@ -521,14 +568,9 @@ class BaseAgent(ABC):
         }
         combined_total_time = self.time_spent + sub_agent_total_time
         
-        # Calculate combined exploit stats (this agent + all sub-agents)
-        combined_exploit_stats = {}
-        for severity, count in exploit_stats.items():
-            combined_exploit_stats[severity] = combined_exploit_stats.get(severity, 0) + count
-        for severity, count in sub_agent_exploit_stats.items():
-            combined_exploit_stats[severity] = combined_exploit_stats.get(severity, 0) + count
-        
         # Build the conversation data structure
+        from agent.utils import AgentType
+        
         conversation_data = {
             "agent_id": self.agent_id,
             "parent_agent_id": self.parent_agent_id,
@@ -553,20 +595,26 @@ class BaseAgent(ABC):
             "sub_agent_total_time": sub_agent_total_time,
             # Time tracking - combined (this agent + all sub-agents)
             "combined_time_spent": combined_total_time,
-            # Exploit tracking - this agent only
-            "found_exploits": found_exploits,
+            # Exploit tracking
+            # For finder agents: {"critical": 2, "high": 5, ...}
+            # For generator agents: {"severity": {"verified": int, "unverified": int}, ...}
+            # Includes this agent + all sub-agents
             "exploit_stats": exploit_stats,
-            # Exploit tracking - sub-agents only
-            "sub_agent_exploits": sub_agent_exploits,
-            "sub_agent_exploit_stats": sub_agent_exploit_stats,
-            # Exploit tracking - combined (this agent + all sub-agents)
-            "combined_exploits": found_exploits + sub_agent_exploits,
-            "combined_exploit_stats": combined_exploit_stats,
         }
+        
+        # Add validation result if this is a per-exploit validation sub-agent
+        if hasattr(self, 'validation_result'):
+            conversation_data["validation_result"] = self.validation_result
+        
+        # Only include found_exploits for finder agents
+        if self.agent_type == AgentType.FINDER:
+            conversation_data["found_exploits"] = found_exploits
         
         try:
             with open(file_path, "w") as f:
                 json.dump(conversation_data, f, indent=4)
+            # Store the conversation path for potential use by sub-agents
+            self.conversation_path = file_path
             if log:
                 print(f"Conversation saved to {file_path}")
         except Exception as e:

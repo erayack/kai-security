@@ -200,18 +200,16 @@ class FinderAgent(BaseAgent):
                     # Skip invalid exploits rather than crashing
                     pass
         
-        # Calculate exploit stats for this agent
+        # Calculate exploit stats for this agent (severity-based for finder)
         exploit_stats = {}
         for exploit in exploits_found:
             severity = exploit.severity.value
             exploit_stats[severity] = exploit_stats.get(severity, 0) + 1
         
-        # Aggregate sub-agent costs, exploits, and time
+        # Aggregate sub-agent costs and time
         sub_agent_total_cost = 0.0
         sub_agent_total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
         sub_agent_total_time = 0.0
-        sub_agent_exploits_count = 0
-        sub_agent_exploit_stats = {}
         
         for sub_report in self.sub_agent_reports:
             if "budget_used" in sub_report:
@@ -223,13 +221,13 @@ class FinderAgent(BaseAgent):
                 # time_used contains combined_time_spent for sub-agents with their own sub-agents
                 sub_agent_total_time += sub_report["time_used"].get("combined_time_spent",
                                                                      sub_report["time_used"].get("time_spent", 0.0))
+            # Merge sub-agent exploit stats into main exploit_stats
             if "exploits" in sub_report:
                 exploits_list = sub_report["exploits"]
-                sub_agent_exploits_count += len(exploits_list)
                 # Aggregate exploit stats from sub-agents
                 for exploit in exploits_list:
                     severity = exploit.get('severity', 'unknown')
-                    sub_agent_exploit_stats[severity] = sub_agent_exploit_stats.get(severity, 0) + 1
+                    exploit_stats[severity] = exploit_stats.get(severity, 0) + 1
         
         # Calculate combined totals (this agent + all sub-agents)
         combined_total_cost = self.estimated_cost + sub_agent_total_cost
@@ -238,13 +236,6 @@ class FinderAgent(BaseAgent):
             "completion_tokens": self.total_tokens["completion_tokens"] + sub_agent_total_tokens["completion_tokens"]
         }
         combined_total_time = self.time_spent + sub_agent_total_time
-        
-        # Calculate combined exploit stats (this agent + all sub-agents)
-        combined_exploit_stats = {}
-        for severity, count in exploit_stats.items():
-            combined_exploit_stats[severity] = combined_exploit_stats.get(severity, 0) + count
-        for severity, count in sub_agent_exploit_stats.items():
-            combined_exploit_stats[severity] = combined_exploit_stats.get(severity, 0) + count
         
         # Generate natural language summary
         summary = self._generate_summary_text(exploits_found, files_explored)
@@ -286,12 +277,8 @@ class FinderAgent(BaseAgent):
             # Exploration results
             files_explored=files_explored,
             exploits_found=exploit_summaries,
-            exploit_stats=exploit_stats,
+            exploit_stats=exploit_stats,  # Includes this agent + all sub-agents
             code_references=code_references[:10],  # Top 10
-            # Sub-agent exploit tracking
-            sub_agent_exploit_stats=sub_agent_exploit_stats,
-            # Combined exploit stats
-            combined_exploit_stats=combined_exploit_stats,
             sub_reports=self.sub_agent_reports,  # Nested reports
             summary=summary,
             exploration_complete=exploration_complete,
