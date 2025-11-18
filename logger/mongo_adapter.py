@@ -5,6 +5,7 @@ from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.errors import PyMongoError
 from typing_extensions import override
+from bson import ObjectId
 
 
 class MongoDBHandler(Handler):
@@ -69,6 +70,10 @@ class MongoDBHandler(Handler):
         execution_id = getattr(record, "execution_id", None)
         status = getattr(record, "status", "pending")
 
+        # Convert execution_id to ObjectId if it's a string
+        if isinstance(execution_id, str):
+            execution_id = ObjectId(execution_id)
+
         existing = self.executions.find_one({"_id": execution_id})
 
         if existing:
@@ -109,19 +114,38 @@ class MongoDBHandler(Handler):
         agent_id = getattr(record, "agent_id", None)
         execution_id = getattr(record, "execution_id", None)
 
+        # Convert to ObjectId if they are strings
+        if isinstance(agent_id, str):
+            agent_id = ObjectId(agent_id)
+        if isinstance(execution_id, str):
+            execution_id = ObjectId(execution_id)
+
         # Check if execution exists
         execution = self.executions.find_one({"_id": execution_id})
         if not execution:
             print(f"Warning: No execution found for agent {agent_id}")
+            print(f"Looking for execution_id: {execution_id}")
             return
 
         # Create agent document with agent_id as _id
         scope_paths_str = getattr(record, "scope_paths", "")
+        parent_agent_id = getattr(record, "parent_agent_id", None)
+
+        # Convert parent_agent_id to ObjectId if it's a non-empty string
+        if (
+            parent_agent_id
+            and isinstance(parent_agent_id, str)
+            and parent_agent_id.strip()
+        ):
+            parent_agent_id = ObjectId(parent_agent_id)
+        else:
+            parent_agent_id = None
+
         self.agents.insert_one(
             {
                 "_id": agent_id,
                 "executionId": execution_id,
-                "parentAgentId": getattr(record, "parent_agent_id", None) or None,
+                "parentAgentId": parent_agent_id,
                 "depth": int(getattr(record, "depth", 0)),
                 "kind": getattr(record, "kind", "unknown"),
                 "scopePath": scope_paths_str if scope_paths_str else None,
@@ -139,7 +163,12 @@ class MongoDBHandler(Handler):
 
     def _handle_agent_update(self, record: LogRecord) -> None:
         """Update agent metrics in real-time"""
+
         agent_id = getattr(record, "agent_id", None)
+
+        # Convert agent_id to ObjectId if it's a string
+        if isinstance(agent_id, str):
+            agent_id = ObjectId(agent_id)
 
         self.agents.update_one(
             {"_id": agent_id},
@@ -181,7 +210,12 @@ class MongoDBHandler(Handler):
 
     def _handle_agent_complete(self, record: LogRecord) -> None:
         """Mark agent as completed"""
+
         agent_id = getattr(record, "agent_id", None)
+
+        # Convert agent_id to ObjectId if it's a string
+        if isinstance(agent_id, str):
+            agent_id = ObjectId(agent_id)
 
         self.agents.update_one(
             {"_id": agent_id},
@@ -197,7 +231,13 @@ class MongoDBHandler(Handler):
 
     def _handle_exploit(self, record: LogRecord) -> None:
         """Create exploit document and increment counters"""
+
         agent_id = getattr(record, "agent_id", None)
+
+        # Convert agent_id to ObjectId if it's a string
+        if isinstance(agent_id, str):
+            agent_id = ObjectId(agent_id)
+
         agent = self.agents.find_one({"_id": agent_id})
 
         if not agent:
