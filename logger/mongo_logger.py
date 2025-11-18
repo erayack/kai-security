@@ -62,6 +62,7 @@ def log_execution_failed(execution_id: str, error: str) -> None:
 def log_agent_started(
     agent_id: str,
     execution_id: str,
+    kind: str = "unknown",
     parent_agent_id: Optional[str] = None,
     depth: int = 0,
     scope_paths: str = "",
@@ -74,6 +75,7 @@ def log_agent_started(
             "event_type": "agent_start",
             "agent_id": agent_id,
             "execution_id": execution_id,
+            "kind": kind,
             "parent_agent_id": parent_agent_id or "",
             "depth": str(depth),
             "scope_paths": scope_paths,
@@ -129,9 +131,10 @@ def log_exploit_discovered(
     class_name: Optional[str] = None,
     function_name: Optional[str] = None,
     suggested_fix: Optional[str] = None,
-    old_code: Optional[str] = None,
-    new_code: Optional[str] = None,
+    verified_at: Optional[str] = None,
+    verified_by: Optional[str] = None,
     fixed_at: Optional[str] = None,
+    fixed_by: Optional[str] = None,
 ) -> None:
     """Log when an exploit is discovered."""
     extra_data = {
@@ -154,15 +157,34 @@ def log_exploit_discovered(
         extra_data["function_name"] = function_name
     if suggested_fix:
         extra_data["suggested_fix"] = suggested_fix[:200]  # Truncate
-    if old_code and new_code:
-        extra_data["old_code"] = old_code
-        extra_data["new_code"] = new_code
+    if verified_at:
+        extra_data["verified_at"] = verified_at
+    if verified_by:
+        extra_data["verified_by"] = verified_by
     if fixed_at:
         extra_data["fixed_at"] = fixed_at
+    if fixed_by:
+        extra_data["fixed_by"] = fixed_by
 
     logging.info(
         f"Exploit discovered: {severity} - {category} in {file_path}",
         extra=extra_data,
+    )
+
+
+def log_exploit_verified(
+    exploit_id: str,
+    verified_by_agent_id: str,
+) -> None:
+    """Log when an exploit is verified by generator agent."""
+    logging.info(
+        f"Exploit verified: {exploit_id} by agent {verified_by_agent_id}",
+        extra={
+            "mongo": True,
+            "event_type": "exploit_verified",
+            "exploit_id": exploit_id,
+            "verified_by_agent_id": verified_by_agent_id,
+        },
     )
 
 
@@ -175,4 +197,5 @@ __all__ = [
     "log_agent_metrics",
     "log_agent_complete",
     "log_exploit_discovered",
+    "log_exploit_verified",
 ]

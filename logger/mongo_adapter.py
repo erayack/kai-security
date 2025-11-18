@@ -29,8 +29,11 @@ class MongoDBHandler(Handler):
         self.executions.create_index("status")
         self.agents.create_index("executionId")
         self.agents.create_index("parentAgentId")
+        self.agents.create_index("kind")
         self.exploits.create_index("executionId")
-        self.exploits.create_index("agentId")
+        self.exploits.create_index("foundBy")
+        self.exploits.create_index("verifiedBy")
+        self.exploits.create_index("fixedBy")
         self.exploits.create_index("filePath")
 
     @override
@@ -51,6 +54,8 @@ class MongoDBHandler(Handler):
                 self._handle_agent_complete(record)
             elif event_type == "exploit_discovered":
                 self._handle_exploit(record)
+            elif event_type == "exploit_verified":
+                self._handle_exploit_verified(record)
 
         except PyMongoError as e:
             print(f"MongoDB Error in {event_type}: {e}")
@@ -68,7 +73,7 @@ class MongoDBHandler(Handler):
 
         if existing:
             # Update execution status
-            update_data = {"status": status}
+            update_data = {"status": status, "updatedAt": datetime.now(timezone.utc)}
 
             if status == "in_progress":
                 update_data["startedAt"] = datetime.now(timezone.utc)
@@ -77,7 +82,6 @@ class MongoDBHandler(Handler):
                 if status == "failed":
                     update_data["error"] = getattr(record, "error", "Unknown error")
 
-            update_data["updatedAt"] = datetime.now(timezone.utc)
             self.executions.update_one({"_id": execution_id}, {"$set": update_data})
         else:
             # Create new execution document
@@ -87,6 +91,7 @@ class MongoDBHandler(Handler):
                     "repoUrl": getattr(record, "repo_url", ""),
                     "status": status,
                     "model": getattr(record, "model", ""),
+                    "createdAt": datetime.now(timezone.utc),
                     "startedAt": (
                         datetime.now(timezone.utc) if status == "in_progress" else None
                     ),
@@ -111,14 +116,16 @@ class MongoDBHandler(Handler):
             return
 
         # Create agent document with agent_id as _id
+        scope_paths_str = getattr(record, "scope_paths", "")
         self.agents.insert_one(
             {
                 "_id": agent_id,
                 "executionId": execution_id,
                 "parentAgentId": getattr(record, "parent_agent_id", None) or None,
                 "depth": int(getattr(record, "depth", 0)),
-                "scopePath": getattr(record, "scope_paths", ""),
-                "startedAt": datetime.now(timezone.utc),
+                "kind": getattr(record, "kind", "unknown"),
+                "scopePath": scope_paths_str if scope_paths_str else None,
+                "createdAt": datetime.now(timezone.utc),
                 "completedAt": None,
                 "cost": 0.0,
                 "tokens": {"prompt": 0, "completion": 0, "total": 0},
@@ -199,18 +206,11 @@ class MongoDBHandler(Handler):
 
         exploit_id = getattr(record, "exploit_id", "")
 
-        # Prepare lineChanges if we have old/new code
-        line_changes = None
-        old_code = getattr(record, "old_code", None)
-        new_code = getattr(record, "new_code", None)
-        if old_code and new_code:
-            line_changes = {"old": old_code, "new": new_code}
-
         # Insert with exploit_id as _id
         exploit_doc = {
             "_id": exploit_id,
             "executionId": agent["executionId"],
-            "agentId": agent_id,
+            "foundBy": agent_id,  # ObjectId reference to agent who found it
             "category": getattr(record, "category", ""),
             "severity": getattr(record, "severity", ""),
             "filePath": getattr(record, "file_path", ""),
@@ -224,12 +224,25 @@ class MongoDBHandler(Handler):
             "functionName": getattr(record, "function_name", None),
             "description": getattr(record, "description", ""),
             "suggestedFix": getattr(record, "suggested_fix", None),
-            "lineChanges": line_changes,
             "foundAt": datetime.now(timezone.utc),
             "updatedAt": datetime.now(timezone.utc),
         }
 
-        # Add fixedAt if provided
+        # Add optional verified_at if provided
+        verified_at = getattr(record, "verified_at", None)
+        if verified_at:
+            exploit_doc["verifiedAt"] = (
+                datetime.fromisoformat(verified_at)
+                if isinstance(verified_at, str)
+                else verified_at
+            )
+
+        # Add optional verifiedBy if provided
+        verified_by = getattr(record, "verified_by", None)
+        if verified_by:
+            exploit_doc["verifiedBy"] = verified_by  # ObjectId reference
+
+        # Add optional fixedAt if provided
         fixed_at = getattr(record, "fixed_at", None)
         if fixed_at:
             exploit_doc["fixedAt"] = (
@@ -238,6 +251,11 @@ class MongoDBHandler(Handler):
                 else fixed_at
             )
 
+        # Add optional fixedBy if provided
+        fixed_by = getattr(record, "fixed_by", None)
+        if fixed_by:
+            exploit_doc["fixedBy"] = fixed_by  # ObjectId reference
+
         self.exploits.insert_one(exploit_doc)
 
         # Increment exploit count for agent and execution
@@ -245,6 +263,26 @@ class MongoDBHandler(Handler):
         self.executions.update_one(
             {"_id": agent["executionId"]}, {"$inc": {"exploitCount": 1}}
         )
+
+    def _handle_exploit_verified(self, record: LogRecord) -> None:
+        """Update exploit with verification info when generator agent validates it"""
+        exploit_id = getattr(record, "exploit_id", None)
+        verified_by_agent_id = getattr(record, "verified_by_agent_id", None)
+
+        if not exploit_id:
+            print("Warning: No exploit_id provided for verification")
+            return
+
+        # Update exploit document with verification info
+        update_data = {
+            "verifiedAt": datetime.now(timezone.utc),
+            "updatedAt": datetime.now(timezone.utc),
+        }
+
+        if verified_by_agent_id:
+            update_data["verifiedBy"] = verified_by_agent_id
+
+        self.exploits.update_one({"_id": exploit_id}, {"$set": update_data})
 
 
 __all__ = ["MongoDBHandler"]

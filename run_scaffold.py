@@ -81,7 +81,11 @@ def clone_repo(repo_url: str) -> str:
 
 
 async def run_finder_agent(
-    repo_url: str, num_turns: int, model_name: str, use_openai: bool = False
+    repo_url: str,
+    num_turns: int,
+    model_name: str,
+    use_openai: bool = False,
+    execution_id: str = None,
 ):
     """Run the FinderAgent against the cloned repo for the requested number of user turns (async)."""
     print("🔍 Starting FinderAgent...")
@@ -99,27 +103,14 @@ async def run_finder_agent(
         model=model_name,
         max_tool_turns=num_turns,
         use_openai=use_openai,
+        execution_id=execution_id,
     )
     print("✅ Agent ready, starting chat...")
-
-    # Log execution start with pending status
-    # Use agent_id as execution_id for the main agent
-    execution_id = agent.agent_id
-    try:
-        log_execution_pending(execution_id, repo_url, model_name)
-    except Exception:
-        pass  # Don't fail if logging fails
 
     response = None
     exception_occurred = False
     try:
         response = await agent.chat(BASE_INSTRUCTION)
-
-        # Log execution completion
-        try:
-            log_execution_complete(execution_id, "completed")
-        except Exception:
-            pass
 
     except Exception as e:
         print(f"❌ ERROR: {type(e).__name__}: {str(e)}")
@@ -127,12 +118,6 @@ async def run_finder_agent(
 
         traceback.print_exc()
         exception_occurred = True
-
-        # Log execution failure
-        try:
-            log_execution_failed(execution_id, str(e))
-        except Exception:
-            pass
 
     finally:
         # Always close the agent to clean up resources
@@ -186,7 +171,11 @@ async def run_finder_agent(
 
 
 async def run_setup_agent(
-    repo_url: str, num_turns: int, model_name: str, use_openai: bool = False
+    repo_url: str,
+    num_turns: int,
+    model_name: str,
+    use_openai: bool = False,
+    execution_id: str = None,
 ):
     """Run the SetupAgent against the cloned repo for the requested number of user turns (async)."""
     repo_path = _repo_path(repo_url)
@@ -198,6 +187,7 @@ async def run_setup_agent(
         model=model_name,
         max_tool_turns=num_turns,
         use_openai=use_openai,
+        execution_id=execution_id,
     )
 
     response = None
@@ -261,7 +251,11 @@ async def run_setup_agent(
 
 
 async def run_generator_agent(
-    repo_url: str, num_turns: int, model_name: str, use_openai: bool = False
+    repo_url: str,
+    num_turns: int,
+    model_name: str,
+    use_openai: bool = False,
+    execution_id: str = None,
 ):
     """
     Run the generator agent to locate all exploits.json files and validate the exploits
@@ -299,6 +293,7 @@ Start by reading the README, then explore the repository and validate all the ex
         use_openai=use_openai,
         depth=0,
         max_depth=MAX_DEPTH,
+        execution_id=execution_id,
     )
 
     response = None
@@ -329,7 +324,7 @@ Start by reading the README, then explore the repository and validate all the ex
 
 
 async def run_generator_validation(
-    repo_url: str, model_name: str, use_openai: bool = False
+    repo_url: str, model_name: str, use_openai: bool = False, execution_id: str = None
 ):
     """
     Directly validate all exploits by processing exploits.json files in batches.
@@ -339,6 +334,7 @@ async def run_generator_validation(
         repo_url: Repository URL
         model_name: Model name for validation agents
         use_openai: Whether to use OpenAI API (default False)
+        execution_id: Execution ID to link all generator agents to same execution
 
     Returns:
         Dictionary with validation results including total_cost, total_time, etc.
@@ -395,6 +391,7 @@ async def run_generator_validation(
                 model=model_name,
                 use_openai=use_openai,
                 use_vllm=False,
+                execution_id=execution_id,
             )
             for exploit_file in batch
         ]
@@ -666,6 +663,14 @@ Examples:
     )
     print("=" * 80)
 
+    # Create ONE execution for the entire run
+    from bson import ObjectId
+
+    execution_id = ObjectId()
+
+    # Log execution creation with pending status
+    log_execution_pending(execution_id, repo_url, model_name)
+
     results = {}
     total_cost = 0.0
     step_num = 1
@@ -684,7 +689,7 @@ Examples:
         )
         print("=" * 80)
         finder_result = await run_finder_agent(
-            repo_url, num_turns, model_name, use_openai
+            repo_url, num_turns, model_name, use_openai, execution_id
         )
         print(
             f"✅ Finder agent completed. Cost: ${finder_result['estimated_cost']:.4f}"
@@ -702,7 +707,7 @@ Examples:
         )
         print("=" * 80)
         setup_result = await run_setup_agent(
-            repo_url, num_turns, setup_model, setup_use_openai
+            repo_url, num_turns, setup_model, setup_use_openai, execution_id
         )
 
         # Check if setup was successful
@@ -715,6 +720,7 @@ Examples:
                 "ABORTING: Setup must complete successfully before proceeding to generator"
             )
             print("=" * 80)
+            log_execution_failed(execution_id, error_msg)
             raise RuntimeError(f"Setup agent failed: {error_msg}")
 
         print(
@@ -733,7 +739,7 @@ Examples:
         )
         print("=" * 80)
         generator_result = await run_generator_validation(
-            repo_url, model_name, use_openai
+            repo_url, model_name, use_openai, execution_id
         )
         print(
             f"✅ Generator validation completed. Cost: ${generator_result['total_cost']:.4f}"
@@ -753,6 +759,9 @@ Examples:
     #     results['fixer'] = fixer_result
     #     total_cost += fixer_result['total_cost']
     #     step_num += 1
+
+    # Log execution completion
+    log_execution_complete(execution_id, "completed")
 
     # Final summary
     print("\n" + "=" * 80)

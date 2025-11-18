@@ -441,44 +441,11 @@ Now you can decide whether the exploit is a non-duplicate or not.
                         # Get agent ID for filtering and correlation
                         agent_id = agent.agent_id if agent else "unknown"
 
-                        # Extract old_code and new_code from file if available
-                        old_code = None
-                        new_code = None
+                        # Get line_end from first location if available
                         line_end = None
+                        if exploit.locations and exploit.locations[0].line_end:
+                            line_end = exploit.locations[0].line_end
 
-                        if exploit.locations and exploit.locations[0].file_path:
-                            try:
-                                loc = exploit.locations[0]
-                                line_end = loc.line_end
-                                file_path = loc.file_path
-
-                                # Read the actual code from the file
-                                if os.path.exists(file_path):
-                                    with open(
-                                        file_path,
-                                        "r",
-                                        encoding="utf-8",
-                                        errors="ignore",
-                                    ) as f:
-                                        lines = f.readlines()
-                                        start_idx = loc.line_start - 1
-                                        end_idx = (
-                                            loc.line_end
-                                            if loc.line_end
-                                            else loc.line_start
-                                        ) - 1
-
-                                        if 0 <= start_idx < len(lines):
-                                            old_code = "".join(
-                                                lines[start_idx : end_idx + 1]
-                                            )
-
-                                            # If we have a suggested fix, use it as new_code
-                                            if exploit.suggested_fix:
-                                                new_code = exploit.suggested_fix
-                            except Exception:
-                                pass  # If reading fails, just continue without code
-                        ## TODO old_code and new_code are not being correctly logged because new code not exist in exploit.json
                         log_exploit_discovered(
                             agent_id=agent_id,
                             exploit_id=exploit.id or "unknown",
@@ -508,8 +475,6 @@ Now you can decide whether the exploit is a non-duplicate or not.
                                 else None
                             ),
                             suggested_fix=exploit.suggested_fix,
-                            old_code=old_code,
-                            new_code=new_code,
                         )
                     except Exception:
                         # Don't fail the operation if logging fails

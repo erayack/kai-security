@@ -51,7 +51,8 @@ async def process_exploits_json(
     repo_path: str,
     model: str,
     use_openai: bool = False,
-    use_vllm: bool = False
+    use_vllm: bool = False,
+    execution_id: str = None
 ) -> dict:
     """
     Validate all exploits in an exploits.json file by spawning validation sub-agents.
@@ -147,7 +148,8 @@ async def process_exploits_json(
                 scope_paths=None,  # No scope restriction
                 parent_agent_id=None,  # No parent (this is orchestration level)
                 depth=MAX_DEPTH,  # Set to max_depth so it can't spawn more
-                max_depth=MAX_DEPTH
+                max_depth=MAX_DEPTH,
+                execution_id=execution_id  # Pass execution_id for logging
             )
             
             # Construct task message for single exploit validation
@@ -284,6 +286,13 @@ Finish with <done>True</done> if validated, or <done>False</done> if not.
                     "sub_agent_id": result["sub_agent_id"],
                     "validated_at": datetime.datetime.now().isoformat()
                 })
+                
+                # Log exploit verification to MongoDB
+                from logger.mongo_logger import log_exploit_verified
+                log_exploit_verified(
+                    exploit_id=exploit_id,
+                    verified_by_agent_id=result["sub_agent_id"]
+                )
             else:
                 # Remove failed exploit
                 removed_count += 1

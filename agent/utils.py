@@ -22,6 +22,21 @@ class AgentType(Enum):
     SETUP = SETUP_AGENT_PROMPT_PATH
     FIXER = FIXER_AGENT_PROMPT_PATH
 
+def agent_type_to_kind(agent_type: AgentType) -> str:
+    """Convert AgentType enum to kind string for database storage."""
+    if agent_type == AgentType.FINDER:
+        return "finder"
+    elif agent_type == AgentType.TEST_GENERATOR:
+        return "verifier"
+    elif agent_type == AgentType.SETUP:
+        return "setup"
+    elif agent_type == AgentType.FIXER:
+        return "fixer"
+    elif agent_type == AgentType.NON_DUPLICATE_VERIFIER:
+        return "non_duplicate_verifier"
+    else:
+        return "unknown"
+
 def load_system_prompt(agent_type: AgentType, is_sub_agent: bool = False, 
                        scope_path: str = "", task_description: str = "", 
                        max_turns: int = MAX_TOOL_TURNS, depth: int = 0, 

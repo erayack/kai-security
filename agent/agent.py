@@ -11,6 +11,7 @@ from agent.utils import (
     format_results_and_remaining_turns,
     extract_thoughts,
     AgentType,
+    agent_type_to_kind,
 )
 from agent.settings import (
     SAVE_CONVERSATION_PATH,
@@ -286,20 +287,31 @@ class BaseAgent(ABC):
 
             # Log execution in_progress (if main agent) and agent start
             try:
-                # For main agent (depth 0), update execution status to in_progress
-                if self.depth == 0:
-                    log_execution_in_progress(self.agent_id)
-
                 # Log agent start (creates agent document)
                 # For main agent, execution_id = agent_id
                 # For sub-agents, execution_id should be passed from parent
                 execution_id = self.execution_id if self.execution_id else self.agent_id
+
+                # For main agent (depth 0), update execution status to in_progress
+                if self.depth == 0:
+                    log_execution_in_progress(execution_id)
+
+                # Format scope paths properly
+                scope_paths_str = ""
+                if self.scope_paths:
+                    scope_paths_str = " | ".join(self.scope_paths)
+
                 log_agent_started(
                     agent_id=self.agent_id,
                     execution_id=execution_id,
+                    kind=(
+                        agent_type_to_kind(self.agent_type)
+                        if self.agent_type
+                        else "unknown"
+                    ),
                     parent_agent_id=self.parent_agent_id,
                     depth=self.depth,
-                    scope_paths=",".join(self.scope_paths) if self.scope_paths else "",
+                    scope_paths=scope_paths_str,
                 )
             except Exception:
                 pass  # Don't fail if logging fails
