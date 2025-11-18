@@ -103,8 +103,8 @@ class MongoDBHandler(Handler):
                     "completedAt": None,
                     "totalCost": 0.0,
                     "totalTokens": 0,
-                    "exploitCount": 0,
-                    "agentCount": 0,
+                    "exploitCounts": {"found": 0, "verified": 0},
+                    "agentCounts": {"found": 0, "verified": 0},
                     "updatedAt": datetime.now(timezone.utc),
                 }
             )
@@ -141,25 +141,34 @@ class MongoDBHandler(Handler):
         else:
             parent_agent_id = None
 
+        agent_kind = getattr(record, "kind", "unknown")
+
         self.agents.insert_one(
             {
                 "_id": agent_id,
                 "executionId": execution_id,
                 "parentAgentId": parent_agent_id,
                 "depth": int(getattr(record, "depth", 0)),
-                "kind": getattr(record, "kind", "unknown"),
+                "kind": agent_kind,
                 "scopePath": scope_paths_str if scope_paths_str else None,
                 "createdAt": datetime.now(timezone.utc),
                 "completedAt": None,
                 "cost": 0.0,
                 "tokens": {"prompt": 0, "completion": 0, "total": 0},
-                "exploitCount": 0,
                 "updatedAt": datetime.now(timezone.utc),
             }
         )
 
-        # Increment execution agent count
-        self.executions.update_one({"_id": execution_id}, {"$inc": {"agentCount": 1}})
+        # Increment execution agent count in real-time based on agent kind
+        # Finder agents increment 'found' count, generator agents increment 'verified' count
+        if agent_kind == "finder":
+            self.executions.update_one(
+                {"_id": execution_id}, {"$inc": {"agentCounts.found": 1}}
+            )
+        elif agent_kind == "generator":
+            self.executions.update_one(
+                {"_id": execution_id}, {"$inc": {"agentCounts.verified": 1}}
+            )
 
     def _handle_agent_update(self, record: LogRecord) -> None:
         """Update agent metrics in real-time"""
@@ -298,10 +307,10 @@ class MongoDBHandler(Handler):
 
         self.exploits.insert_one(exploit_doc)
 
-        # Increment exploit count for agent and execution
-        self.agents.update_one({"_id": agent_id}, {"$inc": {"exploitCount": 1}})
+        # Increment exploit count in real-time
+        # When an exploit is discovered, it increments the 'found' count
         self.executions.update_one(
-            {"_id": agent["executionId"]}, {"$inc": {"exploitCount": 1}}
+            {"_id": agent["executionId"]}, {"$inc": {"exploitCounts.found": 1}}
         )
 
     def _handle_exploit_verified(self, record: LogRecord) -> None:
@@ -323,6 +332,14 @@ class MongoDBHandler(Handler):
             update_data["verifiedBy"] = verified_by_agent_id
 
         self.exploits.update_one({"_id": exploit_id}, {"$set": update_data})
+
+        # Increment verified exploit count in real-time
+        # Get the exploit to find its executionId
+        exploit = self.exploits.find_one({"_id": exploit_id})
+        if exploit and "executionId" in exploit:
+            self.executions.update_one(
+                {"_id": exploit["executionId"]}, {"$inc": {"exploitCounts.verified": 1}}
+            )
 
 
 __all__ = ["MongoDBHandler"]

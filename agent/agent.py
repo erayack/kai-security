@@ -60,7 +60,7 @@ class BaseAgent(ABC):
         self.agent_type = agent_type
 
         # Agent identification and hierarchy (NEW)
-        self.agent_id = ObjectId()
+        self.agent_id = str(ObjectId())  # Convert to string for JSON serialization
         self.parent_agent_id = parent_agent_id
         self.depth = depth
         self.max_depth = max_depth
