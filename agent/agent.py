@@ -35,7 +35,6 @@ import uuid
 from bson import ObjectId
 
 from logger.mongo_logger import (
-    log_execution_in_progress,
     log_agent_started,
     log_agent_metrics,
     log_agent_complete,
@@ -291,10 +290,6 @@ class BaseAgent(ABC):
                 # For main agent, execution_id = agent_id
                 # For sub-agents, execution_id should be passed from parent
                 execution_id = self.execution_id if self.execution_id else self.agent_id
-
-                # For main agent (depth 0), update execution status to in_progress
-                if self.depth == 0:
-                    log_execution_in_progress(execution_id)
 
                 # Format scope paths properly
                 scope_paths_str = ""

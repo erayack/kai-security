@@ -13,6 +13,8 @@ import warnings
 from logger import logging
 import time
 import argparse
+from bson import ObjectId
+
 
 # Suppress asyncio/event loop cleanup warnings (harmless during multi-threaded async execution)
 warnings.filterwarnings(
@@ -37,8 +39,6 @@ from agent.agents import FinderAgent, GeneratorAgent, SetupAgent, FixerAgent
 from agent.report_generator import generate_comprehensive_report, save_report
 from agent.settings import MAX_SUBAGENT_TURNS, MAX_DEPTH
 from logger.mongo_logger import (
-    log_execution_pending,
-    log_execution_in_progress,
     log_execution_complete,
     log_execution_failed,
 )
@@ -663,13 +663,7 @@ Examples:
     )
     print("=" * 80)
 
-    # Create ONE execution for the entire run
-    from bson import ObjectId
-
     execution_id = ObjectId()
-
-    # Log execution creation with pending status
-    log_execution_pending(execution_id, repo_url, model_name)
 
     results = {}
     total_cost = 0.0

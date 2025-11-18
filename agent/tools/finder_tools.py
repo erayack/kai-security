@@ -369,7 +369,7 @@ Now you can decide whether the exploit is a non-duplicate or not.
         return "Exploit is a duplicate"
 
     # Generate a short ID for the exploit if it doesn't have one
-    exploit_id = exploit.id if exploit.id else str(uuid.uuid4())[:6]
+    exploit_id = exploit.id if exploit.id else str(uuid.uuid4())
     exploit.id = exploit_id
 
     # Use file locking to prevent concurrent writes from corrupting the file

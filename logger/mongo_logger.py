@@ -3,6 +3,8 @@
 from typing import Optional
 from logger import logging
 
+from bson import ObjectId
+
 
 def log_execution_pending(execution_id: str, repo_url: str, model: str) -> None:
     """Log when execution is created with pending status."""
@@ -12,7 +14,7 @@ def log_execution_pending(execution_id: str, repo_url: str, model: str) -> None:
             "mongo": True,
             "event_type": "execution_state",
             "status": "pending",
-            "execution_id": execution_id,
+            "_id": ObjectId(execution_id),
             "repo_url": repo_url,
             "model": model,
         },
@@ -27,7 +29,7 @@ def log_execution_in_progress(execution_id: str) -> None:
             "mongo": True,
             "event_type": "execution_state",
             "status": "in_progress",
-            "execution_id": execution_id,
+            "_id": ObjectId(execution_id),
         },
     )
 
@@ -40,7 +42,7 @@ def log_execution_complete(execution_id: str, status: str = "completed") -> None
             "mongo": True,
             "event_type": "execution_state",
             "status": status,
-            "execution_id": execution_id,
+            "_id": ObjectId(execution_id),
         },
     )
 
@@ -53,7 +55,7 @@ def log_execution_failed(execution_id: str, error: str) -> None:
             "mongo": True,
             "event_type": "execution_state",
             "status": "failed",
-            "execution_id": execution_id,
+            "_id": ObjectId(execution_id),
             "error": error,
         },
     )
