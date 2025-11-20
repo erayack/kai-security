@@ -29,7 +29,7 @@ else:
 
 from agent.agents import FinderAgent, GeneratorAgent, SetupAgent, FixerAgent
 from agent.report_generator import generate_comprehensive_report, save_report
-from agent.settings import MAX_SUBAGENT_TURNS, MAX_DEPTH
+from agent.settings import MAX_SUBAGENT_TURNS, MAX_DEPTH, FIXER_BATCH_SIZE
 from agent.schemas import Role
 
 
@@ -426,63 +426,117 @@ async def run_fixer_agent(
     """
     Run the fixer agent for all exploits in the exploits.json file in the repo path (async)
     """
+    from agent.fixer_utils import process_fix_exploits
+    from scripts.generate_fixer_report import generate_fixer_report, save_report
+    
     repo_path = _repo_path(repo_url)
+    repo_slug = _repo_slug(repo_url)
     
-    FIXER_INSTRUCTION = """
-Here is the exploit:
-<exploit>
-{exploit}
-</exploit>
-
-Start exploring the codebase and fix the exploit.
-"""
+    # Find all exploits.json files
+    print("\n🔍 Searching for exploits.json files...")
+    from agent.generator_utils import get_exploits_jsons
+    exploits_files = get_exploits_jsons(repo_path)
     
-    exploits = json.load(open(os.path.join(repo_path, "exploits.json")))
+    if not exploits_files:
+        print("   No exploits.json files found in repository")
+        return {
+            "total_cost": 0.0,
+            "total_time": 0.0,
+            "total_exploits": 0,
+            "fixed_exploits": 0,
+            "failed_exploits": 0,
+            "success_rate": 0.0
+        }
+    
+    print(f"   Found {len(exploits_files)} exploits.json file(s)")
+    
+    # Process files in batches
+    batch_size = max(1, FIXER_BATCH_SIZE)
+    batches = [
+        exploits_files[i:i + batch_size]
+        for i in range(0, len(exploits_files), batch_size)
+    ]
+    
+    print(f"   Processing in {len(batches)} batch(es) of {batch_size}")
+    
+    all_results = []
     total_cost = 0.0
+    total_time = 0.0
+    total_exploits = 0
+    fixed_exploits = 0
+    failed_exploits = 0
     
-    for exploit in tqdm(exploits, desc="Fixing exploits"):
-        agent = FixerAgent(
-            repo_path=repo_path, 
-            max_tool_turns=num_turns, 
-            model=model_name,
-            use_openai=use_openai
+    for batch_idx, batch in enumerate(batches, 1):
+        print(f"📦 Batch {batch_idx}/{len(batches)}: Processing {len(batch)} file(s)")
+        
+        tasks = [
+            process_fix_exploits(
+                exploits_path=exploit_file,
+                repo_path=repo_path,
+                model=model_name,
+                use_openai=use_openai,
+                use_vllm=False
+            )
+            for exploit_file in batch
+        ]
+        
+        batch_results = await asyncio.gather(*tasks)
+        
+        for result in batch_results:
+            if "error" not in result:
+                total_cost += result.get("total_cost", 0.0)
+                total_time += result.get("total_time", 0.0)
+                total_exploits += result.get("total_exploits", 0)
+                fixed_exploits += result.get("fixed_exploits", 0)
+                failed_exploits += result.get("failed_exploits", 0)
+                all_results.append(result)
+        
+        print()
+            
+    # Calculate success rate
+    success_rate = (fixed_exploits / total_exploits * 100) if total_exploits > 0 else 0.0
+    
+    # Generate comprehensive report
+    print("📊 Generating fixer report...")
+    try:
+        output_dir = os.path.join(_project_root(), "output")
+        report = generate_fixer_report(
+            repo_slug=repo_slug,
+            output_dir=output_dir
         )
-
-        try:
-            # Construct the instruction
-            instruction = FIXER_INSTRUCTION.format(exploit=json.dumps(exploit))
-            
-            # Fix the exploit
-            response = await agent.chat(instruction)
-            
-            # Save the suggested fix in a suggested_fixes.json file
-            # the format should be {exploit_id: suggested_fix}
-            # the suggested_fixes.json file should be a list of dicts, with the key being the exploit_id and the value being the suggested_fix
-            try:
-                with open(os.path.join(repo_path, "suggested_fixes.json"), "r") as f:
-                    suggested_fixes = json.load(f)
-            except:
-                suggested_fixes = []
-            suggested_fixes.append({exploit["id"]: response.suggest_fix})
-            with open(os.path.join(repo_path, "suggested_fixes.json"), "w") as f:
-                json.dump(suggested_fixes, f, indent=2)
-
-            # Save conversation under a per-repo folder inside output/conversations
-            save_folder = os.path.join(_project_root(), "output", _repo_slug(repo_url), "fixer_conversations")
-            os.makedirs(save_folder, exist_ok=True)
-            agent.save_conversation(save_folder=save_folder, prefix=f"fixer_exploit_{exploit['id']}")
-            
-            total_cost += agent.estimated_cost
-        finally:
-            # Always close the agent to clean up resources
-            try:
-                await agent.close()
-            except Exception:
-                pass
+        report_path = save_report(
+            report=report,
+            output_dir=output_dir,
+            repo_slug=repo_slug
+        )
+        print(f"   Report saved to: {report_path}")
+    except Exception as e:
+        print(f"   ⚠️  Warning: Failed to generate report: {e}")
+    
+    # Print summary
+    print("\n" + "="*80)
+    print("FIXER SUMMARY")
+    print("="*80)
+    print(f"Exploits.json files processed: {len(exploits_files)}")
+    print(f"Total exploits processed: {total_exploits}")
+    print(f"Fixed exploits: {fixed_exploits}")
+    print(f"Failed exploits: {failed_exploits}")
+    print(f"Success rate: {success_rate:.1f}%")
+    print(f"Total cost: ${total_cost:.4f}")
+    print(f"Total time: {total_time:.1f}s ({total_time/60:.1f}m)")
+    if fixed_exploits > 0:
+        print(f"Cost per fixed exploit: ${total_cost/fixed_exploits:.4f}")
+        print(f"Time per fixed exploit: {total_time/fixed_exploits:.1f}s")
+    print("="*80)
     
     return {
         "total_cost": total_cost,
-        "exploits_fixed": len(exploits)
+        "total_time": total_time,
+        "total_exploits": total_exploits,
+        "fixed_exploits": fixed_exploits,
+        "failed_exploits": failed_exploits,
+        "success_rate": success_rate,
+        "all_results": all_results
     }
 
 async def main():
@@ -506,6 +560,9 @@ Examples:
   
   # Run only generator (assumes finder and setup already completed)
   python run_scaffold.py --generator-only
+  
+  # Run only fixer (assumes exploits already found)
+  python run_scaffold.py --fixer-only
   
   # Custom repository and model
   python run_scaffold.py --repo https://github.com/user/repo.git --model gpt-4
@@ -538,6 +595,8 @@ Examples:
                             help='Run only the finder agent (requires setup to be done)')
     agent_group.add_argument('--generator-only', action='store_true',
                             help='Run only the generator agent (requires setup and finder to be done)')
+    agent_group.add_argument('--fixer-only', action='store_true',
+                            help='Run only the fixer agent (requires exploits to be found)')
     
     # Fine-grained control (can be combined)
     parser.add_argument('--skip-setup', action='store_true',
@@ -546,6 +605,8 @@ Examples:
                        help='Skip the finder agent')
     parser.add_argument('--skip-generator', action='store_true',
                        help='Skip the generator agent')
+    parser.add_argument('--skip-fixer', action='store_true',
+                       help='Skip the fixer agent')
     
     args = parser.parse_args()
     
@@ -553,20 +614,29 @@ Examples:
     run_setup = True
     run_finder = True
     run_generator = True
+    run_fixer = True
     
     # Handle mutually exclusive options
     if args.setup_only:
         run_setup = True
         run_finder = False
         run_generator = False
+        run_fixer = False
     elif args.finder_only:
         run_setup = False
         run_finder = True
         run_generator = False
+        run_fixer = False
     elif args.generator_only:
         run_setup = False
         run_finder = False
         run_generator = True
+        run_fixer = False
+    elif args.fixer_only:
+        run_setup = False
+        run_finder = False
+        run_generator = False
+        run_fixer = True
     
     # Handle skip options
     if args.skip_setup:
@@ -575,9 +645,11 @@ Examples:
         run_finder = False
     if args.skip_generator:
         run_generator = False
+    if args.skip_fixer:
+        run_fixer = False
     
     # Validate that at least one agent is enabled
-    if not (run_setup or run_finder or run_generator):
+    if not (run_setup or run_finder or run_generator or run_fixer):
         parser.error("At least one agent must be enabled. Cannot skip all agents.")
     
     # Configuration
@@ -596,19 +668,19 @@ Examples:
     print(f"Turns per agent: {num_turns}")
     print(f"Main model: {model_name}")
     print(f"Setup model: {setup_model}")
-    print(f"Agents to run: {', '.join([a for a, enabled in [('Finder', run_finder), ('Setup', run_setup), ('Generator', run_generator)] if enabled])}")
+    print(f"Agents to run: {', '.join([a for a, enabled in [('Finder', run_finder), ('Setup', run_setup), ('Generator', run_generator), ('Fixer', run_fixer)] if enabled])}")
     print("="*80)
     
     results = {}
     total_cost = 0.0
     step_num = 1
-    total_steps = sum([run_setup, run_finder, run_generator])
+    total_steps = sum([run_setup, run_finder, run_generator, run_fixer])
     
-    # Execution order: finder → setup → generator → (fixer)
+    # Execution order: finder → setup → generator → fixer
     # Finder agent explores the raw codebase and creates exploits.json files
     # Setup agent prepares the environment (installs dependencies, builds, etc.)
     # Generator agent validates exploits by generating and running tests
-    # Fixer agent suggests fixes for verified exploits (currently disabled)
+    # Fixer agent suggests fixes for verified exploits
     
     if run_finder:
         print("\n" + "="*80)
@@ -619,7 +691,7 @@ Examples:
         results['finder'] = finder_result
         total_cost += finder_result['estimated_cost']
         step_num += 1
-    elif run_setup or run_generator:
+    elif run_setup or run_generator or run_fixer:
         print("\n⚠️  Skipping finder agent - assuming exploits.json files already exist")
     
     if run_setup:
@@ -642,7 +714,7 @@ Examples:
         results['setup'] = setup_result
         total_cost += setup_result['estimated_cost']
         step_num += 1
-    elif run_generator:
+    elif run_generator or run_fixer:
         print("\n⚠️  Skipping setup agent - assuming repository is already set up")
     
     if run_generator:
@@ -655,22 +727,21 @@ Examples:
         total_cost += generator_result['total_cost']
         step_num += 1
     
-    # Fixer agent - currently disabled
-    # Uncomment to enable fixing of verified exploits
-    # if run_fixer:
-    #     print("\n" + "="*80)
-    #     print(f"STEP {step_num}/{total_steps}: Running Fixer Agent (Model: {model_name})")
-    #     print("="*80)
-    #     fixer_result = await run_fixer_agent(repo_url, num_turns, model_name, use_openai)
-    #     print(f"✅ Fixer agent completed. Cost: ${fixer_result['total_cost']:.4f}")
-    #     results['fixer'] = fixer_result
-    #     total_cost += fixer_result['total_cost']
-    #     step_num += 1
+    # Fixer agent
+    if run_fixer:
+        print("\n" + "="*80)
+        print(f"STEP {step_num}/{total_steps}: Running Fixer Agent (Model: {model_name})")
+        print("="*80)
+        fixer_result = await run_fixer_agent(repo_url, num_turns, model_name, use_openai)
+        print(f"✅ Fixer agent completed. Cost: ${fixer_result['total_cost']:.4f}")
+        results['fixer'] = fixer_result
+        total_cost += fixer_result['total_cost']
+        step_num += 1
     
     # Final summary
     print("\n" + "="*80)
-    agents_run = [a for a, enabled in [('Finder', run_finder), ('Setup', run_setup), ('Generator', run_generator)] if enabled]
-    print(f"{'ALL ' if len(agents_run) == 3 else ''}AGENTS COMPLETED SUCCESSFULLY")
+    agents_run = [a for a, enabled in [('Finder', run_finder), ('Setup', run_setup), ('Generator', run_generator), ('Fixer', run_fixer)] if enabled]
+    print(f"{'ALL ' if len(agents_run) == 4 else ''}AGENTS COMPLETED SUCCESSFULLY")
     print("="*80)
     print(f"Agents run: {', '.join(agents_run)}")
     print(f"Total cost: ${total_cost:.4f}")
