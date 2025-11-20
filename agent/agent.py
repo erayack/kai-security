@@ -26,6 +26,8 @@ from abc import ABC, abstractmethod
 import json
 import os
 import uuid
+import sys
+import copy
 
 
 class BaseAgent(ABC):
@@ -120,6 +122,11 @@ class BaseAgent(ABC):
         self.max_tool_turns = max_tool_turns
         self.use_vllm = use_vllm
         self.use_openai = use_openai
+        # Ensure sub-agents can still stream progress even when stdout/stderr are redirected
+        if self.depth > 0:
+            self._tqdm_file = getattr(sys, "__stderr__", None) or getattr(sys, "__stdout__", None) or sys.stdout
+        else:
+            self._tqdm_file = None
         
         # Budget tracking
         self.total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
@@ -337,6 +344,7 @@ class BaseAgent(ABC):
             return self.extract_final_result(thoughts, python_code, response)
 
         remaining_tool_turns = self.max_tool_turns
+        is_finder_agent = self.agent_type == AgentType.FINDER
         
         # Only enter loop if there was Python code in the first response (except for finder agent)
         # Setup progress bar
@@ -345,12 +353,12 @@ class BaseAgent(ABC):
             agent_desc += f" [{self.scope_paths[0]}]"
         
         with tqdm(total=self.max_tool_turns, desc=agent_desc, unit="turn", 
-                  leave=True, position=self.depth, ncols=100) as pbar:
+                  leave=True, position=self.depth, ncols=100, file=self._tqdm_file) as pbar:
             # Update to show initial turn
             turns_done = self.max_tool_turns - remaining_tool_turns
             pbar.update(turns_done)
             
-            while remaining_tool_turns > 0 and (python_code or self.agent_type == AgentType.FINDER):
+            while remaining_tool_turns > 0 and (python_code or is_finder_agent):
                 self._add_message(
                     ChatMessage(role=Role.USER, content=format_results_and_remaining_turns(result[0], result[1], remaining_tool_turns))
                 )
@@ -390,13 +398,13 @@ class BaseAgent(ABC):
                         self.messages[-1].content.startswith("<result>")
                     )
                     
-                    if last_message_was_tool_result:
+                    if last_message_was_tool_result and not is_finder_agent:
                         # Model returned empty after tool result - treat as completion
                         pbar.set_postfix_str("✓ Completed (no more responses)")
                         break
                     
                     # If we get too many malformed responses in a row, terminate gracefully  
-                    if self._malformed_count >= 2:
+                    if self._malformed_count >= 2 and not is_finder_agent:
                         pbar.set_postfix_str("✓ Completed (no more structured responses)")
                         break
                     
@@ -529,6 +537,28 @@ class BaseAgent(ABC):
         except Exception:
             pass  # If file doesn't exist or can't be read, leave empty
         
+        # Helper utilities for aggregating exploit metadata
+        def _stats_from_exploits(exploits: list[dict]) -> dict[str, int]:
+            stats: dict[str, int] = {}
+            for exploit in exploits:
+                if not isinstance(exploit, dict):
+                    continue
+                severity = exploit.get('severity', 'unknown')
+                stats[severity] = stats.get(severity, 0) + 1
+            return stats
+
+        def _merge_stats(target: dict, addition: dict):
+            for key, value in addition.items():
+                if isinstance(value, dict):
+                    nested = target.setdefault(key, {"verified": 0, "unverified": 0})
+                    nested["verified"] += value.get("verified", 0)
+                    nested["unverified"] += value.get("unverified", 0)
+                else:
+                    target[key] = target.get(key, 0) + value
+
+        combined_exploits = copy.deepcopy(found_exploits)
+        combined_exploit_stats: dict = copy.deepcopy(exploit_stats)
+
         # Aggregate sub-agent costs and time
         sub_agent_total_cost = 0.0
         sub_agent_total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
@@ -548,7 +578,8 @@ class BaseAgent(ABC):
             if "exploit_stats" in sub_report:
                 sub_stats = sub_report["exploit_stats"]
                 # Check if it's generator-style (severity with verified/unverified) or finder-style (severity counts)
-                if sub_stats and isinstance(next(iter(sub_stats.values()), None), dict):
+                first_value = next(iter(sub_stats.values()), None) if sub_stats else None
+                if isinstance(first_value, dict):
                     # Generator-style: severity-based with verified/unverified
                     for severity, stats in sub_stats.items():
                         if severity not in exploit_stats:
@@ -559,6 +590,23 @@ class BaseAgent(ABC):
                     # Finder-style: severity-based counts
                     for severity, count in sub_stats.items():
                         exploit_stats[severity] = exploit_stats.get(severity, 0) + count
+            elif "exploits" in sub_report:
+                sub_stats = _stats_from_exploits(sub_report.get("exploits", []))
+                for severity, count in sub_stats.items():
+                    exploit_stats[severity] = exploit_stats.get(severity, 0) + count
+
+            # Track combined exploit metadata for this agent (own + descendants)
+            if "combined_exploits" in sub_report:
+                combined_exploits.extend(copy.deepcopy(sub_report["combined_exploits"]))
+            elif "exploits" in sub_report:
+                combined_exploits.extend(copy.deepcopy(sub_report["exploits"]))
+
+            if "combined_exploit_stats" in sub_report:
+                _merge_stats(combined_exploit_stats, sub_report["combined_exploit_stats"])
+            elif "exploit_stats" in sub_report:
+                _merge_stats(combined_exploit_stats, sub_report["exploit_stats"])
+            elif "exploits" in sub_report:
+                _merge_stats(combined_exploit_stats, _stats_from_exploits(sub_report.get("exploits", [])))
         
         # Calculate combined totals
         combined_total_cost = self.estimated_cost + sub_agent_total_cost
@@ -600,6 +648,8 @@ class BaseAgent(ABC):
             # For generator agents: {"severity": {"verified": int, "unverified": int}, ...}
             # Includes this agent + all sub-agents
             "exploit_stats": exploit_stats,
+            "combined_exploit_stats": combined_exploit_stats,
+            "combined_exploits": combined_exploits,
         }
         
         # Add validation result if this is a per-exploit validation sub-agent

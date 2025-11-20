@@ -119,7 +119,7 @@ class Exploit(BaseModel):
     id: Optional[str] = None  # Leave None, auto-assigned
     category: str  # e.g., "Integer Overflow", "Access Control"
     severity: ExploitSeverity
-    locations: List[ExploitLocation]
+    location: ExploitLocation
     description: str
     suggested_fix: Optional[str] = None
 ```
@@ -200,15 +200,13 @@ content = read_file("src/handlers/withdraw.rs")
 exploit = Exploit(
     category="Missing Access Control",
     severity=ExploitSeverity.CRITICAL,
-    locations=[
-        ExploitLocation(
-            file_path="src/handlers/withdraw.rs",
-            line_start=89,
-            line_end=92,
-            function_name="withdraw_funds",
-            vulnerable_code="pub fn withdraw_funds(ctx: Context<Withdraw>, amount: u64) -> Result<()>"
-        )
-    ],
+    location=ExploitLocation(
+        file_path="src/handlers/withdraw.rs",
+        line_start=89,
+        line_end=92,
+        function_name="withdraw_funds",
+        vulnerable_code="pub fn withdraw_funds(ctx: Context<Withdraw>, amount: u64) -> Result<()>"
+    ),
     description="Withdraw function lacks authority check - anyone can withdraw",
     suggested_fix="Add require!(ctx.accounts.authority.key() == expected_authority)"
 )

@@ -9,7 +9,7 @@ exploit verification, including success rates, costs, time spent, and lists of v
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from collections import defaultdict
 import datetime
 
@@ -42,6 +42,20 @@ def count_turns_used(messages: List[Dict]) -> int:
     return turns
 
 
+def _extract_location(exploit: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Normalize legacy exploits that still store `locations` arrays."""
+    location = exploit.get("location")
+    if location:
+        return location
+
+    locations = exploit.get("locations")
+    if isinstance(locations, list) and locations:
+        return locations[0]
+    if isinstance(locations, dict):
+        return locations
+    return None
+
+
 def load_exploit_info(repo_slug: str) -> Dict[str, Dict]:
     """Load exploit information from all exploits.json files in the repository."""
     script_dir = Path(__file__).resolve().parent
@@ -66,7 +80,7 @@ def load_exploit_info(repo_slug: str) -> Dict[str, Dict]:
                             'category': exploit.get('category', 'Unknown'),
                             'severity': exploit.get('severity', 'unknown'),
                             'description': exploit.get('description', ''),
-                            'locations': exploit.get('locations', [])
+                            'location': _extract_location(exploit)
                         }
         except Exception:
             continue
@@ -133,7 +147,7 @@ def analyze_validation_conversations(output_dir: str, repo_slug: str) -> Dict[st
                 'category': 'Unknown',
                 'severity': 'unknown',
                 'description': 'No description available',
-                'locations': []
+                'location': None
             })
             
             severity = exploit_info['severity']

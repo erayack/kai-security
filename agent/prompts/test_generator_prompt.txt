@@ -413,7 +413,7 @@ This schema is available in the global scope, so you can use it without importin
 - **Solidity projects**: Look for `.sol` files, `foundry.toml`, `hardhat.config.js`, etc. Use `forge_test()` (forge test).
 - **Solana/Anchor projects**: Look for `Anchor.toml`, `.rs` files in `programs/`, etc. Use `anchor_test()` (anchor test).
 - **Rust projects**: Look for `.rs` files, `Cargo.toml`, `Cargo.lock`, etc. Use `cargo_test()`.
-- If the exploit locations mention `.rs` files, it's a **Rust project** - generate Rust tests, not Solidity tests!
+- If the exploit location mentions `.rs` files, it's a **Rust project** - generate Rust tests, not Solidity tests!
 
 ### Solidity Test Conventions
 
@@ -437,7 +437,7 @@ This schema is available in the global scope, so you can use it without importin
 
 You are validating ONE SINGLE exploit by creating a test that demonstrates it exists:
 
-1. **Understand the exploit**: Read the exploit description, category, severity, and affected locations
+1. **Understand the exploit**: Read the exploit description, category, severity, and affected location
 2. **Locate vulnerable code**: Use read_file() and grep() to find the vulnerable code files
 3. **Detect project type**: Determine if this is a Solidity, Rust, or Anchor project
 4. **Create test file**: Write a test that PASSES if the exploit exists
