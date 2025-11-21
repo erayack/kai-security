@@ -104,7 +104,7 @@ class MongoDBHandler(Handler):
                     "totalCost": 0.0,
                     "totalTokens": 0,
                     "exploitCounts": {"found": 0, "verified": 0},
-                    "agentCounts": {"found": 0, "verified": 0},
+                    "agentCounts": {"finder": 0, "verifier": 0, "setup": 0},
                     "updatedAt": datetime.now(timezone.utc),
                 }
             )
@@ -160,14 +160,9 @@ class MongoDBHandler(Handler):
         )
 
         # Increment execution agent count in real-time based on agent kind
-        # Finder agents increment 'found' count, generator agents increment 'verified' count
-        if agent_kind == "finder":
+        if agent_kind in ["finder", "verifier", "setup"]:
             self.executions.update_one(
-                {"_id": execution_id}, {"$inc": {"agentCounts.found": 1}}
-            )
-        elif agent_kind == "generator":
-            self.executions.update_one(
-                {"_id": execution_id}, {"$inc": {"agentCounts.verified": 1}}
+                {"_id": execution_id}, {"$inc": {f"agentCounts.{agent_kind}": 1}}
             )
 
     def _handle_agent_update(self, record: LogRecord) -> None:

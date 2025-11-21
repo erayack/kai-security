@@ -152,6 +152,10 @@ async def process_exploits_json(
                 execution_id=execution_id  # Pass execution_id for logging
             )
             
+            # Setup tests/exploits directory in the repo
+            exploits_test_dir = os.path.join(repo_path, "tests", "exploits")
+            os.makedirs(exploits_test_dir, exist_ok=True)
+
             # Construct task message for single exploit validation
             exploit_json = json.dumps(exploit, indent=2)
             task_message = f"""
@@ -164,8 +168,8 @@ Your task:
 1. Understand the vulnerability described
 2. Locate the vulnerable code files
 3. Determine the project type (Solidity/Rust/Anchor)
-4. Create a test file that PASSES if the exploit exists
-5. Run the test (forge_test/cargo_test/anchor_test)
+4. Create a test file in `tests/exploits/` (e.g. `tests/exploits/test_<id>.t.sol` or `tests/exploits/test_<id>.rs`) that PASSES if the exploit exists.
+5. Run the test targeting that specific file (e.g. `forge_test(test_script_path="tests/exploits/test_<id>.t.sol")`).
 6. Complete with your verdict:
    - If test passes → <done>True</done> (exploit is validated)
    - If test fails or cannot be created → <done>False</done> (exploit cannot be validated)
