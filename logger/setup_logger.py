@@ -3,7 +3,7 @@ from logging import Handler, Logger, StreamHandler, getLogger, INFO
 
 from logger.mongo_adapter import MongoDBHandler
 
-from agent.settings import MONGO_URI
+from agent.settings import MONGO_URI, MONGO_DB_NAME
 
 
 def setup_logger() -> Logger:
@@ -18,7 +18,7 @@ def setup_logger() -> Logger:
 
         mongo_handler: MongoDBHandler = MongoDBHandler(
             uri=MONGO_URI,
-            db_name=settings.MONGO_DB_NAME,
+            db_name=MONGO_DB_NAME,
         )
         logger.addHandler(mongo_handler)
 
