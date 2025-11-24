@@ -13,6 +13,7 @@ from agent.settings import (
 from enum import Enum
 import os
 import pathspec
+import re
 from typing import Optional
 
 class AgentType(Enum):
@@ -123,8 +124,13 @@ def extract_suggest_fix(response: str) -> str:
     """
     if "<suggest_fix>" in response and "</suggest_fix>" in response:
         return response.split("<suggest_fix>")[1].split("</suggest_fix>")[0]
-    else:
-        return ""
+
+    # Fallback: capture the first ```diff block even if the agent forgot the wrapper
+    diff_match = re.search(r"```diff[\s\S]+?```", response)
+    if diff_match:
+        return diff_match.group(0)
+
+    return ""
 
 def check_done(response: str) -> bool:
     """

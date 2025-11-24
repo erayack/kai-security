@@ -31,6 +31,48 @@ def _get_current_agent():
     return None
 
 
+def _normalize_agent_path(path: Optional[str]) -> Optional[str]:
+    """
+    Normalize user-provided paths so agents can reference files using either
+    repo-relative paths (e.g. repos/<slug>/...) or working-dir relative paths.
+    """
+    if path is None:
+        return None
+
+    try:
+        agent = _get_current_agent()
+    except (NameError, TypeError):
+        agent = None
+
+    # Absolute paths stay as-is
+    if path and os.path.isabs(path):
+        return path
+
+    normalized = os.path.normpath(path) if path else ""
+    if normalized.startswith("./"):
+        normalized = normalized[2:]
+    if normalized == ".":
+        normalized = ""
+
+    if agent:
+        repo_slug = os.path.basename(agent.repo_path) if getattr(agent, "repo_path", None) else ""
+        if normalized:
+            parts = normalized.split(os.sep)
+            if len(parts) >= 2 and parts[0] == "repos" and parts[1] == repo_slug:
+                remaining = os.path.join(*parts[2:]) if len(parts) > 2 else ""
+                return os.path.join(agent.repo_path, remaining)
+
+        base_dir = getattr(agent, "working_dir", agent.repo_path)
+        if base_dir and normalized:
+            return os.path.join(base_dir, normalized)
+        return base_dir
+
+    # Fallback: resolve relative to current directory
+    if normalized:
+        return os.path.abspath(normalized)
+    return os.getcwd()
+
+
 def read_file(file_path: str, start_line: Optional[int] = None, end_line: Optional[int] = None) -> str:
     """
     Read a file with a given path, optionally specifying a line range.
@@ -51,8 +93,7 @@ def read_file(file_path: str, start_line: Optional[int] = None, end_line: Option
         # Resolve relative paths relative to agent's working_dir
         try:
             agent = _get_current_agent()
-            if agent and not os.path.isabs(file_path):
-                file_path = os.path.join(agent.working_dir, file_path)
+            file_path = _normalize_agent_path(file_path)
         except (NameError, TypeError):
             pass
         
@@ -147,18 +188,7 @@ def list_files(path: Optional[str] = None, depth: int = 2) -> str:
             except (NameError, TypeError):
                 dir_path = os.getcwd()
         else:
-            # Resolve relative paths relative to agent's working_dir
-            if not os.path.isabs(path):
-                try:
-                    agent = _get_current_agent()
-                    if agent:
-                        dir_path = os.path.join(agent.working_dir, path)
-                    else:
-                        dir_path = os.path.abspath(path)
-                except (NameError, TypeError):
-                    dir_path = os.path.abspath(path)
-            else:
-                dir_path = path
+            dir_path = _normalize_agent_path(path)
         
         # Scope validation (if _get_current_agent is available)
         try:

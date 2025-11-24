@@ -118,6 +118,11 @@ class BaseAgent(ABC):
             ChatMessage(role=Role.SYSTEM, content=self.system_prompt)
         ]
 
+        # Fixer-specific format enforcement state
+        self._pending_feedback: Optional[str] = None
+        self._fixer_completion_warnings = 0
+        self._max_completion_warnings = 3
+
         # Set the maximum number of tool turns and use_vllm flag
         self.max_tool_turns = max_tool_turns
         self.use_vllm = use_vllm
@@ -254,6 +259,50 @@ class BaseAgent(ABC):
 
         return thoughts, python_code
 
+    def _missing_suggest_fix(self, python_code: str, response: str) -> bool:
+        """Determine if the fixer agent tried to finish without a <suggest_fix> block."""
+        if self.agent_type != AgentType.FIXER:
+            return False
+        if python_code:
+            return False
+        return "<suggest_fix>" not in response or "</suggest_fix>" not in response
+
+    def _reset_fixer_completion_warnings(self, python_code: str, response: str):
+        """Reset fixer completion warnings when the agent complies with the format."""
+        if self.agent_type != AgentType.FIXER:
+            return
+        has_fix = "<suggest_fix>" in response and "</suggest_fix>" in response
+        if python_code or has_fix:
+            self._fixer_completion_warnings = 0
+            if has_fix:
+                self._pending_feedback = None
+
+    def _handle_missing_suggest_fix(self) -> bool:
+        """
+        Queue feedback for fixer agents that attempt to finish without <suggest_fix>.
+
+        Returns:
+            True if the maximum number of warnings has been reached (conversation should end).
+        """
+        if self.agent_type != AgentType.FIXER:
+            return False
+
+        self._fixer_completion_warnings += 1
+        if self._fixer_completion_warnings >= self._max_completion_warnings:
+            self._pending_feedback = None
+            return True
+
+        remaining = self._max_completion_warnings - self._fixer_completion_warnings
+        plural = "" if remaining == 1 else "s"
+        attempt = self._fixer_completion_warnings
+        self._pending_feedback = (
+            f"FORMAT VIOLATION ({attempt}/{self._max_completion_warnings}): "
+            "When you are done you must respond with <suggest_fix>...</suggest_fix> containing a ```diff``` patch. "
+            "Either continue with a <python> block to keep investigating or provide the final fix now.\n"
+            f"You have {remaining} more attempt{plural} before this exploit is marked as failed."
+        )
+        return False
+
     async def chat(self, message: str) -> AgentResponse:
         """
         Chat with the agent (async).
@@ -287,6 +336,10 @@ class BaseAgent(ABC):
 
         # Extract the thoughts and python code from the response
         thoughts, python_code = self.extract_response_parts(response)
+        self._reset_fixer_completion_warnings(python_code, response)
+        violation_limit_reached = False
+        if self._missing_suggest_fix(python_code, response):
+            violation_limit_reached = self._handle_missing_suggest_fix()
 
         # CRITICAL ERROR HANDLING: Check if initial response is empty or completely malformed
         # At minimum, need either <python>, <done>, or meaningful content
@@ -339,6 +392,9 @@ class BaseAgent(ABC):
         # Add the agent's response to the conversation history
         self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
 
+        if violation_limit_reached:
+            return self.extract_final_result(thoughts, python_code, response)
+
         # Check if we should terminate immediately after first response
         if self.check_termination(response, python_code):
             return self.extract_final_result(thoughts, python_code, response)
@@ -358,10 +414,17 @@ class BaseAgent(ABC):
             turns_done = self.max_tool_turns - remaining_tool_turns
             pbar.update(turns_done)
             
-            while remaining_tool_turns > 0 and (python_code or is_finder_agent):
-                self._add_message(
-                    ChatMessage(role=Role.USER, content=format_results_and_remaining_turns(result[0], result[1], remaining_tool_turns))
-                )
+            while remaining_tool_turns > 0 and (python_code or is_finder_agent or self._pending_feedback):
+                if self._pending_feedback:
+                    self._add_message(ChatMessage(role=Role.USER, content=self._pending_feedback))
+                    self._pending_feedback = None
+                else:
+                    self._add_message(
+                        ChatMessage(
+                            role=Role.USER,
+                            content=format_results_and_remaining_turns(result[0], result[1], remaining_tool_turns)
+                        )
+                    )
                 response, usage_data = await get_model_response(
                     messages=self.messages,
                     model=self.model,  
@@ -375,6 +438,7 @@ class BaseAgent(ABC):
 
                 # Extract the thoughts and python code from the response
                 thoughts, python_code = self.extract_response_parts(response)
+                self._reset_fixer_completion_warnings(python_code, response)
 
                 # CRITICAL ERROR HANDLING: Check if response is empty or completely malformed
                 # At minimum, need either <python>, <done>, or meaningful content
@@ -428,6 +492,14 @@ class BaseAgent(ABC):
 
                 # Add the assistant message BEFORE checking termination
                 self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
+
+                if self._missing_suggest_fix(python_code, response):
+                    violation_limit_reached = self._handle_missing_suggest_fix()
+                    if violation_limit_reached:
+                        pbar.set_postfix_str("✗ Format violation")
+                        break
+                    pbar.set_postfix_str("⚠ Requires <suggest_fix>")
+                    continue
 
                 # Check if we should terminate
                 if self.check_termination(response, python_code):
