@@ -26,6 +26,8 @@ warnings.filterwarnings(
 )
 
 # Add project root to PYTHONPATH for subprocesses
+
+# TODO home.kai-ex
 _PROJECT_ROOT = str(Path(__file__).resolve().parent)
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)

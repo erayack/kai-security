@@ -61,4 +61,4 @@ TEST_SCRIPTS_PATH = "test/"
 ## Logging settings
 OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY")
 MONGO_URI: str = os.getenv("MONGO_URI")
-MONGO_DB_NAME: str = os.getenv("MONGO_DB_NAME")
+MONGO_DB_NAME: str = "kai"
