@@ -8,6 +8,7 @@ import time
 import atexit
 from pathlib import Path
 from typing import Union, Optional, List
+from bson import ObjectId
 
 from agent.schemas import GrepResponse, Exploit, ExploitLocation, ExploitSeverity
 from agent.settings import MAX_TOOL_TURNS, MAX_SUBAGENT_TURNS
@@ -368,8 +369,7 @@ Now you can decide whether the exploit is a non-duplicate or not.
     if is_duplicate:
         return "Exploit is a duplicate"
 
-    # Generate a short ID for the exploit if it doesn't have one
-    exploit_id = exploit.id if exploit.id else str(uuid.uuid4())
+    exploit_id = exploit.id if exploit.id else str(ObjectId())
     exploit.id = exploit_id
 
     # Use file locking to prevent concurrent writes from corrupting the file

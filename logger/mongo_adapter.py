@@ -6,6 +6,7 @@ from pymongo.database import Database
 from pymongo.errors import PyMongoError
 from typing_extensions import override
 from bson import ObjectId
+from typing import Any, Optional, Union
 
 
 class MongoDBHandler(Handler):
@@ -26,16 +27,11 @@ class MongoDBHandler(Handler):
         self.agents = self.db["agents"]
         self.exploits = self.db["exploits"]
 
-        # Create indexes for performance
-        self.executions.create_index("status")
-        self.agents.create_index("executionId")
-        self.agents.create_index("parentAgentId")
-        self.agents.create_index("kind")
-        self.exploits.create_index("executionId")
-        self.exploits.create_index("foundBy")
-        self.exploits.create_index("verifiedBy")
-        self.exploits.create_index("fixedBy")
-        self.exploits.create_index("filePath")
+    def _ensure_oid(self, value: Any) -> Optional[ObjectId]:
+        """Ensure value is an ObjectId if it's a non-empty string."""
+        if isinstance(value, str) and value:
+            return ObjectId(value)
+        return value
 
     @override
     def emit(self, record: LogRecord) -> None:
@@ -67,12 +63,8 @@ class MongoDBHandler(Handler):
 
     def _handle_execution_state(self, record: LogRecord) -> None:
         """Create or update execution document"""
-        execution_id = getattr(record, "execution_id", None)
+        execution_id = self._ensure_oid(getattr(record, "execution_id", None))
         status = getattr(record, "status", "pending")
-
-        # Convert execution_id to ObjectId if it's a string
-        if isinstance(execution_id, str):
-            execution_id = ObjectId(execution_id)
 
         existing = self.executions.find_one({"_id": execution_id})
 
@@ -103,22 +95,16 @@ class MongoDBHandler(Handler):
                     "completedAt": None,
                     "totalCost": 0.0,
                     "totalTokens": 0,
-                    "exploitCounts": {"found": 0, "verified": 0},
-                    "agentCounts": {"finder": 0, "verifier": 0, "setup": 0},
+                    "exploitCount": {"found": 0, "verified": 0},
+                    "agentCount": {"finder": 0, "verifier": 0},
                     "updatedAt": datetime.now(timezone.utc),
                 }
             )
 
     def _handle_agent_start(self, record: LogRecord) -> None:
         """Create agent document and increment execution agent count"""
-        agent_id = getattr(record, "agent_id", None)
-        execution_id = getattr(record, "execution_id", None)
-
-        # Convert to ObjectId if they are strings
-        if isinstance(agent_id, str):
-            agent_id = ObjectId(agent_id)
-        if isinstance(execution_id, str):
-            execution_id = ObjectId(execution_id)
+        agent_id = self._ensure_oid(getattr(record, "agent_id", None))
+        execution_id = self._ensure_oid(getattr(record, "execution_id", None))
 
         # Check if execution exists
         execution = self.executions.find_one({"_id": execution_id})
@@ -131,13 +117,13 @@ class MongoDBHandler(Handler):
         scope_paths_str = getattr(record, "scope_paths", "")
         parent_agent_id = getattr(record, "parent_agent_id", None)
 
-        # Convert parent_agent_id to ObjectId if it's a non-empty string
+        # Convert parent_agent_id if it's a non-empty string
         if (
             parent_agent_id
             and isinstance(parent_agent_id, str)
             and parent_agent_id.strip()
         ):
-            parent_agent_id = ObjectId(parent_agent_id)
+            parent_agent_id = self._ensure_oid(parent_agent_id)
         else:
             parent_agent_id = None
 
@@ -160,19 +146,15 @@ class MongoDBHandler(Handler):
         )
 
         # Increment execution agent count in real-time based on agent kind
-        if agent_kind in ["finder", "verifier", "setup"]:
+        if agent_kind in ["finder", "verifier"]:
             self.executions.update_one(
-                {"_id": execution_id}, {"$inc": {f"agentCounts.{agent_kind}": 1}}
+                {"_id": execution_id}, {"$inc": {f"agentCount.{agent_kind}": 1}}
             )
 
     def _handle_agent_update(self, record: LogRecord) -> None:
         """Update agent metrics in real-time"""
 
-        agent_id = getattr(record, "agent_id", None)
-
-        # Convert agent_id to ObjectId if it's a string
-        if isinstance(agent_id, str):
-            agent_id = ObjectId(agent_id)
+        agent_id = self._ensure_oid(getattr(record, "agent_id", None))
 
         self.agents.update_one(
             {"_id": agent_id},
@@ -215,11 +197,7 @@ class MongoDBHandler(Handler):
     def _handle_agent_complete(self, record: LogRecord) -> None:
         """Mark agent as completed"""
 
-        agent_id = getattr(record, "agent_id", None)
-
-        # Convert agent_id to ObjectId if it's a string
-        if isinstance(agent_id, str):
-            agent_id = ObjectId(agent_id)
+        agent_id = self._ensure_oid(getattr(record, "agent_id", None))
 
         self.agents.update_one(
             {"_id": agent_id},
@@ -236,11 +214,7 @@ class MongoDBHandler(Handler):
     def _handle_exploit(self, record: LogRecord) -> None:
         """Create exploit document and increment counters"""
 
-        agent_id = getattr(record, "agent_id", None)
-
-        # Convert agent_id to ObjectId if it's a string
-        if isinstance(agent_id, str):
-            agent_id = ObjectId(agent_id)
+        agent_id = self._ensure_oid(getattr(record, "agent_id", None))
 
         agent = self.agents.find_one({"_id": agent_id})
 
@@ -248,7 +222,7 @@ class MongoDBHandler(Handler):
             print(f"Warning: No agent found for exploit from agent_id: {agent_id}")
             return
 
-        exploit_id = getattr(record, "exploit_id", "")
+        exploit_id = self._ensure_oid(getattr(record, "exploit_id", ""))
 
         # Insert with exploit_id as _id
         exploit_doc = {
@@ -284,7 +258,9 @@ class MongoDBHandler(Handler):
         # Add optional verifiedBy if provided
         verified_by = getattr(record, "verified_by", None)
         if verified_by:
-            exploit_doc["verifiedBy"] = verified_by  # ObjectId reference
+            exploit_doc["verifiedBy"] = self._ensure_oid(verified_by)
+
+        # Add optional fixedAt if provided
 
         # Add optional fixedAt if provided
         fixed_at = getattr(record, "fixed_at", None)
@@ -298,14 +274,14 @@ class MongoDBHandler(Handler):
         # Add optional fixedBy if provided
         fixed_by = getattr(record, "fixed_by", None)
         if fixed_by:
-            exploit_doc["fixedBy"] = fixed_by  # ObjectId reference
+            exploit_doc["fixedBy"] = self._ensure_oid(fixed_by)
 
         self.exploits.insert_one(exploit_doc)
 
         # Increment exploit count in real-time
         # When an exploit is discovered, it increments the 'found' count
         self.executions.update_one(
-            {"_id": agent["executionId"]}, {"$inc": {"exploitCounts.found": 1}}
+            {"_id": agent["executionId"]}, {"$inc": {"exploitCount.found": 1}}
         )
 
     def _handle_exploit_verified(self, record: LogRecord) -> None:
@@ -317,6 +293,8 @@ class MongoDBHandler(Handler):
             print("Warning: No exploit_id provided for verification")
             return
 
+        exploit_id = self._ensure_oid(exploit_id)
+
         # Update exploit document with verification info
         update_data = {
             "verifiedAt": datetime.now(timezone.utc),
@@ -324,7 +302,7 @@ class MongoDBHandler(Handler):
         }
 
         if verified_by_agent_id:
-            update_data["verifiedBy"] = verified_by_agent_id
+            update_data["verifiedBy"] = self._ensure_oid(verified_by_agent_id)
 
         self.exploits.update_one({"_id": exploit_id}, {"$set": update_data})
 
@@ -333,7 +311,7 @@ class MongoDBHandler(Handler):
         exploit = self.exploits.find_one({"_id": exploit_id})
         if exploit and "executionId" in exploit:
             self.executions.update_one(
-                {"_id": exploit["executionId"]}, {"$inc": {"exploitCounts.verified": 1}}
+                {"_id": exploit["executionId"]}, {"$inc": {"exploitCount.verified": 1}}
             )
 
 
