@@ -12,6 +12,8 @@ class FixerAgent(BaseAgent):
         use_vllm: bool = False,
         model: str = None,
         use_openai: bool = False,
+        depth: int = 0,
+        max_depth: int = 0,
     ):
         from agent.settings import MAX_TOOL_TURNS
         if max_tool_turns is None:
@@ -24,6 +26,8 @@ class FixerAgent(BaseAgent):
             model=model,
             agent_type=AgentType.FIXER,
             use_openai=use_openai,
+            depth=depth,
+            max_depth=max_depth,
         )
         
     def check_termination(self, response: str, python_code: str) -> bool:

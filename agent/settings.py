@@ -13,6 +13,9 @@ MAX_DEPTH = 2
 # Generator settings
 GENERATOR_BATCH_SIZE = 1  # Number of exploits.json files to process in parallel
 
+# Fixer settings
+FIXER_BATCH_SIZE = 2  # Number of exploits.json files to process in parallel
+
 # OpenRouter
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")

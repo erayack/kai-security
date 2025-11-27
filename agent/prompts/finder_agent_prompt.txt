@@ -221,7 +221,7 @@ class Exploit(BaseModel):
     id: Optional[str] = None
     category: str  # e.g., "SQL Injection", "Prototype Pollution", "Regex DoS", etc.
     severity: ExploitSeverity
-    locations: List[ExploitLocation]  # All locations where this exploit appears
+    location: ExploitLocation  # The single most representative location
     description: str  # General description of the vulnerability pattern
     suggested_fix: Optional[str] = None  # General fix approach
 ```
@@ -447,15 +447,13 @@ content = read_file("programs/store/src/instructions/deposit.rs")
 exploit = Exploit(
     category="Integer Overflow",
     severity=ExploitSeverity.HIGH,
-    locations=[
-        ExploitLocation(
-            file_path="programs/store/src/instructions/deposit.rs",
-            line_start=142,
-            line_end=145,
-            function_name="process_deposit",
-            vulnerable_code="let total = amount1 + amount2; // No overflow check"
-        )
-    ],
+    location=ExploitLocation(
+        file_path="programs/store/src/instructions/deposit.rs",
+        line_start=142,
+        line_end=145,
+        function_name="process_deposit",
+        vulnerable_code="let total = amount1 + amount2; // No overflow check"
+    ),
     description="Unchecked addition in deposit processing can overflow",
     suggested_fix="Use checked_add() or SafeMath"
 )

@@ -5,7 +5,7 @@ import json
 import subprocess
 import fcntl
 import time
-import atexit
+import copy
 from pathlib import Path
 from typing import Union, Optional, List
 from bson import ObjectId
@@ -35,6 +35,35 @@ def _get_current_agent():
     except:
         pass
     return None
+
+
+def _clone_exploits(exploits: Optional[List[dict]]) -> List[dict]:
+    """Return a deep-copied list of exploit dicts (handles None)."""
+    if not exploits:
+        return []
+    return [copy.deepcopy(e) for e in exploits if isinstance(e, dict)]
+
+
+def _aggregate_exploit_stats(exploits: List[dict]) -> dict:
+    """Summarize exploits by severity."""
+    stats: dict[str, int] = {}
+    for exploit in exploits:
+        severity = exploit.get("severity", "unknown")
+        stats[severity] = stats.get(severity, 0) + 1
+    return stats
+
+
+def _collect_child_exploits(sub_reports: Optional[List[dict]]) -> List[dict]:
+    """Gather combined exploits from child sub-agent reports."""
+    combined: List[dict] = []
+    if not sub_reports:
+        return combined
+    for report in sub_reports:
+        child_exploits = report.get("combined_exploits")
+        if child_exploits is None:
+            child_exploits = report.get("exploits", [])
+        combined.extend(_clone_exploits(child_exploits))
+    return combined
 
 
 async def delegate_to_sub_agent(
@@ -288,6 +317,12 @@ Start exploring and add exploits as you find them using add_exploit(). Use your 
         },
         "time_used": time_used_dict,
     }
+
+    # Compute combined exploit metadata for hierarchical aggregation
+    child_combined_exploits = _collect_child_exploits(sub_agent.sub_agent_reports)
+    combined_exploits = _clone_exploits(exploits_found) + child_combined_exploits
+    result["combined_exploits"] = combined_exploits
+    result["combined_exploit_stats"] = _aggregate_exploit_stats(combined_exploits)
 
     # Store result in parent's sub_reports list for tracking
     parent.sub_agent_reports.append(result)

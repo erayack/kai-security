@@ -180,30 +180,31 @@ class FinderAgent(BaseAgent):
         priority_map = {"critical": 10, "high": 8, "medium": 5, "low": 3}
         
         for exploit in exploits_found:
-            if exploit.locations and len(exploit.locations) > 0:
-                loc = exploit.locations[0]  # Primary location
-                try:
-                    exploit_summaries.append(ExploitSummary(
-                        exploit_id=exploit.id or "unknown",
-                        category=exploit.category,
-                        severity=exploit.severity.value,
-                        file_path=loc.file_path,
-                        line_start=loc.line_start,
-                        line_end=loc.line_end or loc.line_start,
-                        description=exploit.description[:200]  # Truncate
-                    ))
-                    
-                    # Add as code reference with priority based on severity
-                    code_references.append(CodeReference(
-                        file_path=loc.file_path,
-                        line_start=loc.line_start,
-                        line_end=loc.line_end or loc.line_start,
-                        reason=f"{exploit.category} vulnerability",
-                        priority=priority_map.get(exploit.severity.value, 5)
-                    ))
-                except Exception as e:
-                    # Skip invalid exploits rather than crashing
-                    pass
+            loc = getattr(exploit, "location", None)
+            if not loc:
+                continue
+            try:
+                exploit_summaries.append(ExploitSummary(
+                    exploit_id=exploit.id or "unknown",
+                    category=exploit.category,
+                    severity=exploit.severity.value,
+                    file_path=loc.file_path,
+                    line_start=loc.line_start,
+                    line_end=loc.line_end or loc.line_start,
+                    description=exploit.description[:200]  # Truncate
+                ))
+                
+                # Add as code reference with priority based on severity
+                code_references.append(CodeReference(
+                    file_path=loc.file_path,
+                    line_start=loc.line_start,
+                    line_end=loc.line_end or loc.line_start,
+                    reason=f"{exploit.category} vulnerability",
+                    priority=priority_map.get(exploit.severity.value, 5)
+                ))
+            except Exception as e:
+                # Skip invalid exploits rather than crashing
+                pass
         
         # Calculate exploit stats for this agent (severity-based for finder)
         exploit_stats = {}

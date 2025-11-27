@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Generate a comprehensive report for the generator agent from exploit validation conversations.
+Generate a comprehensive report for the fixer agent from exploit fix conversations.
 
-This script analyzes exploit validation conversation files to produce statistics about
-exploit verification, including success rates, costs, time spent, and lists of verified/unverified exploits.
+This script analyzes exploit fix conversation files to produce statistics about
+exploit fixing, including success rates, costs, time spent, and lists of fixed/failed exploits.
 """
 
 import json
@@ -88,30 +88,30 @@ def load_exploit_info(repo_slug: str) -> Dict[str, Dict]:
     return exploits_map
 
 
-def analyze_validation_conversations(output_dir: str, repo_slug: str) -> Dict[str, Any]:
-    """Analyze all exploit validation conversations and generate report."""
+def analyze_fixer_conversations(output_dir: str, repo_slug: str) -> Dict[str, Any]:
+    """Analyze all exploit fix conversations and generate report."""
     
-    validation_dir = Path(output_dir) / repo_slug / "exploit_validation_convos"
+    fixer_dir = Path(output_dir) / repo_slug / "fixer_conversations"
     
-    if not validation_dir.exists():
+    if not fixer_dir.exists():
         return {
-            "error": f"No exploit validation conversations found at {validation_dir}"
+            "error": f"No exploit fix conversations found at {fixer_dir}"
         }
     
     # Load exploit information
     exploits_map = load_exploit_info(repo_slug)
     
     # Find all conversation files
-    conv_files = list(validation_dir.glob("*.json"))
+    conv_files = list(fixer_dir.glob("*.json"))
     
     if not conv_files:
         return {
-            "error": f"No conversation files found in {validation_dir}"
+            "error": f"No conversation files found in {fixer_dir}"
         }
     
     # Statistics
     total_conversations = len(conv_files)
-    verified_count = 0
+    fixed_count = 0
     failed_count = 0
     error_count = 0
     
@@ -122,11 +122,11 @@ def analyze_validation_conversations(output_dir: str, repo_slug: str) -> Dict[st
     total_completion_tokens = 0
     
     # Severity breakdown
-    severity_stats = defaultdict(lambda: {'verified': 0, 'unverified': 0})
+    severity_stats = defaultdict(lambda: {'fixed': 0, 'failed': 0})
     
     # Lists of exploits
-    verified_exploits = []
-    unverified_exploits = []
+    fixed_exploits = []
+    failed_exploits = []
     
     # Process each conversation
     for conv_file in conv_files:
@@ -135,11 +135,12 @@ def analyze_validation_conversations(output_dir: str, repo_slug: str) -> Dict[st
                 convo = json.load(f)
             
             # Extract basic info
+            # Note: fixer_utils saves validation_result with 'fixed' key
             validation_result = convo.get('validation_result', {})
             exploit_id = validation_result.get('exploit_id', 'unknown')
-            verified = validation_result.get('verified', False)
-            test_passed = validation_result.get('test_passed', False)
+            fixed = validation_result.get('fixed', False)
             exception_occurred = validation_result.get('exception_occurred', False)
+            suggested_fix = validation_result.get('suggested_fix', None)
             
             # Get exploit info
             exploit_info = exploits_map.get(exploit_id, {
@@ -164,27 +165,28 @@ def analyze_validation_conversations(output_dir: str, repo_slug: str) -> Dict[st
             # Categorize by outcome
             if exception_occurred:
                 error_count += 1
-                severity_stats[severity]['unverified'] += 1
-                unverified_exploits.append({
+                severity_stats[severity]['failed'] += 1
+                failed_exploits.append({
                     **exploit_info,
                     'status': 'error',
                     'reason': 'Agent encountered an exception',
                     'conversation_file': conv_file.name
                 })
-            elif verified and test_passed:
-                verified_count += 1
-                severity_stats[severity]['verified'] += 1
-                verified_exploits.append({
+            elif fixed and suggested_fix:
+                fixed_count += 1
+                severity_stats[severity]['fixed'] += 1
+                fixed_exploits.append({
                     **exploit_info,
-                    'conversation_file': conv_file.name
+                    'conversation_file': conv_file.name,
+                    'suggested_fix_snippet': suggested_fix[:100] + "..." if len(suggested_fix) > 100 else suggested_fix
                 })
             else:
                 failed_count += 1
-                severity_stats[severity]['unverified'] += 1
-                unverified_exploits.append({
+                severity_stats[severity]['failed'] += 1
+                failed_exploits.append({
                     **exploit_info,
                     'status': 'failed',
-                    'reason': 'Test failed or exploit could not be validated',
+                    'reason': 'No fix suggested',
                     'conversation_file': conv_file.name
                 })
         
@@ -193,24 +195,24 @@ def analyze_validation_conversations(output_dir: str, repo_slug: str) -> Dict[st
             continue
     
     # Calculate rates
-    total_exploits = verified_count + failed_count + error_count
-    verification_rate = (verified_count / total_exploits * 100) if total_exploits > 0 else 0.0
+    total_exploits = fixed_count + failed_count + error_count
+    fix_rate = (fixed_count / total_exploits * 100) if total_exploits > 0 else 0.0
     
     # Build report
     report = {
         "metadata": {
             "generated_at": datetime.datetime.now().isoformat(),
             "repo_slug": repo_slug,
-            "validation_directory": str(validation_dir)
+            "validation_directory": str(fixer_dir)
         },
         
         "summary": {
             "total_conversations": total_conversations,
             "total_exploits": total_exploits,
-            "verified_exploits": verified_count,
+            "fixed_exploits": fixed_count,
             "failed_exploits": failed_count,
             "error_exploits": error_count,
-            "verification_rate": round(verification_rate, 1),
+            "fix_rate": round(fix_rate, 1),
             "total_cost": round(total_cost, 4),
             "total_time_seconds": round(total_time, 2),
             "total_time": format_time(total_time),
@@ -230,33 +232,33 @@ def analyze_validation_conversations(output_dir: str, repo_slug: str) -> Dict[st
         
         "severity_breakdown": {
             severity: {
-                'verified': stats['verified'],
-                'unverified': stats['unverified'],
-                'total': stats['verified'] + stats['unverified'],
-                'verification_rate': round(
-                    stats['verified'] / (stats['verified'] + stats['unverified']) * 100, 1
-                ) if (stats['verified'] + stats['unverified']) > 0 else 0.0
+                'fixed': stats['fixed'],
+                'failed': stats['failed'],
+                'total': stats['fixed'] + stats['failed'],
+                'fix_rate': round(
+                    stats['fixed'] / (stats['fixed'] + stats['failed']) * 100, 1
+                ) if (stats['fixed'] + stats['failed']) > 0 else 0.0
             }
             for severity, stats in sorted(severity_stats.items())
         },
         
         "efficiency_metrics": {
-            "cost_per_verified_exploit": round(total_cost / verified_count, 4) if verified_count > 0 else 0,
-            "time_per_verified_exploit_seconds": round(total_time / verified_count, 2) if verified_count > 0 else 0,
-            "time_per_verified_exploit": format_time(total_time / verified_count) if verified_count > 0 else "0s",
-            "verified_per_minute": round(verified_count / (total_time / 60), 2) if total_time > 0 else 0,
+            "cost_per_fixed_exploit": round(total_cost / fixed_count, 4) if fixed_count > 0 else 0,
+            "time_per_fixed_exploit_seconds": round(total_time / fixed_count, 2) if fixed_count > 0 else 0,
+            "time_per_fixed_exploit": format_time(total_time / fixed_count) if fixed_count > 0 else "0s",
+            "fixed_per_minute": round(fixed_count / (total_time / 60), 2) if total_time > 0 else 0,
             "exploits_per_dollar": round(total_exploits / total_cost, 2) if total_cost > 0 else 0,
-            "verified_per_dollar": round(verified_count / total_cost, 2) if total_cost > 0 else 0
+            "fixed_per_dollar": round(fixed_count / total_cost, 2) if total_cost > 0 else 0
         },
         
-        "verified_exploits": verified_exploits,
-        "unverified_exploits": unverified_exploits
+        "fixed_exploits": fixed_exploits,
+        "failed_exploits": failed_exploits
     }
     
     return report
 
 
-def save_report(report: Dict, output_dir: str, repo_slug: str, filename: str = "generator_report.json") -> str:
+def save_report(report: Dict, output_dir: str, repo_slug: str, filename: str = "fixer_report.json") -> str:
     """Save the report to a JSON file."""
     output_path = Path(output_dir) / repo_slug / filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -267,9 +269,9 @@ def save_report(report: Dict, output_dir: str, repo_slug: str, filename: str = "
     return str(output_path)
 
 
-def generate_generator_report(repo_slug: str, output_dir: str, hyperparams: Dict[str, Any] = None) -> Dict:
+def generate_fixer_report(repo_slug: str, output_dir: str, hyperparams: Dict[str, Any] = None) -> Dict:
     """
-    Generate a comprehensive report from exploit validation conversations.
+    Generate a comprehensive report from exploit fix conversations.
     
     Args:
         repo_slug: The repository slug (e.g., "2025-09-monad-60078b9e")
@@ -279,7 +281,7 @@ def generate_generator_report(repo_slug: str, output_dir: str, hyperparams: Dict
     Returns:
         Dictionary containing the comprehensive report
     """
-    return analyze_validation_conversations(output_dir, repo_slug)
+    return analyze_fixer_conversations(output_dir, repo_slug)
 
 
 def main():
@@ -309,7 +311,7 @@ def main():
     output_dir = project_root / "output"
     
     print("="*80)
-    print("GENERATOR VALIDATION REPORT")
+    print("FIXER REPORT")
     print("="*80)
     print(f"Project root: {project_root}")
     print(f"Output dir: {output_dir}")
@@ -317,8 +319,8 @@ def main():
     print()
     
     # Generate report
-    print("Analyzing exploit validation conversations...")
-    report = generate_generator_report(repo_slug, str(output_dir))
+    print("Analyzing exploit fix conversations...")
+    report = generate_fixer_report(repo_slug, str(output_dir))
     
     if "error" in report:
         print(f"Error: {report['error']}")
@@ -333,10 +335,10 @@ def main():
     print("="*80)
     print(f"Total conversations: {report['summary']['total_conversations']}")
     print(f"Total exploits: {report['summary']['total_exploits']}")
-    print(f"  ✅ Verified: {report['summary']['verified_exploits']}")
+    print(f"  ✅ Fixed: {report['summary']['fixed_exploits']}")
     print(f"  ❌ Failed: {report['summary']['failed_exploits']}")
     print(f"  ⚠️  Errors: {report['summary']['error_exploits']}")
-    print(f"Verification rate: {report['summary']['verification_rate']}%")
+    print(f"Fix rate: {report['summary']['fix_rate']}%")
     print(f"\nTotal cost: ${report['summary']['total_cost']}")
     print(f"Total time: {report['summary']['total_time']}")
     print(f"Total tokens: {report['summary']['total_tokens']:,}")
@@ -344,13 +346,13 @@ def main():
     
     print(f"\nSeverity Breakdown:")
     for severity, stats in report['severity_breakdown'].items():
-        print(f"  {severity.upper()}: {stats['verified']}/{stats['total']} verified ({stats['verification_rate']}%)")
+        print(f"  {severity.upper()}: {stats['fixed']}/{stats['total']} fixed ({stats['fix_rate']}%)")
     
     print(f"\nEfficiency Metrics:")
-    print(f"  Cost per verified: ${report['efficiency_metrics']['cost_per_verified_exploit']}")
-    print(f"  Time per verified: {report['efficiency_metrics']['time_per_verified_exploit']}")
-    print(f"  Verified per minute: {report['efficiency_metrics']['verified_per_minute']}")
-    print(f"  Verified per dollar: {report['efficiency_metrics']['verified_per_dollar']}")
+    print(f"  Cost per fixed: ${report['efficiency_metrics']['cost_per_fixed_exploit']}")
+    print(f"  Time per fixed: {report['efficiency_metrics']['time_per_fixed_exploit']}")
+    print(f"  Fixed per minute: {report['efficiency_metrics']['fixed_per_minute']}")
+    print(f"  Fixed per dollar: {report['efficiency_metrics']['fixed_per_dollar']}")
     
     print(f"\nOutput saved to: {output_file}")
     print("="*80)

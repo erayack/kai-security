@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Optional, List, Dict, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 class Role(str, Enum):
     SYSTEM = "system"
@@ -47,9 +47,32 @@ class Exploit(BaseModel):
     id: Optional[str] = None
     category: str  # e.g., "SQL Injection", "Prototype Pollution", "Regex DoS", etc.
     severity: ExploitSeverity
-    locations: List[ExploitLocation]  # All locations where this exploit appears
+    location: ExploitLocation  # Single canonical location describing the exploit
     description: str  # General description of the vulnerability pattern
     suggested_fix: Optional[str] = None  # General fix approach
+
+    @model_validator(mode="before")
+    @classmethod
+    def ensure_single_location(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Backwards compatibility: allow legacy `locations` list/dict but normalize to `location`.
+        """
+        if not isinstance(values, dict):
+            return values
+
+        data = dict(values)
+        location = data.get("location")
+
+        if not location:
+            locations = data.get("locations")
+            if isinstance(locations, list) and locations:
+                data["location"] = locations[0]
+            elif isinstance(locations, dict):
+                data["location"] = locations
+
+        # Remove legacy key to avoid accidental re-serialization
+        data.pop("locations", None)
+        return data
 
 # Sub-Agent Schemas for Recursive Hierarchical Exploration
 
