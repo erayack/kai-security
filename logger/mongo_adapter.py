@@ -53,6 +53,8 @@ class MongoDBHandler(Handler):
                 self._handle_exploit(record)
             elif event_type == "exploit_verified":
                 self._handle_exploit_verified(record)
+            elif event_type == "exploit_fixed":
+                self._handle_exploit_fixed(record)
 
         except PyMongoError as e:
             print(f"MongoDB Error in {event_type}: {e}")
@@ -95,8 +97,8 @@ class MongoDBHandler(Handler):
                     "completedAt": None,
                     "totalCost": 0.0,
                     "totalTokens": 0,
-                    "exploitCount": {"found": 0, "verified": 0},
-                    "agentCount": {"finder": 0, "verifier": 0},
+                    "exploitCount": {"found": 0, "verified": 0, "fixed": 0},
+                    "agentCount": {"finder": 0, "verifier": 0, "fixer": 0},
                     "updatedAt": datetime.now(timezone.utc),
                 }
             )
@@ -146,7 +148,7 @@ class MongoDBHandler(Handler):
         )
 
         # Increment execution agent count in real-time based on agent kind
-        if agent_kind in ["finder", "verifier"]:
+        if agent_kind in ["finder", "verifier", "fixer"]:
             self.executions.update_one(
                 {"_id": execution_id}, {"$inc": {f"agentCount.{agent_kind}": 1}}
             )
@@ -312,6 +314,40 @@ class MongoDBHandler(Handler):
         if exploit and "executionId" in exploit:
             self.executions.update_one(
                 {"_id": exploit["executionId"]}, {"$inc": {"exploitCount.verified": 1}}
+            )
+
+    def _handle_exploit_fixed(self, record: LogRecord) -> None:
+        """Update exploit with fix info when fixer agent fixes it"""
+        exploit_id = getattr(record, "exploit_id", None)
+        fixed_by_agent_id = getattr(record, "fixed_by_agent_id", None)
+        suggested_fix_snippet = getattr(record, "suggested_fix_snippet", None)
+
+        if not exploit_id:
+            print("Warning: No exploit_id provided for fix")
+            return
+
+        exploit_id = self._ensure_oid(exploit_id)
+
+        # Update exploit document with fix info
+        update_data = {
+            "fixedAt": datetime.now(timezone.utc),
+            "updatedAt": datetime.now(timezone.utc),
+        }
+
+        if fixed_by_agent_id:
+            update_data["fixedBy"] = self._ensure_oid(fixed_by_agent_id)
+
+        if suggested_fix_snippet:
+            update_data["suggestedFix"] = suggested_fix_snippet
+
+        self.exploits.update_one({"_id": exploit_id}, {"$set": update_data})
+
+        # Increment fixed exploit count in real-time
+        # Get the exploit to find its executionId
+        exploit = self.exploits.find_one({"_id": exploit_id})
+        if exploit and "executionId" in exploit:
+            self.executions.update_one(
+                {"_id": exploit["executionId"]}, {"$inc": {"exploitCount.fixed": 1}}
             )
 
 

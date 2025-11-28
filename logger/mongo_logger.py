@@ -6,6 +6,7 @@ from logger import logging
 from bson import ObjectId
 
 
+## They are not used only implemented run scafold TODO Remove execution status functions and remove it in run_scafold.py too.
 def log_execution_pending(execution_id: str, repo_url: str, model: str) -> None:
     """Log when execution is created with pending status."""
     logging.info(
@@ -71,7 +72,7 @@ def log_agent_started(
 ) -> None:
     """Log when agent starts."""
     logging.info(
-        f"Agent started: {agent_id}",
+        f"{kind} Agent started: {agent_id}",
         extra={
             "mongo": True,
             "event_type": "agent_start",
@@ -94,7 +95,6 @@ def log_agent_metrics(
 ) -> None:
     """Log real-time agent metrics."""
     logging.info(
-        f"Agent metrics update: {agent_id}",
         extra={
             "mongo": True,
             "event_type": "agent_update",
@@ -169,7 +169,7 @@ def log_exploit_discovered(
         extra_data["fixed_by"] = fixed_by
 
     logging.info(
-        f"Exploit discovered: {severity} - {category} in {file_path}",
+        f"Exploit discovered by {agent_id}: {severity} - {category} in {file_path}",
         extra=extra_data,
     )
 
@@ -190,6 +190,30 @@ def log_exploit_verified(
     )
 
 
+def log_exploit_fixed(
+    exploit_id: str,
+    fixed_by_agent_id: str,
+    suggested_fix_snippet: Optional[str] = None,
+) -> None:
+    """Log when an exploit is fixed by fixer agent."""
+    extra_data = {
+        "mongo": True,
+        "event_type": "exploit_fixed",
+        "exploit_id": exploit_id,
+        "fixed_by_agent_id": fixed_by_agent_id,
+    }
+
+    if suggested_fix_snippet:
+        extra_data["suggested_fix_snippet"] = suggested_fix_snippet[
+            :500
+        ]  # Truncate to 500 chars
+
+    logging.info(
+        f"Exploit fixed: {exploit_id} by agent {fixed_by_agent_id}",
+        extra=extra_data,
+    )
+
+
 __all__ = [
     "log_execution_pending",
     "log_execution_in_progress",
@@ -200,4 +224,5 @@ __all__ = [
     "log_agent_complete",
     "log_exploit_discovered",
     "log_exploit_verified",
+    "log_exploit_fixed",
 ]

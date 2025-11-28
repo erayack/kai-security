@@ -23,8 +23,8 @@ from agent.settings import (
     MAX_DEPTH,
 )
 from agent.schemas import ChatMessage, Role, AgentResponse
-from tqdm import tqdm
 import asyncio
+from logger import logger
 
 from typing import Union, Tuple, Optional, Dict
 from abc import ABC, abstractmethod
@@ -145,15 +145,6 @@ class BaseAgent(ABC):
         self.max_tool_turns = max_tool_turns
         self.use_vllm = use_vllm
         self.use_openai = use_openai
-        # Ensure sub-agents can still stream progress even when stdout/stderr are redirected
-        if self.depth > 0:
-            self._tqdm_file = (
-                getattr(sys, "__stderr__", None)
-                or getattr(sys, "__stdout__", None)
-                or sys.stdout
-            )
-        else:
-            self._tqdm_file = None
 
         # Budget tracking
         self.total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
@@ -469,170 +460,163 @@ class BaseAgent(ABC):
 
         # Only enter loop if there was Python code in the first response (except for finder agent)
         # Setup progress bar
-        agent_desc = f"{'Sub-' if self.depth > 0 else ''}Agent (Depth {self.depth})"
-        if self.scope_paths:
-            agent_desc += f" [{self.scope_paths[0]}]"
+        # Concise format: (Setup <id> at depth 0)
+        agent_type_str = (
+            self.agent_type.name.title()
+            if hasattr(self.agent_type, "name")
+            else str(self.agent_type).title()
+        )
+        # Handle AgentType.SETUP -> Setup if it's an enum
+        if "." in agent_type_str:
+            agent_type_str = agent_type_str.split(".")[-1].title()
 
-        with tqdm(
-            total=self.max_tool_turns,
-            desc=agent_desc,
-            unit="turn",
-            leave=True,
-            position=self.depth,
-            ncols=100,
-            file=self._tqdm_file,
-        ) as pbar:
-            # Update to show initial turn
-            turns_done = self.max_tool_turns - remaining_tool_turns
-            pbar.update(turns_done)
+        agent_desc = f"({agent_type_str} {self.agent_id} at depth {self.depth})"
 
-            while remaining_tool_turns > 0 and (
-                python_code or is_finder_agent or self._pending_feedback
-            ):
-                if self._pending_feedback:
-                    self._add_message(
-                        ChatMessage(role=Role.USER, content=self._pending_feedback)
+        ## Commented due to unnecessary
+        # if self.scope_paths:
+        #     agent_desc += f" [{self.scope_paths[0]}]"
+
+        # Only enter loop if there was Python code in the first response (except for finder agent)
+        while remaining_tool_turns > 0 and (
+            python_code or is_finder_agent or self._pending_feedback
+        ):
+            # Log current turn and agent
+            current_turn = self.max_tool_turns - remaining_tool_turns + 1
+            logger.info(f"{current_turn}/{self.max_tool_turns} - {agent_desc}")
+
+            if self._pending_feedback:
+                self._add_message(
+                    ChatMessage(role=Role.USER, content=self._pending_feedback)
+                )
+                self._pending_feedback = None
+            else:
+                self._add_message(
+                    ChatMessage(
+                        role=Role.USER,
+                        content=format_results_and_remaining_turns(
+                            result[0], result[1], remaining_tool_turns
+                        ),
                     )
-                    self._pending_feedback = None
-                else:
+                )
+            response, usage_data = await get_model_response(
+                messages=self.messages,
+                model=self.model,
+                client=self._client,
+                use_vllm=self.use_vllm,
+                use_openai=self.use_openai,
+            )
+
+            # Update budget tracking
+            self.update_budget(usage_data)
+
+            # Extract the thoughts and python code from the response
+            thoughts, python_code = self.extract_response_parts(response)
+            self._reset_fixer_completion_warnings(python_code, response)
+
+            # CRITICAL ERROR HANDLING: Check if response is empty or completely malformed
+            # At minimum, need either <python>, <done>, or meaningful content
+            response_is_empty = not response or not response.strip()
+            has_done_tag = "<done>" in response and "</done>" in response
+            has_any_structure = python_code or has_done_tag or thoughts
+            response_is_malformed = not has_any_structure and not response_is_empty
+
+            # Track consecutive malformed responses to prevent infinite loops
+            if not hasattr(self, "_malformed_count"):
+                self._malformed_count = 0
+
+            if response_is_empty or response_is_malformed:
+                self._malformed_count += 1
+
+                # If the malformed response comes after a successful tool execution,
+                # treat it as intentional completion rather than an error
+                last_message_was_tool_result = (
+                    len(self.messages) > 0
+                    and self.messages[-1].role == Role.USER
+                    and self.messages[-1].content.startswith("<result>")
+                )
+
+                if last_message_was_tool_result and not is_finder_agent:
+                    # Model returned empty after tool result - treat as completion
+                    logger.info(f"{agent_desc} - Completed (no more responses)")
+                    break
+
+                # If we get too many malformed responses in a row, terminate gracefully
+                if self._malformed_count >= 2 and not is_finder_agent:
+                    logger.info(
+                        f"{agent_desc} - Completed (no more structured responses)"
+                    )
+                    break
+
+                # Don't add the malformed response to conversation
+                # Instead, provide clear feedback to the model about the format violation
+                error_feedback = (
+                    "ERROR: Your previous response was empty or had no recognizable structure.\n\n"
+                    "REMINDER: Include at least one of these in your response:\n"
+                    "- <think>...</think> for your reasoning\n"
+                    "- <python>...</python> for code to execute\n"
+                    "- <done>...</done> when finished\n\n"
+                    "Please provide a valid response with at least one structured tag."
+                )
+                self._add_message(ChatMessage(role=Role.USER, content=error_feedback))
+                # Don't decrement remaining_tool_turns for this error case
+                # Give the model another chance to provide a valid response
+                continue
+            else:
+                # Reset counter on successful response
+                self._malformed_count = 0
+
+            # Add the assistant message BEFORE checking termination
+            self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
+
+            if self._missing_suggest_fix(python_code, response):
+                violation_limit_reached = self._handle_missing_suggest_fix()
+                if violation_limit_reached:
+                    logger.info(f"{agent_desc} - Format violation")
+                    break
+                logger.warning(f"{agent_desc} - Requires <suggest_fix>")
+                continue
+
+            # Check if we should terminate
+            if self.check_termination(response, python_code):
+                logger.info(f"{agent_desc} - Completed (terminated early)")
+                break
+
+            # Execute python code if present
+            if python_code:
+                result = execute_sandboxed_code(
+                    code=python_code,
+                    allowed_path=self.working_dir,  # Use working_dir instead of repo_path for scoped agents
+                    import_module=self.get_tools_module(),
+                    agent_instance=self,  # NEW: Pass agent instance for sub-agent delegation
+                )
+                # Handle None result (shouldn't happen but be defensive)
+                if result is None:
+                    result = ({}, "Error: Code execution returned None")
+                # Check if execution timed out
+                elif result[0] is None and "TimeoutError" in result[1]:
+                    error_msg = f"{result[1]}\nPlease try simpler operations or break down the task."
+                    result = ({}, error_msg)
+                remaining_tool_turns -= 1
+
+                # Small delay to allow event loop to process cleanup tasks
+                # This helps with memory management when spawning many sub-agents
+                await asyncio.sleep(0.01)
+            else:
+                if self.agent_type == AgentType.FINDER:
                     self._add_message(
                         ChatMessage(
                             role=Role.USER,
-                            content=format_results_and_remaining_turns(
-                                result[0], result[1], remaining_tool_turns
-                            ),
+                            content="Don't stop yet, keep searching for exploits.",
                         )
                     )
-                response, usage_data = await get_model_response(
-                    messages=self.messages,
-                    model=self.model,
-                    client=self._client,
-                    use_vllm=self.use_vllm,
-                    use_openai=self.use_openai,
-                )
-
-                # Update budget tracking
-                self.update_budget(usage_data)
-
-                # Extract the thoughts and python code from the response
-                thoughts, python_code = self.extract_response_parts(response)
-                self._reset_fixer_completion_warnings(python_code, response)
-
-                # CRITICAL ERROR HANDLING: Check if response is empty or completely malformed
-                # At minimum, need either <python>, <done>, or meaningful content
-                response_is_empty = not response or not response.strip()
-                has_done_tag = "<done>" in response and "</done>" in response
-                has_any_structure = python_code or has_done_tag or thoughts
-                response_is_malformed = not has_any_structure and not response_is_empty
-
-                # Track consecutive malformed responses to prevent infinite loops
-                if not hasattr(self, "_malformed_count"):
-                    self._malformed_count = 0
-
-                if response_is_empty or response_is_malformed:
-                    self._malformed_count += 1
-
-                    # If the malformed response comes after a successful tool execution,
-                    # treat it as intentional completion rather than an error
-                    last_message_was_tool_result = (
-                        len(self.messages) > 0
-                        and self.messages[-1].role == Role.USER
-                        and self.messages[-1].content.startswith("<result>")
-                    )
-
-                    if last_message_was_tool_result and not is_finder_agent:
-                        # Model returned empty after tool result - treat as completion
-                        pbar.set_postfix_str("✓ Completed (no more responses)")
-                        break
-
-                    # If we get too many malformed responses in a row, terminate gracefully
-                    if self._malformed_count >= 2 and not is_finder_agent:
-                        pbar.set_postfix_str(
-                            "✓ Completed (no more structured responses)"
-                        )
-                        break
-
-                    # Don't add the malformed response to conversation
-                    # Instead, provide clear feedback to the model about the format violation
-                    error_feedback = (
-                        "ERROR: Your previous response was empty or had no recognizable structure.\n\n"
-                        "REMINDER: Include at least one of these in your response:\n"
-                        "- <think>...</think> for your reasoning\n"
-                        "- <python>...</python> for code to execute\n"
-                        "- <done>...</done> when finished\n\n"
-                        "Please provide a valid response with at least one structured tag."
-                    )
-                    self._add_message(
-                        ChatMessage(role=Role.USER, content=error_feedback)
-                    )
-                    # Don't decrement remaining_tool_turns for this error case
-                    # Give the model another chance to provide a valid response
-                    continue
                 else:
-                    # Reset counter on successful response
-                    self._malformed_count = 0
-
-                # Add the assistant message BEFORE checking termination
-                self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
-
-                if self._missing_suggest_fix(python_code, response):
-                    violation_limit_reached = self._handle_missing_suggest_fix()
-                    if violation_limit_reached:
-                        pbar.set_postfix_str("✗ Format violation")
-                        break
-                    pbar.set_postfix_str("⚠ Requires <suggest_fix>")
-                    continue
-
-                # Check if we should terminate
-                if self.check_termination(response, python_code):
-                    pbar.set_postfix_str("✓ Completed (terminated early)")
+                    # Other agents terminate when there's no more python code to execute
+                    logger.info(f"{agent_desc} - Completed (no more code)")
                     break
 
-                # Execute python code if present
-                if python_code:
-                    result = execute_sandboxed_code(
-                        code=python_code,
-                        allowed_path=self.working_dir,  # Use working_dir instead of repo_path for scoped agents
-                        import_module=self.get_tools_module(),
-                        agent_instance=self,  # NEW: Pass agent instance for sub-agent delegation
-                    )
-                    # Handle None result (shouldn't happen but be defensive)
-                    if result is None:
-                        result = ({}, "Error: Code execution returned None")
-                    # Check if execution timed out
-                    elif result[0] is None and "TimeoutError" in result[1]:
-                        error_msg = f"{result[1]}\nPlease try simpler operations or break down the task."
-                        result = ({}, error_msg)
-                    remaining_tool_turns -= 1
-                    pbar.update(1)
-
-                    # Update postfix with exploit count
-                    exploit_count = (
-                        len(self.sub_agent_reports)
-                        if hasattr(self, "sub_agent_reports")
-                        else 0
-                    )
-                    pbar.set_postfix_str(f"Exploits: {exploit_count}")
-
-                    # Small delay to allow event loop to process cleanup tasks
-                    # This helps with memory management when spawning many sub-agents
-                    await asyncio.sleep(0.01)
-                else:
-                    if self.agent_type == AgentType.FINDER:
-                        self._add_message(
-                            ChatMessage(
-                                role=Role.USER,
-                                content="Don't stop yet, keep searching for exploits.",
-                            )
-                        )
-                    else:
-                        # Other agents terminate when there's no more python code to execute
-                        pbar.set_postfix_str("✓ Completed (no more code)")
-                        break
-
-            # Final update
-            if remaining_tool_turns == 0:
-                pbar.set_postfix_str("✓ Completed (max turns)")
+        # Final update
+        if remaining_tool_turns == 0:
+            logger.info(f"{agent_desc} - Completed (max turns)")
 
         # Update time_spent when chat() finishes
         if self.start_time is not None:
@@ -867,6 +851,8 @@ class BaseAgent(ABC):
                     f.write(error_msg)
             except:
                 pass
+
+        return file_path
 
     async def close(self):
         """

@@ -478,8 +478,7 @@ Now you can decide whether the exploit is a non-duplicate or not.
 
                         # Get line_end from first location if available
                         line_end = None
-                        if exploit.locations and exploit.locations[0].line_end:
-                            line_end = exploit.locations[0].line_end
+                        line_end = exploit.location.line_end
 
                         log_exploit_discovered(
                             agent_id=agent_id,
@@ -487,26 +486,23 @@ Now you can decide whether the exploit is a non-duplicate or not.
                             category=exploit.category,
                             severity=exploit.severity.value,
                             file_path=(
-                                exploit.locations[0].file_path
-                                if exploit.locations
+                                exploit.location.file_path
+                                if exploit.location
                                 else "unknown"
                             ),
                             line_start=(
-                                exploit.locations[0].line_start
-                                if exploit.locations
-                                else 0
+                                exploit.location.line_start if exploit.location else 0
                             ),
                             line_end=line_end,
                             description=exploit.description,
                             class_name=(
-                                exploit.locations[0].class_name
-                                if exploit.locations and exploit.locations[0].class_name
+                                exploit.location.class_name
+                                if exploit.location and exploit.location.class_name
                                 else None
                             ),
                             function_name=(
-                                exploit.locations[0].function_name
-                                if exploit.locations
-                                and exploit.locations[0].function_name
+                                exploit.location.function_name
+                                if exploit.location and exploit.location.function_name
                                 else None
                             ),
                             suggested_fix=exploit.suggested_fix,

@@ -177,6 +177,7 @@ def _run_user_code(
                 agent_id
             )
             exec_globals["_agent_id"] = agent_id
+            exec_globals["_agent_instance"] = get_agent_from_registry(agent_id)
 
         exec_locals = {}  # local variables will be collected here
 
@@ -262,6 +263,7 @@ async def _execute_with_delegation_async(
         # Execute code in async context with stdout/stderr captured
         exec_globals = {"__builtins__": __builtins__}
         exec_globals.update(available_functions)
+        exec_globals["_agent_instance"] = agent_instance
         exec_locals = {}
 
         # Capture stdout/stderr to suppress agent's print statements
