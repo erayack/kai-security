@@ -48,10 +48,48 @@ def _repos_root() -> str:
     return root
 
 
+_REPO_COMMIT_CACHE = {}
+
+
+def _get_repo_commit_hash(repo_url: str) -> Optional[str]:
+    """Resolve the repository's HEAD commit hash for slug generation."""
+    if repo_url in _REPO_COMMIT_CACHE:
+        return _REPO_COMMIT_CACHE[repo_url]
+
+    commit_hash = None
+    is_local_repo = os.path.isdir(repo_url)
+    command = (
+        ["git", "-C", repo_url, "rev-parse", "HEAD"]
+        if is_local_repo
+        else ["git", "ls-remote", repo_url, "HEAD"]
+    )
+
+    try:
+        result = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        output = result.stdout.strip()
+        if output:
+            commit_hash = output if is_local_repo else output.split()[0]
+    except Exception:
+        commit_hash = None
+
+    if commit_hash:
+        commit_hash = commit_hash[:8]
+
+    _REPO_COMMIT_CACHE[repo_url] = commit_hash
+    return commit_hash
+
+
 def _repo_slug(repo_url: str) -> str:
-    # Derive a filesystem-safe slug from repo name + short hash of URL
+    # Derive a filesystem-safe slug from repo name + commit hash (fallback to URL hash)
     name = Path(re.sub(r"\.git$", "", repo_url.split("/")[-1])).stem or "repo"
-    short_hash = hashlib.sha1(repo_url.encode("utf-8")).hexdigest()[:8]
+    short_hash = _get_repo_commit_hash(repo_url) or hashlib.sha1(
+        repo_url.encode("utf-8")
+    ).hexdigest()[:8]
     safe_name = re.sub(r"[^A-Za-z0-9._-]", "-", name)
     return f"{safe_name}-{short_hash}"
 
