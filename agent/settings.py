@@ -46,13 +46,33 @@ VLLM_PORT = int(os.getenv("VLLM_PORT", "8000"))
 SANDBOX_TIMEOUT = 3600  # 1 hour
 
 # Path settings
-FINDER_AGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "finder_agent_prompt.txt"
-FINDER_SUBAGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "finder_subagent_prompt.txt"
-NON_DUPLICATE_VERIFIER_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "non_duplicate_verifier_prompt.txt"
-TEST_GENERATOR_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "test_generator_prompt.txt"
-GENERATOR_SUBAGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "generator_subagent_prompt.txt"
-SETUP_AGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "setup_agent_prompt.txt"
-FIXER_AGENT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "fixer_agent_prompt.txt"
+FINDER_AGENT_PROMPT_PATH = (
+    Path(__file__).resolve().parent / "prompts" / "finder_agent_prompt.txt"
+)
+FINDER_SUBAGENT_PROMPT_PATH = (
+    Path(__file__).resolve().parent / "prompts" / "finder_subagent_prompt.txt"
+)
+NON_DUPLICATE_VERIFIER_PROMPT_PATH = (
+    Path(__file__).resolve().parent / "prompts" / "non_duplicate_verifier_prompt.txt"
+)
+TEST_GENERATOR_PROMPT_PATH = (
+    Path(__file__).resolve().parent / "prompts" / "test_generator_prompt.txt"
+)
+GENERATOR_SUBAGENT_PROMPT_PATH = (
+    Path(__file__).resolve().parent / "prompts" / "generator_subagent_prompt.txt"
+)
+SETUP_AGENT_PROMPT_PATH = (
+    Path(__file__).resolve().parent / "prompts" / "setup_agent_prompt.txt"
+)
+FIXER_AGENT_PROMPT_PATH = (
+    Path(__file__).resolve().parent / "prompts" / "fixer_agent_prompt.txt"
+)
 SAVE_CONVERSATION_PATH = "output/conversations/"
 EXPLOITS_PATH = "exploits.json"
 TEST_SCRIPTS_PATH = "test/"
+
+
+## Logging settings
+OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY")
+MONGO_URI: str = os.getenv("MONGO_URI")
+MONGO_DB_NAME: str = "kai"

@@ -2,9 +2,10 @@ from agent.agent import BaseAgent
 from agent.utils import AgentType, check_done
 from agent.schemas import AgentResponse
 
+
 class SetupAgent(BaseAgent):
     """Agent for setting up a codebase."""
-    
+
     def __init__(
         self,
         max_tool_turns: int = None,
@@ -12,6 +13,7 @@ class SetupAgent(BaseAgent):
         use_vllm: bool = False,
         model: str = None,
         use_openai: bool = False,
+        execution_id: str = None,
     ):
 
         super().__init__(
@@ -22,21 +24,26 @@ class SetupAgent(BaseAgent):
             agent_type=AgentType.SETUP,
             use_openai=use_openai,
         )
-    
+
+        if execution_id:
+            self.execution_id = execution_id
+
     def check_termination(self, response: str, python_code: str) -> bool:
         """
         Setup agent terminates when it produces a done block.
         """
         done_present = check_done(response)
         return bool(done_present and not python_code)
-    
+
     def get_tools_module(self) -> str:
         """
         Get the tools module for setup agent.
         """
         return "agent.tools.setup_tools"
 
-    def extract_final_result(self, thoughts: str, python_code: str, response: str) -> AgentResponse:
+    def extract_final_result(
+        self, thoughts: str, python_code: str, response: str
+    ) -> AgentResponse:
         """
         Extract the final result for setup agent.
         """
