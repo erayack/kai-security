@@ -11,6 +11,7 @@ from tqdm import tqdm
 import asyncio
 import warnings
 import argparse
+from typing import Optional
 
 # Suppress asyncio/event loop cleanup warnings (harmless during multi-threaded async execution)
 warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*coroutine.*was never awaited.*")
@@ -29,7 +30,8 @@ else:
 
 from agent.agents import FinderAgent, GeneratorAgent, SetupAgent, FixerAgent
 from agent.report_generator import generate_comprehensive_report, save_report
-from agent.settings import MAX_SUBAGENT_TURNS, MAX_DEPTH, FIXER_BATCH_SIZE
+from agent.settings import MAX_DEPTH, FIXER_BATCH_SIZE
+from agent import settings as agent_settings
 from agent.schemas import Role
 
 
@@ -68,22 +70,41 @@ def clone_repo(repo_url: str) -> str:
 
 
 async def run_finder_agent(
-    repo_url: str, 
-    num_turns: int, 
+    repo_url: str,
+    num_turns: int,
     model_name: str,
-    use_openai: bool = False
+    use_openai: bool = False,
+    repo_path_override: Optional[str] = None,
+    max_subagent_depth: Optional[int] = None,
 ):
-    """Run the FinderAgent against the cloned repo for the requested number of user turns (async)."""
-    repo_path = _repo_path(repo_url)
+    """
+    Run the FinderAgent against the cloned repo for the requested number of user turns (async).
+
+    Args:
+        repo_url: Repository identifier/URL.
+        num_turns: Turn budget for the finder.
+        model_name: Model to use.
+        use_openai: Whether to route via OpenAI API.
+        repo_path_override: Optional pre-materialized repo path.
+        max_subagent_depth: Optional override for finder sub-agent recursion depth.
+    """
+    repo_path = repo_path_override or _repo_path(repo_url)
+    if repo_path_override:
+        print(f"Using pre-materialized repo path: {repo_path}")
     # Clone repo if it doesn't exist (finder now runs before setup)
     if not os.path.exists(repo_path):
+        if repo_path_override:
+            raise FileNotFoundError(f"Materialized repo not found at {repo_path_override}")
         print(f"Cloning repository: {repo_url}")
         repo_path = clone_repo(repo_url)
+    max_depth = max_subagent_depth if max_subagent_depth is not None else MAX_DEPTH
+
     agent = FinderAgent(
         repo_path=repo_path, 
         model=model_name, 
         max_tool_turns=num_turns,
-        use_openai=use_openai
+        use_openai=use_openai,
+        max_depth=max_depth
     )
 
     response = None
@@ -111,7 +132,7 @@ async def run_finder_agent(
     if not exception_occurred and agent.depth == 0:
         hyperparams = {
             "main_agent_turns": num_turns,  # Actual turns used for main agent
-            "MAX_SUBAGENT_TURNS": MAX_SUBAGENT_TURNS,
+            "MAX_SUBAGENT_TURNS": agent_settings.MAX_SUBAGENT_TURNS,
             "MAX_DEPTH": MAX_DEPTH,
             "model": model_name,
             "use_openai": use_openai
@@ -146,11 +167,16 @@ async def run_setup_agent(
     repo_url: str, 
     num_turns: int, 
     model_name: str,
-    use_openai: bool = False
+    use_openai: bool = False,
+    repo_path_override: Optional[str] = None,
 ):
     """Run the SetupAgent against the cloned repo for the requested number of user turns (async)."""
-    repo_path = _repo_path(repo_url)
+    repo_path = repo_path_override or _repo_path(repo_url)
+    if repo_path_override:
+        print(f"Using pre-materialized repo path: {repo_path}")
     if not os.path.exists(repo_path):
+        if repo_path_override:
+            raise FileNotFoundError(f"Materialized repo not found at {repo_path_override}")
         print(f"Cloning repository: {repo_url}")
         repo_path = clone_repo(repo_url)
     agent = SetupAgent(
@@ -218,14 +244,22 @@ async def run_setup_agent(
     }
 
 async def run_generator_agent(
-    repo_url: str, 
-    num_turns: int, 
+    repo_url: str,
+    num_turns: int,
     model_name: str,
-    use_openai: bool = False
+    use_openai: bool = False,
+    max_subagent_depth: Optional[int] = None,
 ):
     """
     Run the generator agent to locate all exploits.json files and validate the exploits 
     they contain by generating and running test scripts (async).
+    
+    Args:
+        repo_url: Repository identifier/URL.
+        num_turns: Turn budget for the generator.
+        model_name: Model to use.
+        use_openai: Whether to route via OpenAI API.
+        max_subagent_depth: Optional override for generator sub-agent recursion.
     """
     repo_path = _repo_path(repo_url)
     # Repo should already be cloned by setup agent
@@ -250,13 +284,15 @@ Start by reading the README, then explore the repository and validate all the ex
 """
     
     # Initialize the main generator agent
+    max_depth = max_subagent_depth if max_subagent_depth is not None else MAX_DEPTH
+
     agent = GeneratorAgent(
         repo_path=repo_path,
         max_tool_turns=num_turns,
         model=model_name,
         use_openai=use_openai,
         depth=0,
-        max_depth=MAX_DEPTH
+        max_depth=max_depth
     )
     
     response = None
@@ -288,7 +324,9 @@ Start by reading the README, then explore the repository and validate all the ex
 async def run_generator_validation(
     repo_url: str,
     model_name: str,
-    use_openai: bool = False
+    use_openai: bool = False,
+    repo_path_override: Optional[str] = None,
+    max_subagent_depth: Optional[int] = None,
 ):
     """
     Directly validate all exploits by processing exploits.json files in batches.
@@ -298,6 +336,8 @@ async def run_generator_validation(
         repo_url: Repository URL
         model_name: Model name for validation agents
         use_openai: Whether to use OpenAI API (default False)
+        repo_path_override: Optional path to a pre-materialized repository
+        max_subagent_depth: Optional recursion cap for validation sub-agents
     
     Returns:
         Dictionary with validation results including total_cost, total_time, etc.
@@ -306,8 +346,15 @@ async def run_generator_validation(
     from agent.settings import GENERATOR_BATCH_SIZE
     from scripts.generate_generator_report import generate_generator_report, save_report
     
-    repo_path = _repo_path(repo_url)
+    repo_path = repo_path_override or _repo_path(repo_url)
+    if repo_path_override:
+        print(f"Using pre-materialized repo path: {repo_path}")
     repo_slug = _repo_slug(repo_url)
+    
+    if not os.path.exists(repo_path):
+        if repo_path_override:
+            raise FileNotFoundError(f"Materialized repo not found at {repo_path_override}")
+        raise ValueError(f"Repository not found at {repo_path}. Setup agent should have cloned it.")
     
     # Find all exploits.json files
     print("\n🔍 Searching for exploits.json files...")
@@ -351,7 +398,8 @@ async def run_generator_validation(
                 repo_path=repo_path,
                 model=model_name,
                 use_openai=use_openai,
-                use_vllm=False
+                use_vllm=False,
+                max_subagent_depth=max_subagent_depth
             )
             for exploit_file in batch
         ]
@@ -421,7 +469,8 @@ async def run_fixer_agent(
     repo_url: str, 
     num_turns: int, 
     model_name: str,
-    use_openai: bool = False
+    use_openai: bool = False,
+    repo_path_override: Optional[str] = None,
 ):
     """
     Run the fixer agent for all exploits in the exploits.json file in the repo path (async)
@@ -429,8 +478,13 @@ async def run_fixer_agent(
     from agent.fixer_utils import process_fix_exploits
     from scripts.generate_fixer_report import generate_fixer_report, save_report
     
-    repo_path = _repo_path(repo_url)
+    repo_path = repo_path_override or _repo_path(repo_url)
     repo_slug = _repo_slug(repo_url)
+    
+    if not os.path.exists(repo_path):
+        if repo_path_override:
+            raise FileNotFoundError(f"Materialized repo not found at {repo_path_override}")
+        raise ValueError(f"Repository not found at {repo_path}. Finder agent should have cloned it.")
     
     # Find all exploits.json files
     print("\n🔍 Searching for exploits.json files...")
@@ -578,6 +632,9 @@ Examples:
                        help='Repository URL to analyze')
     parser.add_argument('--turns', type=int, default=32,
                        help='Number of turns for each agent (default: 32)')
+    parser.add_argument('--subagent-turns', type=int,
+                       default=agent_settings.MAX_SUBAGENT_TURNS,
+                       help='Turn budget allocated to each sub-agent (default: %(default)s)')
     
     # Model configuration
     parser.add_argument('--model', type=str, default="z-ai/glm-4.6",
@@ -609,6 +666,10 @@ Examples:
                        help='Skip the fixer agent')
     
     args = parser.parse_args()
+    
+    if args.subagent_turns <= 0:
+        parser.error("subagent-turns must be greater than zero.")
+    applied_subagent_turns = agent_settings.set_max_subagent_turns(args.subagent_turns)
     
     # Determine which agents to run
     run_setup = True
@@ -668,6 +729,7 @@ Examples:
     print(f"Turns per agent: {num_turns}")
     print(f"Main model: {model_name}")
     print(f"Setup model: {setup_model}")
+    print(f"Sub-agent turns: {applied_subagent_turns}")
     print(f"Agents to run: {', '.join([a for a, enabled in [('Finder', run_finder), ('Setup', run_setup), ('Generator', run_generator), ('Fixer', run_fixer)] if enabled])}")
     print("="*80)
     

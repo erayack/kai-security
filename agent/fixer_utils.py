@@ -10,7 +10,8 @@ import datetime
 from typing import List
 from pathlib import Path
 from tqdm.asyncio import tqdm as tqdm_asyncio
-from agent.settings import MAX_SUBAGENT_TURNS, MAX_DEPTH
+from agent.settings import MAX_DEPTH
+from agent import settings as agent_settings
 
 
 async def process_fix_exploits(
@@ -82,7 +83,7 @@ async def process_fix_exploits(
             sub_agent = FixerAgent(
                 repo_path=repo_path,
                 model=model,
-                max_tool_turns=MAX_SUBAGENT_TURNS,
+                max_tool_turns=agent_settings.MAX_SUBAGENT_TURNS,
                 use_openai=use_openai,
                 use_vllm=use_vllm,
                 depth=MAX_DEPTH,  # Set to max_depth so it can't spawn more
