@@ -12,6 +12,7 @@ from typing import List
 from pathlib import Path
 from agent.settings import MAX_SUBAGENT_TURNS, MAX_DEPTH
 from logger.mongo_logger import log_exploit_fixed
+from agent import settings as agent_settings
 
 
 async def process_fix_exploits(
@@ -83,7 +84,7 @@ async def process_fix_exploits(
             sub_agent = FixerAgent(
                 repo_path=repo_path,
                 model=model,
-                max_tool_turns=MAX_SUBAGENT_TURNS,
+                max_tool_turns=agent_settings.MAX_SUBAGENT_TURNS,
                 use_openai=use_openai,
                 use_vllm=use_vllm,
                 scope_paths=None,  # No scope restriction

@@ -9,9 +9,11 @@ import os
 import json
 import asyncio
 import datetime
-from typing import List
+from typing import List, Optional
 from pathlib import Path
+
 from agent.settings import MAX_SUBAGENT_TURNS, MAX_DEPTH
+from agent import settings as agent_settings
 
 
 def get_exploits_jsons(repo_path: str) -> List[str]:
@@ -55,14 +57,14 @@ async def process_exploits_json(
     execution_id: str = None,
     commit_hash: str = None,
     repo_name: str = None,
+    max_subagent_depth: Optional[int] = None,
 ) -> dict:
     """
     Validate all exploits in an exploits.json file by spawning validation sub-agents.
 
     This function iterates over each exploit in the given exploits.json file and spawns
-    a depth=MAX_DEPTH sub-agent to generate and validate a test script for the exploit.
+    a depth-limited sub-agent to generate and validate a test script for the exploit. 
     If the sub-agent cannot produce a passing test, the exploit is removed from the file.
-
     IMPORTANT: This validates existing exploits, it does NOT find new ones.
 
     Args:
@@ -71,7 +73,7 @@ async def process_exploits_json(
         model: Model name to use for validation agents.
         use_openai: Whether to use OpenAI API (default False).
         use_vllm: Whether to use vLLM (default False).
-
+        max_subagent_depth: Optional recursion limit for validation sub-agents.
     Returns:
         A dictionary with validation results:
         {
@@ -126,27 +128,34 @@ async def process_exploits_json(
 
         # Import dependencies
         from agent.agents import GeneratorAgent
+        # Setup save directory for per-exploit validation conversations
+        project_root = Path(repo_path).parent.parent
+        repo_slug = os.path.basename(repo_path) if repo_path else "unknown"
+        save_folder = os.path.join(str(project_root), "output", repo_slug, "exploit_validation_convos")
+        os.makedirs(save_folder, exist_ok=True)
+        
+        depth_limit = max_subagent_depth if max_subagent_depth is not None else MAX_DEPTH
 
         # Helper function to validate a single exploit
         async def validate_single_exploit(exploit):
             """Validate a single exploit by spawning a sub-agent."""
+
             exploit_id = exploit.get("id", "unknown")
             category = exploit.get("category", "unknown")
             severity = exploit.get("severity", "unknown")
 
-            # Create a depth=MAX_DEPTH sub-agent to validate this single exploit
             # This ensures it cannot spawn more sub-agents
             sub_agent = GeneratorAgent(
                 repo_path=repo_path,
                 model=model,
-                max_tool_turns=MAX_SUBAGENT_TURNS,
+                max_tool_turns=agent_settings.MAX_SUBAGENT_TURNS,
                 use_openai=use_openai,
                 use_vllm=use_vllm,
                 scope_paths=None,  # No scope restriction
                 parent_agent_id=None,  # No parent (this is orchestration level)
-                depth=MAX_DEPTH,  # Set to max_depth so it can't spawn more
-                max_depth=MAX_DEPTH,
                 execution_id=execution_id,  # Pass execution_id for logging
+                depth=depth_limit,  # Set to max_depth so it can't spawn more
+                max_depth=depth_limit
             )
 
             # Setup tests/exploits directory in the repo

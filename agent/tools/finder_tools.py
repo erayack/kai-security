@@ -11,7 +11,7 @@ from typing import Union, Optional, List
 from bson import ObjectId
 
 from agent.schemas import GrepResponse, Exploit, ExploitLocation, ExploitSeverity
-from agent.settings import MAX_TOOL_TURNS, MAX_SUBAGENT_TURNS
+from agent import settings as agent_settings
 from agent.tools.tools import read_file, list_files, grep
 from tqdm import tqdm
 from logger import logging
@@ -110,7 +110,7 @@ async def delegate_to_sub_agent(
         )
         # result["exploits"] contains all vulnerabilities found
     """
-    max_turns = MAX_SUBAGENT_TURNS
+    max_turns = agent_settings.MAX_SUBAGENT_TURNS
 
     # Access parent agent from execution context (injected by engine)
     try:

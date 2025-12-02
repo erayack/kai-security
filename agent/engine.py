@@ -240,19 +240,26 @@ async def _execute_with_delegation_async(
 
     try:
         # Import the tools module
+        shared_tools_module = None
+        try:
+            shared_tools_module = importlib.import_module("agent.tools.tools")
+        except Exception:
+            shared_tools_module = None
+
+        def _agent_provider():
+            return agent_instance
+
+        available_functions = {}
         if import_module:
             module = importlib.import_module(import_module)
-            module.__dict__["_get_current_agent"] = lambda: agent_instance
-
-            available_functions = {}
+            module.__dict__['_get_current_agent'] = _agent_provider
             for name in dir(module):
                 if not name.startswith("_"):
                     attr = getattr(module, name)
                     if callable(attr):
                         available_functions[name] = attr
-        else:
-            available_functions = {}
-
+        if shared_tools_module:
+            shared_tools_module.__dict__['_get_current_agent'] = _agent_provider
         # Add agent accessor and asyncio
         available_functions["_get_current_agent"] = lambda: agent_instance
         available_functions["asyncio"] = asyncio

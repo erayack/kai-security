@@ -10,6 +10,17 @@ MAX_TOOL_TURNS = 24
 MAX_SUBAGENT_TURNS = 24
 MAX_DEPTH = 2
 
+
+def set_max_subagent_turns(turns: int) -> int:
+    """
+    Update the global sub-agent turn budget at runtime.
+    Returns the sanitized value that was applied.
+    """
+    global MAX_SUBAGENT_TURNS
+    sanitized = max(1, int(turns))
+    MAX_SUBAGENT_TURNS = sanitized
+    return sanitized
+
 # Generator settings
 GENERATOR_BATCH_SIZE = 1  # Number of exploits.json files to process in parallel
 
