@@ -13,37 +13,160 @@ from typing import Optional, Union
 from agent.utils import load_gitignore_spec, should_ignore_path
 
 
-def read_file(file_path: str) -> str:
+def _get_current_agent():
     """
-    Read a file with a given path.
+    Get the current agent instance from the global registry.
+    This is set during sandboxed code execution.
+    """
+    try:
+        # Try to get from local scope first (passed via execute_sandboxed_code)
+        import inspect
+
+        frame = inspect.currentframe()
+        while frame:
+            if "_agent_instance" in frame.f_locals:
+                return frame.f_locals["_agent_instance"]
+            if "_agent_instance" in frame.f_globals:
+                return frame.f_globals["_agent_instance"]
+            frame = frame.f_back
+    except:
+        pass
+    return None
+
+
+def _normalize_agent_path(path: Optional[str]) -> Optional[str]:
+    """
+    Normalize user-provided paths so agents can reference files using either
+    repo-relative paths (e.g. repos/<slug>/...) or working-dir relative paths.
+    """
+    if path is None:
+        return None
+
+    try:
+        agent = _get_current_agent()
+    except (NameError, TypeError):
+        agent = None
+
+    # Absolute paths stay as-is
+    if path and os.path.isabs(path):
+        return path
+
+    normalized = os.path.normpath(path) if path else ""
+    if normalized.startswith("./"):
+        normalized = normalized[2:]
+    if normalized == ".":
+        normalized = ""
+
+    if agent:
+        repo_slug = (
+            os.path.basename(agent.repo_path)
+            if getattr(agent, "repo_path", None)
+            else ""
+        )
+        if normalized:
+            parts = normalized.split(os.sep)
+            if len(parts) >= 2 and parts[0] == "repos" and parts[1] == repo_slug:
+                remaining = os.path.join(*parts[2:]) if len(parts) > 2 else ""
+                return os.path.join(agent.repo_path, remaining)
+
+        base_dir = getattr(agent, "working_dir", agent.repo_path)
+        if base_dir and normalized:
+            return os.path.join(base_dir, normalized)
+        return base_dir
+
+    # Fallback: resolve relative to current directory
+    if normalized:
+        return os.path.abspath(normalized)
+    return os.getcwd()
+
+
+def read_file(
+    file_path: str, start_line: Optional[int] = None, end_line: Optional[int] = None
+) -> str:
+    """
+    Read a file with a given path, optionally specifying a line range.
 
     Args:
         file_path: The path to the file.
+        start_line: Optional starting line number (1-indexed, inclusive).
+        end_line: Optional ending line number (1-indexed, inclusive).
 
     Returns:
-        The content of the file, or an error message if the file cannot be read.
+        The content of the file (or specified line range), or an error message if the file cannot be read.
+
+    Examples:
+        read_file("foo.rs")              # Full file
+        read_file("foo.rs", 100, 150)    # Lines 100-150 only
     """
     try:
+        # Resolve relative paths relative to agent's working_dir
+        try:
+            agent = _get_current_agent()
+            file_path = _normalize_agent_path(file_path)
+        except (NameError, TypeError):
+            pass
+
+        # Now convert to absolute path for scope validation
+        abs_path = os.path.abspath(file_path)
+
+        # Scope validation (if _get_current_agent is available)
+        try:
+            agent = _get_current_agent()
+            if agent and hasattr(agent, "restricted_scope") and agent.restricted_scope:
+                if not any(
+                    abs_path.startswith(allowed) for allowed in agent.allowed_paths
+                ):
+                    return f"Error: Access denied. File '{file_path}' is outside assigned scope."
+        except (NameError, TypeError):
+            # _get_current_agent not defined or returns None, skip scope validation
+            pass
+
         # Ensure the file path is properly resolved
-        if not os.path.exists(file_path):
+        if not os.path.exists(abs_path):
             return f"Error: File {file_path} does not exist"
-        
-        if not os.path.isfile(file_path):
+
+        if not os.path.isfile(abs_path):
             return f"Error: {file_path} is not a file"
-            
-        with open(file_path, "r") as f:
-            return f.read()
+
+        with open(abs_path, "r") as f:
+            if start_line is None and end_line is None:
+                # Read entire file
+                return f.read()
+            else:
+                # Read specific line range
+                lines = f.readlines()
+                total_lines = len(lines)
+
+                # Validate line numbers
+                if start_line is not None and (
+                    start_line < 1 or start_line > total_lines
+                ):
+                    return f"Error: start_line {start_line} is out of range (file has {total_lines} lines)"
+                if end_line is not None and (end_line < 1 or end_line > total_lines):
+                    return f"Error: end_line {end_line} is out of range (file has {total_lines} lines)"
+                if (
+                    start_line is not None
+                    and end_line is not None
+                    and start_line > end_line
+                ):
+                    return f"Error: start_line {start_line} cannot be greater than end_line {end_line}"
+
+                # Extract line range (convert to 0-indexed)
+                start_idx = (start_line - 1) if start_line else 0
+                end_idx = end_line if end_line else total_lines
+
+                return "".join(lines[start_idx:end_idx])
+
     except PermissionError:
         return f"Error: Permission denied accessing {file_path}"
     except Exception as e:
         return f"Error: {e}"
 
 
-def list_files(depth: int, path: Optional[str] = None) -> str:
+def list_files(path: Optional[str] = None, depth: int = 2) -> str:
     """
-    Display all files and directories in the current working directory as a tree structure. 
-    If given a path, display the files and directories in the given path.
-    
+    Display all files and directories as a tree structure.
+
     Example output:
     ```
     ./
@@ -54,21 +177,52 @@ def list_files(depth: int, path: Optional[str] = None) -> str:
     ```
 
     Args:
-        depth: Maximum depth to traverse.
+        path: Optional path to the directory to display. If None, uses current working directory.
+        depth: Maximum depth to traverse. Default is 2.
            depth=0 shows only the root directory contents,
            depth=1 shows root and one level of subdirectories, etc.
-        path: The path to the directory to display.
+               Set to a large number (e.g., 10) for deep exploration.
 
     Returns:
         A string representation of the directory tree.
+
+    Examples:
+        # List current directory with default depth of 2
+        tree = list_files()
+
+        # List specific directory with custom depth
+        tree = list_files(path="bft", depth=1)
+
+        # Deep exploration
+        tree = list_files(depth=10)
     """
     try:
-        # Always use current working directory
-        dir_path = os.getcwd() if path is None else path
-        
+        # Use agent's working_dir if available and no path specified, otherwise os.getcwd()
+        if path is None:
+            try:
+                agent = _get_current_agent()
+                dir_path = agent.working_dir if agent else os.getcwd()
+            except (NameError, TypeError):
+                dir_path = os.getcwd()
+        else:
+            dir_path = _normalize_agent_path(path)
+
+        # Scope validation (if _get_current_agent is available)
+        try:
+            agent = _get_current_agent()
+            if agent and hasattr(agent, "restricted_scope") and agent.restricted_scope:
+                abs_path = os.path.abspath(dir_path)
+                if not any(
+                    abs_path.startswith(allowed) for allowed in agent.allowed_paths
+                ):
+                    return f"Error: Access denied. Directory '{dir_path}' is outside assigned scope."
+        except (NameError, TypeError):
+            # _get_current_agent not defined or returns None, skip scope validation
+            pass
+
         # Load gitignore patterns
         gitignore_spec = load_gitignore_spec(dir_path)
-        
+
         def build_tree(start_path, prefix="", is_last=True, current_depth=0):
             """Recursively build tree structure"""
             entries = []
@@ -77,7 +231,7 @@ def list_files(depth: int, path: Optional[str] = None) -> str:
                 # Filter out hidden files, __pycache__, and gitignored items
                 filtered_items = []
                 for item in items:
-                    if item.startswith('.') or item == '__pycache__':
+                    if item.startswith(".") or item == "__pycache__":
                         continue
                     item_path = os.path.join(start_path, item)
                     if should_ignore_path(item_path, dir_path, gitignore_spec):
@@ -86,14 +240,14 @@ def list_files(depth: int, path: Optional[str] = None) -> str:
                 items = filtered_items
             except PermissionError:
                 return f"{prefix}[Permission Denied]\n"
-            
+
             if not items:
                 return ""
-            
+
             for i, item in enumerate(items):
                 item_path = os.path.join(start_path, item)
                 is_last_item = i == len(items) - 1
-                
+
                 # Choose the right prefix characters
                 if is_last_item:
                     current_prefix = prefix + "└── "
@@ -101,7 +255,7 @@ def list_files(depth: int, path: Optional[str] = None) -> str:
                 else:
                     current_prefix = prefix + "├── "
                     extension = prefix + "│   "
-                
+
                 if os.path.isdir(item_path):
                     # Check if we've reached the depth limit
                     if depth is not None and current_depth >= depth:
@@ -111,30 +265,39 @@ def list_files(depth: int, path: Optional[str] = None) -> str:
                         try:
                             dir_contents = []
                             for f in os.listdir(item_path):
-                                if f.startswith('.') or f == '__pycache__':
+                                if f.startswith(".") or f == "__pycache__":
                                     continue
                                 f_path = os.path.join(item_path, f)
                                 if should_ignore_path(f_path, dir_path, gitignore_spec):
                                     continue
                                 dir_contents.append(f)
-                            
+
                             if not dir_contents:
                                 entries.append(f"{current_prefix}{item}/ (empty)\n")
                             else:
                                 entries.append(f"{current_prefix}{item}/\n")
                                 # Recursively add subdirectory contents
-                                entries.append(build_tree(item_path, extension, is_last_item, current_depth + 1))
+                                entries.append(
+                                    build_tree(
+                                        item_path,
+                                        extension,
+                                        is_last_item,
+                                        current_depth + 1,
+                                    )
+                                )
                         except PermissionError:
-                            entries.append(f"{current_prefix}{item}/ [Permission Denied]\n")
+                            entries.append(
+                                f"{current_prefix}{item}/ [Permission Denied]\n"
+                            )
                 else:
                     entries.append(f"{current_prefix}{item}\n")
-            
+
             return "".join(entries)
-        
+
         # Start with the root directory
         tree = f"./\n{build_tree(dir_path)}"
         return tree.rstrip()  # Remove trailing newline
-        
+
     except Exception as e:
         return f"Error: {e}"
 
@@ -143,48 +306,148 @@ def grep(args: str):
     """
     Run system grep with the provided CLI-style arg string.
     Prints output passthrough; returns grep's exit code (0/1/2).
-    
-    Common build/dependency directories are always excluded for faster searches:
-    (target, out, cache, node_modules, __pycache__, .git, build, dist, venv, .env)
+
+    Common build/dependency directories are always excluded for faster searches.
+    Output is limited to 100KB to prevent context overflow.
+
+    If the agent has a restricted scope, grep will only search within the allowed paths.
 
     Args:
         args: The arguments to pass to grep.
     Returns:
-        A tuple/GrepResponse with exit_code, stdout, and stderr.
+        A GrepResponse with exit_code, stdout, and stderr.
     """
     try:
         from agent.settings import SANDBOX_TIMEOUT
-        
-        # Always exclude common build/dependency directories to speed up grep
+        from agent.schemas import GrepResponse
+
+        # Scope validation: restrict grep to allowed paths if scope is restricted
+        search_path = "."
+        try:
+            agent = _get_current_agent()
+            if agent and hasattr(agent, "restricted_scope") and agent.restricted_scope:
+                # Use the first allowed path as the search root
+                if agent.allowed_paths:
+                    search_path = agent.allowed_paths[0]
+                    # Make path relative to current directory if possible
+                    try:
+                        search_path = os.path.relpath(search_path)
+                    except ValueError:
+                        pass  # Keep absolute path if relpath fails
+        except (NameError, TypeError):
+            # _get_current_agent not defined or returns None, skip scope validation
+            pass
+
+        # Comprehensive exclusions for build artifacts, dependencies, and caches
+        # This prevents grep from returning millions of lines from these directories
         exclude_dirs = [
-            "target",           # Rust build artifacts
-            "out",              # Solidity/Foundry build artifacts  
-            "cache",            # Various caches
-            "node_modules",     # Node.js dependencies
-            "__pycache__",      # Python cache
-            ".git",             # Git directory
-            "build",            # General build directory
-            "dist",             # Distribution directory
-            "venv",             # Python virtual environment
-            ".env",             # Environment directory
+            # Rust
+            "target",  # Rust build artifacts (includes debug/release/deps)
+            # JavaScript/TypeScript
+            "node_modules",  # Node.js dependencies
+            "bower_components",  # Bower dependencies
+            ".npm",  # npm cache
+            ".yarn",  # Yarn cache
+            ".pnp",  # Yarn PnP
+            # Python
+            "venv",  # Python virtual environment
+            ".venv",  # Python virtual environment (hidden)
+            "env",  # Python virtual environment
+            ".env",  # Python virtual environment (hidden)
+            "virtualenv",  # virtualenv directory
+            ".virtualenv",  # virtualenv directory (hidden)
+            "__pycache__",  # Python cache
+            ".pytest_cache",  # Pytest cache
+            ".mypy_cache",  # Mypy cache
+            ".tox",  # Tox test environments
+            "site-packages",  # Python packages
+            "dist-packages",  # Python packages (Debian/Ubuntu)
+            ".eggs",  # Python eggs
+            "*.egg-info",  # Python egg info
+            # Build outputs
+            "build",  # General build directory
+            "dist",  # Distribution directory
+            "out",  # Solidity/Foundry/general build artifacts
+            "bin",  # Binary directory (sometimes)
+            "obj",  # Object files (C/C++)
+            # Caches
+            "cache",  # Various caches
+            ".cache",  # Hidden caches
+            "tmp",  # Temporary files
+            ".tmp",  # Hidden temporary files
+            # Version control
+            ".git",  # Git directory
+            ".svn",  # SVN directory
+            ".hg",  # Mercurial directory
+            # IDEs and editors
+            ".idea",  # IntelliJ IDEA
+            ".vscode",  # VS Code
+            ".vs",  # Visual Studio
+            # Other
+            "vendor",  # Vendored dependencies (Go, PHP, etc.)
+            ".bundle",  # Ruby bundler
         ]
         exclude_flags = " ".join([f"--exclude-dir={d}" for d in exclude_dirs])
-        
+
+        # Determine working directory for grep
+        grep_cwd = None
+        try:
+            agent = _get_current_agent()
+            if agent and hasattr(agent, "working_dir"):
+                grep_cwd = agent.working_dir
+        except (NameError, TypeError):
+            pass
+
+        if grep_cwd is None:
+            return GrepResponse(
+                exit_code=1,
+                stdout="",
+                stderr="Error: Could not determine working directory (agent context missing).",
+            )
+
         # Run grep with timeout, locale optimization (LC_ALL=C), and optional exclusions
-        cmd = f"LC_ALL=C grep {exclude_flags} {args}".strip()
+        # Add search path at the end
+        cmd = f"LC_ALL=C grep {exclude_flags} {args} {search_path}".strip()
         p = subprocess.run(
-            cmd, 
-            shell=True, 
-            text=True, 
+            cmd,
+            shell=True,
+            text=True,
             capture_output=True,
-            timeout=SANDBOX_TIMEOUT
+            timeout=SANDBOX_TIMEOUT,
+            cwd=grep_cwd,
         )
-        # Return a tuple for compatibility with different return types
-        return p.returncode, p.stdout, p.stderr
+
+        # Limit output size to prevent context overflow (100KB max)
+        # This prevents grep from returning millions of characters that crash the model
+        MAX_GREP_OUTPUT_SIZE = 100_000  # 100KB
+        stdout = p.stdout
+        stderr = p.stderr
+
+        if len(stdout) > MAX_GREP_OUTPUT_SIZE:
+            line_count = stdout.count("\n")
+            truncated_stdout = stdout[:MAX_GREP_OUTPUT_SIZE]
+            # Try to end at a line boundary
+            last_newline = truncated_stdout.rfind("\n")
+            if last_newline > 0:
+                truncated_stdout = truncated_stdout[:last_newline]
+
+            truncation_msg = f"\n\n... [TRUNCATED: Output too large. Showing first {len(truncated_stdout):,} of {len(stdout):,} characters, ~{line_count:,} total matches. Use more specific patterns or -m flag to limit results.]"
+            stdout = truncated_stdout + truncation_msg
+
+        # Return a GrepResponse object
+        return GrepResponse(exit_code=p.returncode, stdout=stdout, stderr=stderr)
     except subprocess.TimeoutExpired:
-        return 1, "", f"Error: grep exceeded timeout of {SANDBOX_TIMEOUT} seconds. Try narrowing your search or using more specific patterns."
+        from agent.schemas import GrepResponse
+
+        return GrepResponse(
+            exit_code=1,
+            stdout="",
+            stderr=f"Error: grep exceeded timeout of {SANDBOX_TIMEOUT} seconds. Try narrowing your search or using more specific patterns.",
+        )
     except Exception as e:
-        return 1, f"Error: {e}", ""
+        from agent.schemas import GrepResponse
+
+        return GrepResponse(exit_code=1, stdout="", stderr=f"Error: {e}")
 
 
 def forge_test(
@@ -193,11 +456,11 @@ def forge_test(
     match_contract: Optional[str] = None,
     match_test: Optional[str] = None,
     additional_args: Optional[str] = None,
-    output_json: bool = True
+    output_json: bool = True,
 ) -> dict:
     """
     Run forge test with flexible parameters to support various repository structures.
-    
+
     This function supports repositories with multiple sub-repositories and test directories.
     You can specify the working directory where forge should run, and use various
     matching patterns to target specific tests.
@@ -216,14 +479,14 @@ def forge_test(
     Returns:
         A dictionary containing the test results. If JSON parsing fails, returns
         {"stdout": <output>, "stderr": <errors>} with the raw output.
-        
+
     Examples:
         # Run test in a sub-repository
         forge_test(test_script_path="test/MyTest.t.sol", working_dir="ve33")
-        
+
         # Run specific test function
         forge_test(match_test="test_exploit", working_dir="cl")
-        
+
         # Run with multiple filters
         forge_test(
             test_script_path="test/*.t.sol",
@@ -234,7 +497,7 @@ def forge_test(
     try:
         # Build the forge test command
         cmd_parts = ["forge", "test"]
-        
+
         # Add match patterns
         if test_script_path:
             cmd_parts.extend(["--match-path", test_script_path])
@@ -242,35 +505,26 @@ def forge_test(
             cmd_parts.extend(["--match-contract", match_contract])
         if match_test:
             cmd_parts.extend(["--match-test", match_test])
-        
+
         # Add JSON output flag if requested
         if output_json:
             cmd_parts.append("--json")
-        
+
         # Add any additional arguments
         if additional_args:
             cmd_parts.append(additional_args)
-        
+
         # Join command parts
         cmd = " ".join(cmd_parts)
-        
+
         # Run the command, optionally in a specific directory
         if working_dir:
             p = subprocess.run(
-                cmd,
-                shell=True,
-                text=True,
-                capture_output=True,
-                cwd=working_dir
+                cmd, shell=True, text=True, capture_output=True, cwd=working_dir
             )
         else:
-            p = subprocess.run(
-                cmd,
-                shell=True,
-                text=True,
-                capture_output=True
-            )
-        
+            p = subprocess.run(cmd, shell=True, text=True, capture_output=True)
+
         # Try to parse JSON output if requested
         if output_json:
             try:
@@ -281,16 +535,12 @@ def forge_test(
                     "stdout": p.stdout,
                     "stderr": p.stderr,
                     "returncode": p.returncode,
-                    "error": "Failed to parse JSON output"
+                    "error": "Failed to parse JSON output",
                 }
         else:
             # Return raw output for non-JSON mode
-            return {
-                "stdout": p.stdout,
-                "stderr": p.stderr,
-                "returncode": p.returncode
-            }
-            
+            return {"stdout": p.stdout, "stderr": p.stderr, "returncode": p.returncode}
+
     except Exception as e:
         return {"error": str(e)}
 
@@ -301,11 +551,11 @@ def cargo_test(
     test_name: Optional[str] = None,
     release: bool = False,
     additional_args: Optional[str] = None,
-    output_json: bool = False
+    output_json: bool = False,
 ) -> dict:
     """
     Run cargo test with flexible parameters to support various Rust project structures.
-    
+
     This function supports Rust workspaces with multiple packages and can run specific
     tests or all tests in a package.
 
@@ -330,46 +580,46 @@ def cargo_test(
         - stderr: The standard error from cargo test
         - returncode: The exit code (0 for success, non-zero for failure)
         - If JSON output is requested and parsing succeeds, returns parsed JSON.
-        
+
     Examples:
         # Run all tests in a workspace
         result = cargo_test()
-        
+
         # Run tests for a specific package
         result = cargo_test(package="sp1-prover")
-        
+
         # Run a specific test in a package
         result = cargo_test(package="sp1-prover", test_name="test_uninitialized_memory")
-        
+
         # Run tests in release mode with specific package
         result = cargo_test(package="recursion-circuit", release=True)
-        
+
         # Run from a specific directory
         result = cargo_test(working_dir="crates/prover")
-        
+
         # Run with additional flags
         result = cargo_test(package="sp1-prover", additional_args="--no-fail-fast --test-threads=1")
     """
     try:
         # Build the cargo test command
         cmd_parts = ["cargo", "test"]
-        
+
         # Add package filter if specified
         if package:
             cmd_parts.extend(["-p", package])
-        
+
         # Add test name filter if specified
         if test_name:
             cmd_parts.append(test_name)
-        
+
         # Add release flag if requested
         if release:
             cmd_parts.append("--release")
-        
+
         # Add JSON output flag if requested
         if output_json:
             cmd_parts.extend(["--", "--format", "json"])
-        
+
         # Add any additional arguments
         if additional_args:
             # If additional_args contains test-specific flags (after --), handle carefully
@@ -378,15 +628,28 @@ def cargo_test(
                 cmd_parts.extend(additional_args.split())
             else:
                 cmd_parts.extend(additional_args.split())
-        
+
+        # Resolve working_dir relative to agent's working_dir
+        resolved_dir = working_dir
+        if working_dir is not None:
+            try:
+                agent = _get_current_agent()
+                if agent and not os.path.isabs(working_dir):
+                    resolved_dir = os.path.join(agent.working_dir, working_dir)
+            except (NameError, TypeError):
+                pass
+        else:
+            try:
+                agent = _get_current_agent()
+                resolved_dir = agent.working_dir if agent else os.getcwd()
+            except (NameError, TypeError):
+                resolved_dir = os.getcwd()
+
         # Run the command
         result = subprocess.run(
-            cmd_parts,
-            capture_output=True,
-            text=True,
-            cwd=working_dir
+            cmd_parts, capture_output=True, text=True, cwd=resolved_dir
         )
-        
+
         # Try to parse JSON output if requested
         if output_json:
             try:
@@ -394,7 +657,7 @@ def cargo_test(
                     "parsed_json": json.loads(result.stdout),
                     "stdout": result.stdout,
                     "stderr": result.stderr,
-                    "returncode": result.returncode
+                    "returncode": result.returncode,
                 }
             except json.JSONDecodeError:
                 # If JSON parsing fails, return raw output with error note
@@ -402,23 +665,18 @@ def cargo_test(
                     "stdout": result.stdout,
                     "stderr": result.stderr,
                     "returncode": result.returncode,
-                    "error": "Failed to parse JSON output"
+                    "error": "Failed to parse JSON output",
                 }
         else:
             # Return raw output for non-JSON mode
             return {
                 "stdout": result.stdout,
                 "stderr": result.stderr,
-                "returncode": result.returncode
+                "returncode": result.returncode,
             }
-            
+
     except Exception as e:
-        return {
-            "error": str(e),
-            "stdout": "",
-            "stderr": "",
-            "returncode": -1
-        }
+        return {"error": str(e), "stdout": "", "stderr": "", "returncode": -1}
 
 
 def anchor_test(
@@ -427,11 +685,11 @@ def anchor_test(
     skip_build: bool = False,
     skip_deploy: bool = False,
     skip_local_validator: bool = False,
-    additional_args: Optional[str] = None
+    additional_args: Optional[str] = None,
 ) -> dict:
     """
     Run anchor test for Solana programs using the Anchor framework.
-    
+
     This function executes integration tests for Solana programs. By default, the 'anchor test'
     command starts a local validator, builds the program, deploys it, runs tests, and then
     stops the validator. You can skip individual steps using the flags.
@@ -456,30 +714,30 @@ def anchor_test(
         - stdout: The standard output from anchor test
         - stderr: The standard error from anchor test
         - returncode: The exit code (0 for success, non-zero for failure)
-        
+
     Examples:
         # Run all tests (starts validator, builds, deploys, tests, stops validator)
         result = anchor_test()
-        
+
         # Run tests with existing validator
         result = anchor_test(skip_local_validator=True)
-        
+
         # Run specific test
         result = anchor_test(test_name="test_initialize")
-        
+
         # Run from specific directory
         result = anchor_test(working_dir="programs/my-program")
-        
+
         # Skip build and deploy (useful for quick test iterations)
         result = anchor_test(skip_build=True, skip_deploy=True)
-        
+
         # Run with additional flags
         result = anchor_test(additional_args="--detach")
     """
     try:
         # Build the anchor test command
         cmd_parts = ["anchor", "test"]
-        
+
         # Add skip flags if requested
         if skip_build:
             cmd_parts.append("--skip-build")
@@ -487,37 +745,133 @@ def anchor_test(
             cmd_parts.append("--skip-deploy")
         if skip_local_validator:
             cmd_parts.append("--skip-local-validator")
-        
+
         # Add test name filter if specified
         if test_name:
             cmd_parts.append(test_name)
-        
+
         # Add any additional arguments
         if additional_args:
             cmd_parts.extend(additional_args.split())
-        
+
+        # Resolve working_dir relative to agent's working_dir
+        resolved_dir = working_dir
+        if working_dir is not None:
+            try:
+                agent = _get_current_agent()
+                if agent and not os.path.isabs(working_dir):
+                    resolved_dir = os.path.join(agent.working_dir, working_dir)
+            except (NameError, TypeError):
+                pass
+        else:
+            try:
+                agent = _get_current_agent()
+                resolved_dir = agent.working_dir if agent else os.getcwd()
+            except (NameError, TypeError):
+                resolved_dir = os.getcwd()
+
         # Run the command
         result = subprocess.run(
-            cmd_parts,
-            capture_output=True,
-            text=True,
-            cwd=working_dir
+            cmd_parts, capture_output=True, text=True, cwd=resolved_dir
         )
-        
+
         # Return raw output
         return {
             "stdout": result.stdout,
             "stderr": result.stderr,
-            "returncode": result.returncode
+            "returncode": result.returncode,
         }
-            
+
     except Exception as e:
+        return {"error": str(e), "stdout": "", "stderr": "", "returncode": -1}
+
+
+def ctest(
+    build_dir: str,
+    test_regex: Optional[str] = None,
+    parallel: bool = True,
+    verbose: bool = False,
+    additional_args: Optional[str] = None,
+) -> dict:
+    """
+    Run tests for a C++ project using CTest.
+
+    CTest is CMake's test runner. Tests must be registered with CMake (add_test() in CMakeLists.txt)
+    and the project must be built before running tests.
+
+    Args:
+        build_dir: The directory containing the CMake build files (where you ran cmake_build).
+        test_regex: Optional regex pattern to filter tests by name.
+                   For example: "unit_.*" to run only unit tests.
+        parallel: If True, runs tests in parallel using available CPU cores.
+                 Default is True.
+        verbose: If True, enables verbose output (shows test output even for passing tests).
+                Default is False.
+        additional_args: Any additional ctest arguments as a string.
+                        For example: "--rerun-failed --output-on-failure"
+
+    Returns:
+        A dictionary containing the test results:
+        - stdout: The standard output from ctest
+        - stderr: The standard error from ctest
+        - returncode: The exit code (0 for success, non-zero for failure)
+
+    Examples:
+        # Run all tests in parallel
+        result = ctest(build_dir="monad/build")
+
+        # Run specific test pattern with verbose output
+        result = ctest(build_dir="monad/build", test_regex="unit_.*", verbose=True)
+
+        # Run tests serially (no parallelization)
+        result = ctest(build_dir="monad/build", parallel=False)
+
+        # Run with custom flags
+        result = ctest(build_dir="monad/build", additional_args="--output-on-failure --timeout 300")
+    """
+    try:
+        # Build the ctest command
+        cmd_parts = ["ctest"]
+
+        # Add test regex filter if specified
+        if test_regex:
+            cmd_parts.extend(["-R", test_regex])
+
+        # Add parallel flag if requested
+        if parallel:
+            cmd_parts.append("--parallel")
+
+        # Add verbose flag if requested
+        if verbose:
+            cmd_parts.append("--verbose")
+
+        # Add any additional arguments
+        if additional_args:
+            cmd_parts.extend(additional_args.split())
+
+        # Resolve build_dir relative to agent's working_dir
+        resolved_build_dir = build_dir
+        try:
+            agent = _get_current_agent()
+            if agent and not os.path.isabs(build_dir):
+                resolved_build_dir = os.path.join(agent.working_dir, build_dir)
+        except (NameError, TypeError):
+            pass
+
+        # Run the command from the build directory
+        result = subprocess.run(
+            cmd_parts, capture_output=True, text=True, cwd=resolved_build_dir
+        )
+
+        # Return raw output
         return {
-            "error": str(e),
-            "stdout": "",
-            "stderr": "",
-            "returncode": -1
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode,
         }
+
+    except Exception as e:
+        return {"error": str(e), "stdout": "", "stderr": "", "returncode": -1}
 
 
 def update_file(file_path: str, old_content: str, new_content: str) -> Union[bool, str]:
@@ -563,14 +917,16 @@ def update_file(file_path: str, old_content: str, new_content: str) -> Union[boo
         if old_content not in current_content:
             # Provide helpful context about what wasn't found
             preview_length = 50
-            preview = old_content[:preview_length] + "..." if len(old_content) > preview_length else old_content
+            preview = (
+                old_content[:preview_length] + "..."
+                if len(old_content) > preview_length
+                else old_content
+            )
             return f"Error: Could not find the specified content in the file. Looking for: '{preview}'"
 
-        # Count occurrences to warn about multiple matches
+        # Count occurrences (multiple matches handled by replacing first only)
         occurrences = current_content.count(old_content)
-        if occurrences > 1:
-            # Still proceed but warn the user
-            print(f"Warning: Found {occurrences} occurrences of the content. Replacing only the first one.")
+        # Note: If multiple matches exist, only first one is replaced
 
         # Perform the replacement (only first occurrence)
         updated_content = current_content.replace(old_content, new_content, 1)
@@ -605,19 +961,27 @@ def create_file(file_path: str, content: str = "") -> bool:
     """
     temp_file_path = None
     try:
+        # Resolve relative paths relative to agent's working_dir
+        try:
+            agent = _get_current_agent()
+            if agent and not os.path.isabs(file_path):
+                file_path = os.path.join(agent.working_dir, file_path)
+        except (NameError, TypeError):
+            pass
+
         # Create parent directories if they don't exist
         parent_dir = os.path.dirname(file_path)
         if parent_dir and not os.path.exists(parent_dir):
             os.makedirs(parent_dir, exist_ok=True)
-        
+
         # Create a unique temporary file name in the same directory as the target file
         # This ensures the temp file is within the sandbox's allowed path
         target_dir = os.path.dirname(os.path.abspath(file_path)) or "."
         temp_file_path = os.path.join(target_dir, f"temp_{uuid.uuid4().hex[:8]}.txt")
-        
+
         with open(temp_file_path, "w") as f:
             f.write(content)
-        
+
         # Move the content to the final destination
         with open(file_path, "w") as f:
             f.write(content)
@@ -631,4 +995,3 @@ def create_file(file_path: str, content: str = "") -> bool:
             except Exception as e:
                 raise Exception(f"Error removing temp file {temp_file_path}: {e}")
         raise Exception(f"Error creating file {file_path}: {e}")
-
