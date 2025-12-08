@@ -355,3 +355,23 @@ def report_to_json(report: SubAgentReport) -> str:
 def report_from_json(json_str: str) -> SubAgentReport:
     """Deserialize report from JSON string."""
     return SubAgentReport.model_validate_json(json_str)
+
+
+class EnvironmentSetupInput(BaseModel):
+    repo_url: str
+    num_turns: int
+    model_name: str
+    use_openai: bool = False
+    execution_id: Optional[str] = None
+    repo_path_override: Optional[str] = None
+
+
+class EnvironmentSetupOutput(BaseModel):
+    response: Optional[AgentResponse]
+    master_context: Optional[MasterContext]
+    estimated_cost: float
+    total_tokens: Dict[str, int]
+    success: bool
+    error_message: Optional[str]
+    master_repo_path: str
+    repo_slug: str
