@@ -148,7 +148,9 @@ async def get_model_response(
         messages = [_as_dict(m) for m in messages]
 
     try:
-        completion = await client.chat.completions.create(model=model, messages=messages)
+        completion = await client.chat.completions.create(
+            model=model, messages=messages
+        )
 
         response_text = completion.choices[0].message.content
 
@@ -182,4 +184,3 @@ async def get_model_response(
         else:
             # Re-raise the original exception
             raise
-

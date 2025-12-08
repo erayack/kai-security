@@ -69,6 +69,80 @@ class ExploitSeverity(str, Enum):
     LOW = "low"
 
 
+# ---------------------------
+# Invariant Types (for InvariantAnalysis → Dispatcher)
+# ---------------------------
+
+
+class InvariantType(str, Enum):
+    """Categories of invariants for the exploit scaffold."""
+
+    LIVENESS = "liveness"  # Function must be callable by intended role
+    SOLVENCY = "solvency"  # totalAssets >= totalLiabilities
+    ACCESS_CONTROL = "access_control"  # Only X can call Y
+    STATE_TRANSITION = "state_transition"  # Valid state machine transitions
+    BALANCE = "balance"  # Balance/accounting invariants
+    REENTRANCY = "reentrancy"  # No reentrant state corruption
+    CUSTOM = "custom"  # LLM-generated or user-defined
+
+
+class Invariant(BaseModel):
+    """
+    An invariant rule used by Dispatcher to schedule missions.
+
+    Output of InvariantAnalysis, consumed by Dispatcher and Workers.
+    """
+
+    id: str  # e.g., "LIVENESS_addRecoveryProvider", "UNIV_SOLVENCY"
+    type: InvariantType
+    rule: (
+        str  # Human-readable: "Function addRecoveryProvider must be callable by Admin"
+    )
+    target_functions: List[str] = Field(
+        default_factory=list
+    )  # Functions this applies to
+    target_files: List[str] = Field(default_factory=list)  # Files involved
+    confidence: float = Field(
+        default=1.0, ge=0.0, le=1.0
+    )  # How confident (1.0 = deterministic)
+    source: str = "static"  # "static", "llm", "observation" - what generated this
+
+
+class Observation(BaseModel):
+    """
+    Intermediate finding from non-invariant workers (BlackBox, Gamified).
+
+    Gets refined by LLM into a tentative Invariant.
+    """
+
+    worker_id: str
+    mission_id: str
+    description: str  # "Function X always reverts when called by any actor"
+    affected_functions: List[str] = Field(default_factory=list)
+    affected_files: List[str] = Field(default_factory=list)
+    logs: List[str] = Field(default_factory=list)  # Raw output/traces
+    anomaly_type: Optional[str] = None  # "always_reverts", "unexpected_state", etc.
+
+
+class ExploitCandidate(BaseModel):
+    """
+    A potential exploit from invariant-dependent workers.
+
+    Sent to Verifier for confirmation.
+    """
+
+    mission_id: str
+    worker_id: str
+    invariant_id: str  # Which invariant this claims to violate
+    mechanism: str  # "reentrancy", "access_control_bypass", etc.
+    poc_code: str  # The exploit contract/test code
+    target_file: str
+    target_function: str
+    description: str
+    compiled: bool = False  # Did it compile in worker's workspace?
+    logs: List[str] = Field(default_factory=list)
+
+
 class ExploitLocation(BaseModel):
     file_path: str
     line_start: int
@@ -222,10 +296,12 @@ def report_to_string(report: SubAgentReport, indent: int = 0) -> str:
         if isinstance(first_value, dict) and "verified" in first_value:
             # Generator agent stats
             total_verified = sum(
-                cat_stats.get("verified", 0) for cat_stats in report.exploit_stats.values()
+                cat_stats.get("verified", 0)
+                for cat_stats in report.exploit_stats.values()
             )
             total_unverified = sum(
-                cat_stats.get("unverified", 0) for cat_stats in report.exploit_stats.values()
+                cat_stats.get("unverified", 0)
+                for cat_stats in report.exploit_stats.values()
             )
             lines.append(
                 f"{prefix}EXPLOIT STATS: {total_verified} verified, {total_unverified} unverified"
@@ -279,4 +355,3 @@ def report_to_json(report: SubAgentReport) -> str:
 def report_from_json(json_str: str) -> SubAgentReport:
     """Deserialize report from JSON string."""
     return SubAgentReport.model_validate_json(json_str)
-

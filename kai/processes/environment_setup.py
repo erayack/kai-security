@@ -143,16 +143,14 @@ async def run_environment_setup(
     inputs_root = _inputs_root(repo_slug)
     master_root = _master_root(repo_slug)
 
-    inputs_repo_path = (
-        Path(repo_path_override)
-        if repo_path_override
-        else inputs_root
-    )
+    inputs_repo_path = Path(repo_path_override) if repo_path_override else inputs_root
     master_repo_path = master_root
 
     if repo_path_override:
         if not inputs_repo_path.exists():
-            raise FileNotFoundError(f"Materialized repo not found at {repo_path_override}")
+            raise FileNotFoundError(
+                f"Materialized repo not found at {repo_path_override}"
+            )
     else:
         clone_repo(repo_url, inputs_repo_path)
 
@@ -188,7 +186,9 @@ async def run_environment_setup(
 
     master_context = response.master_context if response else None
     if master_context:
-        master_context = _normalize_master_context_paths(master_context, master_repo_path)
+        master_context = _normalize_master_context_paths(
+            master_context, master_repo_path
+        )
 
     # Mark master as read-only to enforce golden master contract
     try:
@@ -215,4 +215,3 @@ async def run_environment_setup(
         "master_repo_path": str(master_repo_path),
         "repo_slug": repo_slug,
     }
-

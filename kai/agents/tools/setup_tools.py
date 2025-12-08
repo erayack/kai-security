@@ -9,6 +9,7 @@ from typing import Union, Optional, List
 from kai.schemas import GrepResponse, Exploit, ExploitLocation, ExploitSeverity
 from kai.agents.tools.tools import read_file, list_files, cargo_test, anchor_test, ctest
 
+
 def _get_current_agent():
     """
     Get the current agent instance from the global registry.
@@ -17,14 +18,16 @@ def _get_current_agent():
     try:
         # Try to get from local scope first (passed via execute_sandboxed_code)
         import inspect
+
         frame = inspect.currentframe()
         while frame:
-            if '_agent_instance' in frame.f_locals:
-                return frame.f_locals['_agent_instance']
+            if "_agent_instance" in frame.f_locals:
+                return frame.f_locals["_agent_instance"]
             frame = frame.f_back
     except:
         pass
     return None
+
 
 def _resolve_working_dir(working_dir: Optional[str] = None) -> str:
     """
@@ -48,19 +51,20 @@ def _resolve_working_dir(working_dir: Optional[str] = None) -> str:
                 pass
         return working_dir
 
+
 def forge_install(package_name: str, working_dir: Optional[str] = None) -> str:
     """
     Install a package using forge.
 
     Args:
         package_name: The name of the package to install.
-        working_dir: The directory to run the forge install command from. 
+        working_dir: The directory to run the forge install command from.
                     Useful for repos with multiple sub-projects.
                     If None, uses the agent's working directory.
 
     Returns:
         A string containing the output of the forge install command.
-        
+
     Examples:
         # Install in a sub-repository
         forge_install("openzeppelin/openzeppelin-contracts", working_dir="ve33")
@@ -72,7 +76,7 @@ def forge_install(package_name: str, working_dir: Optional[str] = None) -> str:
             check=True,
             capture_output=True,
             text=True,
-            cwd=resolved_dir
+            cwd=resolved_dir,
         )
         return result.stdout + result.stderr
     except subprocess.CalledProcessError as e:
@@ -80,13 +84,14 @@ def forge_install(package_name: str, working_dir: Optional[str] = None) -> str:
     except Exception as e:
         return f"Error: {e}"
 
+
 def forge_build(
     working_dir: Optional[str] = None,
     force: bool = False,
     skip: Optional[List[str]] = None,
     sizes: bool = False,
     names: bool = False,
-    additional_args: Optional[str] = None
+    additional_args: Optional[str] = None,
 ) -> str:
     """
     Build the project using forge.
@@ -105,55 +110,51 @@ def forge_build(
 
     Returns:
         A string containing the output of the forge build command.
-        
+
     Examples:
         # Build a sub-repository
         forge_build(working_dir="ve33")
-        
+
         # Build from current directory
         forge_build()
-        
+
         # Force rebuild with sizes
         forge_build(force=True, sizes=True)
-        
+
         # Skip test directory
         forge_build(skip=["test/"])
-        
+
         # Build with custom optimizer settings
         forge_build(additional_args="--optimize --optimizer-runs 200")
     """
     try:
         # Build the forge build command
         cmd = ["forge", "build"]
-        
+
         # Add force flag if requested
         if force:
             cmd.append("--force")
-        
+
         # Add skip patterns if specified
         if skip:
             for pattern in skip:
                 cmd.extend(["--skip", pattern])
-        
+
         # Add sizes flag if requested
         if sizes:
             cmd.append("--sizes")
-        
+
         # Add names flag if requested
         if names:
             cmd.append("--names")
-        
+
         # Add any additional arguments
         if additional_args:
             cmd.extend(additional_args.split())
-        
+
         resolved_dir = _resolve_working_dir(working_dir)
         result = subprocess.run(
-            cmd,
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd=resolved_dir
+            cmd, check=True, capture_output=True, text=True, cwd=resolved_dir
         )
         return result.stdout + result.stderr
     except subprocess.CalledProcessError as e:
@@ -161,10 +162,11 @@ def forge_build(
     except Exception as e:
         return f"Error: {e}"
 
+
 def npm_install(working_dir: Optional[str] = None) -> str:
     """
     Install npm dependencies for the project.
-    
+
     Many Solidity projects use npm packages (like @openzeppelin/contracts)
     that need to be installed before compilation.
 
@@ -175,11 +177,11 @@ def npm_install(working_dir: Optional[str] = None) -> str:
 
     Returns:
         A string containing the output of the npm install command.
-        
+
     Examples:
         # Install npm dependencies in a sub-repository
         npm_install(working_dir="ve33")
-        
+
         # Install in current directory
         npm_install()
     """
@@ -190,7 +192,7 @@ def npm_install(working_dir: Optional[str] = None) -> str:
             check=True,
             capture_output=True,
             text=True,
-            cwd=resolved_dir
+            cwd=resolved_dir,
         )
         return result.stdout + result.stderr
     except subprocess.CalledProcessError as e:
@@ -198,11 +200,14 @@ def npm_install(working_dir: Optional[str] = None) -> str:
     except Exception as e:
         return f"Error: {e}"
 
-def cargo_install(crate_name: str, version: Optional[str] = None, working_dir: Optional[str] = None) -> str:
+
+def cargo_install(
+    crate_name: str, version: Optional[str] = None, working_dir: Optional[str] = None
+) -> str:
     """
     Install a Rust crate using cargo.
-    
-    This is useful for installing command-line tools and dependencies 
+
+    This is useful for installing command-line tools and dependencies
     that are distributed as Rust crates.
 
     Args:
@@ -214,14 +219,14 @@ def cargo_install(crate_name: str, version: Optional[str] = None, working_dir: O
 
     Returns:
         A string containing the output of the cargo install command.
-        
+
     Examples:
         # Install the latest version of a crate
         cargo_install("ripgrep")
-        
+
         # Install a specific version
         cargo_install("cargo-edit", version="0.12.0")
-        
+
         # Install from a specific directory
         cargo_install("my-tool", working_dir="rust-project")
     """
@@ -229,20 +234,17 @@ def cargo_install(crate_name: str, version: Optional[str] = None, working_dir: O
         command = ["cargo", "install", crate_name]
         if version:
             command.extend(["--version", version])
-        
+
         resolved_dir = _resolve_working_dir(working_dir)
         result = subprocess.run(
-            command,
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd=resolved_dir
+            command, check=True, capture_output=True, text=True, cwd=resolved_dir
         )
         return result.stdout + result.stderr
     except subprocess.CalledProcessError as e:
         return f"Error: {e.stderr if e.stderr else str(e)}"
     except Exception as e:
         return f"Error: {e}"
+
 
 def cargo_build(
     working_dir: Optional[str] = None,
@@ -251,11 +253,11 @@ def cargo_build(
     features: Optional[List[str]] = None,
     all_features: bool = False,
     no_default_features: bool = False,
-    additional_args: Optional[str] = None
+    additional_args: Optional[str] = None,
 ) -> str:
     """
     Build a Rust project using cargo.
-    
+
     This compiles the Rust project and all its dependencies. Use this
     to build Rust-based blockchain clients, smart contracts, or tools.
 
@@ -275,48 +277,44 @@ def cargo_build(
 
     Returns:
         A string containing the output of the cargo build command.
-        
+
     Examples:
         # Build in debug mode
         cargo_build(working_dir="bft")
-        
+
         # Build in release mode with all features
         cargo_build(working_dir="bft", release=True, all_features=True)
-        
+
         # Build specific package
         cargo_build(package="monad-node", working_dir="bft")
-        
+
         # Build with specific features
         cargo_build(features=["jit", "parallel"], working_dir="bft")
     """
     try:
         command = ["cargo", "build"]
-        
+
         if release:
             command.append("--release")
-        
+
         if package:
             command.extend(["-p", package])
-        
+
         if features:
             command.extend(["--features", ",".join(features)])
-        
+
         if all_features:
             command.append("--all-features")
-        
+
         if no_default_features:
             command.append("--no-default-features")
-        
+
         if additional_args:
             command.extend(additional_args.split())
-        
+
         resolved_dir = _resolve_working_dir(working_dir)
         result = subprocess.run(
-            command,
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd=resolved_dir
+            command, check=True, capture_output=True, text=True, cwd=resolved_dir
         )
         return result.stdout + result.stderr
     except subprocess.CalledProcessError as e:
@@ -324,16 +322,17 @@ def cargo_build(
     except Exception as e:
         return f"Error: {e}"
 
+
 def cmake_configure(
     source_dir: str,
     build_dir: str,
     options: Optional[dict] = None,
     generator: Optional[str] = None,
-    additional_args: Optional[str] = None
+    additional_args: Optional[str] = None,
 ) -> str:
     """
     Configure a C++ project using CMake.
-    
+
     This runs the CMake configuration step, which generates build files
     for the project. This is the first step in building C++ projects.
 
@@ -351,18 +350,18 @@ def cmake_configure(
 
     Returns:
         A string containing the output of the cmake configure command.
-        
+
     Examples:
         # Configure with default settings
         cmake_configure(source_dir="monad", build_dir="monad/build")
-        
+
         # Configure with Release build and tests enabled
         cmake_configure(
-            source_dir="monad", 
+            source_dir="monad",
             build_dir="monad/build",
             options={"CMAKE_BUILD_TYPE": "Release", "BUILD_TESTING": "ON"}
         )
-        
+
         # Configure with Ninja generator
         cmake_configure(
             source_dir="monad",
@@ -381,31 +380,27 @@ def cmake_configure(
                     build_dir = os.path.join(agent.working_dir, build_dir)
         except (NameError, TypeError):
             pass
-        
+
         # Create build directory if it doesn't exist
         os.makedirs(build_dir, exist_ok=True)
-        
+
         command = ["cmake", source_dir]
-        
+
         # Add generator if specified
         if generator:
             command.extend(["-G", generator])
-        
+
         # Add options
         if options:
             for key, value in options.items():
                 command.append(f"-D{key}={value}")
-        
+
         # Add additional arguments
         if additional_args:
             command.extend(additional_args.split())
-        
+
         result = subprocess.run(
-            command,
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd=build_dir
+            command, check=True, capture_output=True, text=True, cwd=build_dir
         )
         return result.stdout + result.stderr
     except subprocess.CalledProcessError as e:
@@ -413,16 +408,17 @@ def cmake_configure(
     except Exception as e:
         return f"Error: {e}"
 
+
 def cmake_build(
     build_dir: str,
     target: Optional[str] = None,
     parallel: bool = True,
     config: Optional[str] = None,
-    additional_args: Optional[str] = None
+    additional_args: Optional[str] = None,
 ) -> str:
     """
     Build a C++ project using CMake.
-    
+
     This runs the CMake build step, which compiles the project.
     Must be run after cmake_configure().
 
@@ -439,17 +435,17 @@ def cmake_build(
 
     Returns:
         A string containing the output of the cmake build command.
-        
+
     Examples:
         # Build all targets in parallel
         cmake_build(build_dir="monad/build")
-        
+
         # Build specific target
         cmake_build(build_dir="monad/build", target="monad-node")
-        
+
         # Build in Release mode without parallelization
         cmake_build(build_dir="monad/build", parallel=False, config="Release")
-        
+
         # Build tests
         cmake_build(build_dir="monad/build", target="test")
     """
@@ -461,42 +457,38 @@ def cmake_build(
                 build_dir = os.path.join(agent.working_dir, build_dir)
         except (NameError, TypeError):
             pass
-        
+
         command = ["cmake", "--build", build_dir]
-        
+
         if target:
             command.extend(["--target", target])
-        
+
         if parallel:
             command.append("--parallel")
-        
+
         if config:
             command.extend(["--config", config])
-        
+
         if additional_args:
             command.extend(additional_args.split())
-        
-        result = subprocess.run(
-            command,
-            check=True,
-            capture_output=True,
-            text=True
-        )
+
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
         return result.stdout + result.stderr
     except subprocess.CalledProcessError as e:
         return f"Error: {e.stderr if e.stderr else str(e)}"
     except Exception as e:
         return f"Error: {e}"
 
+
 def git_submodule_update(
     working_dir: Optional[str] = None,
     init: bool = True,
     recursive: bool = True,
-    additional_args: Optional[str] = None
+    additional_args: Optional[str] = None,
 ) -> str:
     """
     Update git submodules in the repository.
-    
+
     Many projects (especially C++ projects) use git submodules for dependencies.
     This command initializes and updates them.
 
@@ -509,36 +501,32 @@ def git_submodule_update(
 
     Returns:
         A string containing the output of the git submodule update command.
-        
+
     Examples:
         # Initialize and update all submodules recursively
         git_submodule_update()
-        
+
         # Update submodules in a specific directory
         git_submodule_update(working_dir="monad")
-        
+
         # Update without initialization
         git_submodule_update(init=False)
     """
     try:
         command = ["git", "submodule", "update"]
-        
+
         if init:
             command.append("--init")
-        
+
         if recursive:
             command.append("--recursive")
-        
+
         if additional_args:
             command.extend(additional_args.split())
-        
+
         resolved_dir = _resolve_working_dir(working_dir)
         result = subprocess.run(
-            command,
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd=resolved_dir
+            command, check=True, capture_output=True, text=True, cwd=resolved_dir
         )
         return result.stdout + result.stderr
     except subprocess.CalledProcessError as e:
@@ -546,102 +534,99 @@ def git_submodule_update(
     except Exception as e:
         return f"Error: {e}"
 
+
 def convert_ssh_to_https_in_gitmodules(working_dir: Optional[str] = None) -> str:
     """
     Convert SSH URLs to HTTPS URLs in .gitmodules files to work around SSH authentication issues.
-    
+
     Many git submodules use SSH URLs (git@github.com:user/repo.git) which require SSH keys.
     This tool converts them to HTTPS URLs (https://github.com/user/repo.git) which work
     without authentication for public repositories.
-    
+
     This is useful when git submodule update fails due to SSH permission errors.
-    
+
     Args:
         working_dir: The directory containing the .gitmodules file.
                     If None, uses the current working directory.
-    
+
     Returns:
         A string describing what was converted and the result.
-        
+
     Examples:
         # Convert SSH to HTTPS in the main .gitmodules
         result = convert_ssh_to_https_in_gitmodules()
-        
+
         # Convert in a subdirectory
         result = convert_ssh_to_https_in_gitmodules(working_dir="monad")
     """
     try:
         resolved_dir = _resolve_working_dir(working_dir)
         gitmodules_path = os.path.join(resolved_dir, ".gitmodules")
-        
+
         if not os.path.exists(gitmodules_path):
             return f"No .gitmodules file found in {resolved_dir}"
-        
+
         # Read the file
-        with open(gitmodules_path, 'r') as f:
+        with open(gitmodules_path, "r") as f:
             content = f.read()
-        
+
         original_content = content
-        
+
         # Convert SSH URLs to HTTPS
         # Pattern: git@github.com:user/repo.git -> https://github.com/user/repo.git
         import re
+
         content = re.sub(
-            r'git@github\.com:([^/\s]+)/([^\s]+)',
-            r'https://github.com/\1/\2',
-            content
+            r"git@github\.com:([^/\s]+)/([^\s]+)", r"https://github.com/\1/\2", content
         )
-        
+
         # Also handle gitlab and other common hosts
         content = re.sub(
-            r'git@gitlab\.com:([^/\s]+)/([^\s]+)',
-            r'https://gitlab.com/\1/\2',
-            content
+            r"git@gitlab\.com:([^/\s]+)/([^\s]+)", r"https://gitlab.com/\1/\2", content
         )
-        
+
         if content == original_content:
             return "No SSH URLs found in .gitmodules - nothing to convert"
-        
+
         # Write back
-        with open(gitmodules_path, 'w') as f:
+        with open(gitmodules_path, "w") as f:
             f.write(content)
-        
+
         # Count conversions
-        conversions = len(re.findall(r'git@[^:]+:', original_content))
-        
+        conversions = len(re.findall(r"git@[^:]+:", original_content))
+
         return f"Successfully converted {conversions} SSH URLs to HTTPS in {gitmodules_path}"
-        
+
     except Exception as e:
         return f"Error: {str(e)}"
 
+
 def create_minimal_cargo_package(
-    package_path: str,
-    package_name: str,
-    dependencies: Optional[dict] = None
+    package_path: str, package_name: str, dependencies: Optional[dict] = None
 ) -> str:
     """
     Create a minimal Cargo package (Cargo.toml + lib.rs) as a placeholder for missing dependencies.
-    
+
     This is useful when a workspace depends on a package that failed to clone (e.g., via SSH).
     Creating a minimal placeholder allows the workspace to at least parse and compile other packages.
-    
+
     Args:
         package_path: Path where the package should be created (e.g., "bft/manytrace/agent").
                      Can be relative to agent's working_dir or absolute.
         package_name: Name of the package (e.g., "agent", "tracing-manytrace").
         dependencies: Optional dictionary of dependencies to include.
                      For example: {"serde": "1.0", "tokio": {"version": "1.0", "features": ["full"]}}
-    
+
     Returns:
         A string describing the result of the operation.
-        
+
     Examples:
         # Create minimal placeholder for missing 'agent' package
         result = create_minimal_cargo_package(
             package_path="bft/manytrace/agent",
             package_name="agent"
         )
-        
+
         # Create with dependencies
         result = create_minimal_cargo_package(
             package_path="bft/manytrace/tracing-manytrace",
@@ -658,12 +643,12 @@ def create_minimal_cargo_package(
                     package_path = os.path.join(agent.working_dir, package_path)
             except (NameError, TypeError):
                 pass
-        
+
         # Create the directory structure
         os.makedirs(package_path, exist_ok=True)
         src_dir = os.path.join(package_path, "src")
         os.makedirs(src_dir, exist_ok=True)
-        
+
         # Create minimal Cargo.toml
         cargo_toml_path = os.path.join(package_path, "Cargo.toml")
         cargo_toml_content = f"""[package]
@@ -673,21 +658,21 @@ edition = "2021"
 
 [lib]
 """
-        
+
         # Add dependencies if provided
         if dependencies:
             cargo_toml_content += "\n[dependencies]\n"
             for dep_name, dep_value in dependencies.items():
                 if isinstance(dep_value, dict):
                     # Handle complex dependency specification
-                    cargo_toml_content += f'{dep_name} = {dep_value}\n'
+                    cargo_toml_content += f"{dep_name} = {dep_value}\n"
                 else:
                     # Simple version string
                     cargo_toml_content += f'{dep_name} = "{dep_value}"\n'
-        
-        with open(cargo_toml_path, 'w') as f:
+
+        with open(cargo_toml_path, "w") as f:
             f.write(cargo_toml_content)
-        
+
         # Create minimal lib.rs with empty exports
         lib_rs_path = os.path.join(src_dir, "lib.rs")
         lib_rs_content = """// Minimal placeholder package created by setup agent
@@ -696,29 +681,32 @@ edition = "2021"
 // Re-export commonly used items from this package
 // Add actual implementations as needed
 """
-        
-        with open(lib_rs_path, 'w') as f:
+
+        with open(lib_rs_path, "w") as f:
             f.write(lib_rs_content)
-        
+
         return f"Successfully created minimal Cargo package '{package_name}' at {package_path}"
-        
+
     except Exception as e:
         return f"Error creating minimal Cargo package: {str(e)}"
 
-def run_script(script_path: str, working_dir: Optional[str] = None, timeout: int = 300) -> dict:
+
+def run_script(
+    script_path: str, working_dir: Optional[str] = None, timeout: int = 300
+) -> dict:
     """
     Run an existing shell script in the repository (READ-ONLY execution).
-    
+
     This tool can ONLY run scripts that already exist in the repository.
     It CANNOT create, modify, or delete files. This is useful for running
     setup scripts like install.sh, configure.sh, build.sh, etc.
-    
+
     IMPORTANT RESTRICTIONS:
     - Can only run scripts that exist in the repository
     - Cannot create, edit, or delete ANY files
     - Cannot run arbitrary commands - must be a script file
     - Script must be readable and executable
-    
+
     Args:
         script_path: Path to the script file to run (relative to working_dir).
                     Must be an existing file in the repository.
@@ -733,17 +721,17 @@ def run_script(script_path: str, working_dir: Optional[str] = None, timeout: int
         - stderr: The standard error from the script
         - returncode: The exit code (0 for success, non-zero for failure)
         - success: Boolean indicating if the script ran successfully
-        
+
     Examples:
         # Run a setup script in the repo
         result = run_script("scripts/install.sh")
-        
+
         # Run a build script with longer timeout
         result = run_script("build.sh", working_dir="monad", timeout=600)
-        
+
         # Run a configure script
         result = run_script("configure.sh", working_dir="bft")
-        
+
     Security Notes:
         - This tool can only execute existing scripts
         - It cannot modify files or create new ones
@@ -767,61 +755,61 @@ def run_script(script_path: str, working_dir: Optional[str] = None, timeout: int
                         working_dir = os.path.join(agent.working_dir, working_dir)
                 except (NameError, TypeError):
                     pass
-        
+
         # Resolve script path
         if not os.path.isabs(script_path):
             script_path = os.path.join(working_dir, script_path)
-        
+
         # Validate that the script exists
         if not os.path.exists(script_path):
             return {
                 "stdout": "",
                 "stderr": f"Error: Script '{script_path}' does not exist",
                 "returncode": -1,
-                "success": False
+                "success": False,
             }
-        
+
         if not os.path.isfile(script_path):
             return {
                 "stdout": "",
                 "stderr": f"Error: '{script_path}' is not a file",
                 "returncode": -1,
-                "success": False
+                "success": False,
             }
-        
+
         # Make script executable if it isn't already
         try:
             os.chmod(script_path, os.stat(script_path).st_mode | 0o111)
         except Exception:
             pass  # If we can't make it executable, the subprocess will fail with a clear error
-        
+
         # Run the script
         result = subprocess.run(
             ["/bin/bash", script_path],
             capture_output=True,
             text=True,
             cwd=working_dir,
-            timeout=timeout
+            timeout=timeout,
         )
-        
+
         return {
             "stdout": result.stdout,
             "stderr": result.stderr,
             "returncode": result.returncode,
-            "success": result.returncode == 0
+            "success": result.returncode == 0,
         }
-            
+
     except subprocess.TimeoutExpired:
         return {
             "stdout": "",
             "stderr": f"Error: Script execution timed out after {timeout} seconds",
             "returncode": -1,
-            "success": False
+            "success": False,
         }
     except Exception as e:
         return {
             "stdout": "",
             "stderr": f"Error: {str(e)}",
             "returncode": -1,
-            "success": False
+            "success": False,
         }

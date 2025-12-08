@@ -35,7 +35,9 @@ def load_system_prompt(
     Load the system prompt from the file (only SETUP supported in this migration).
     """
     if agent_type != AgentType.SETUP:
-        raise ValueError(f"Unsupported agent type for Kai v2 base/setup scope: {agent_type}")
+        raise ValueError(
+            f"Unsupported agent type for Kai v2 base/setup scope: {agent_type}"
+        )
 
     prompt_path = agent_type.value
     try:
@@ -47,7 +49,9 @@ def load_system_prompt(
 
             if is_sub_agent:
                 system_prompt = system_prompt.replace("{{scope_path}}", scope_path)
-                system_prompt = system_prompt.replace("{{task_description}}", task_description)
+                system_prompt = system_prompt.replace(
+                    "{{task_description}}", task_description
+                )
                 system_prompt = system_prompt.replace("{{max_turns}}", str(max_turns))
                 system_prompt = system_prompt.replace("{{depth}}", str(depth))
                 system_prompt = system_prompt.replace("{{max_depth}}", str(max_depth))
@@ -162,12 +166,16 @@ def load_gitignore_spec(directory: str) -> Optional[pathspec.PathSpec]:
     try:
         with open(gitignore_path, "r") as f:
             gitignore_content = f.read()
-        return pathspec.PathSpec.from_lines("gitwildmatch", gitignore_content.splitlines())
+        return pathspec.PathSpec.from_lines(
+            "gitwildmatch", gitignore_content.splitlines()
+        )
     except Exception:
         return None
 
 
-def should_ignore_path(path: str, root_dir: str, gitignore_spec: Optional[pathspec.PathSpec]) -> bool:
+def should_ignore_path(
+    path: str, root_dir: str, gitignore_spec: Optional[pathspec.PathSpec]
+) -> bool:
     """
     Check if a path should be ignored based on gitignore patterns.
     """
@@ -179,4 +187,3 @@ def should_ignore_path(path: str, root_dir: str, gitignore_spec: Optional[pathsp
         return gitignore_spec.match_file(rel_path)
     except Exception:
         return False
-

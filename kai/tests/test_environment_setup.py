@@ -62,4 +62,3 @@ async def test_environment_setup_integration(tmp_path):
             assert (master_dir / rel_file).exists(), f"Missing in master: {rel_file}"
     # Golden master must be read-only
     assert not os.access(result["master_repo_path"], os.W_OK)
-
