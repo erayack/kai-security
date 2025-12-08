@@ -288,7 +288,7 @@ async def _execute_with_delegation_async(
                 # Wrap in async function and await it
                 async_code = f"""
 async def _async_wrapper():
-{chr(10).join('    ' + line for line in code.split(chr(10)))}
+{chr(10).join("    " + line for line in code.split(chr(10)))}
     return locals()
 """
                 exec(async_code, exec_globals, exec_locals)
@@ -645,4 +645,3 @@ def _subprocess_entry() -> None:
 
 if __name__ == "__main__":
     _subprocess_entry()
-
