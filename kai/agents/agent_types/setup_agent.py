@@ -11,12 +11,12 @@ class SetupAgent(BaseAgent):
 
     def __init__(
         self,
-        max_tool_turns: int = None,
-        repo_path: str = None,
+        max_tool_turns: Optional[int] = None,
+        repo_path: Optional[str] = None,
         use_vllm: bool = False,
-        model: str = None,
+        model: Optional[str] = None,
         use_openai: bool = False,
-        execution_id: str = None,
+        execution_id: Optional[str] = None,
     ):
         super().__init__(
             max_tool_turns=max_tool_turns,

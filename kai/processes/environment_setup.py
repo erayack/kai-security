@@ -133,7 +133,7 @@ async def run_environment_setup(
     num_turns: int,
     model_name: str,
     use_openai: bool = False,
-    execution_id: str = None,
+    execution_id: Optional[str] = None,
     repo_path_override: Optional[str] = None,
 ) -> dict:
     """

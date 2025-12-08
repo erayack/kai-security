@@ -137,19 +137,22 @@ async def get_model_response(
             client = create_openai_client(use_openai=use_openai)
 
     # Build message history
+    messages_payload: list[dict] = []
     if messages is None:
-        messages = []
         if system_prompt:
-            messages.append(
+            messages_payload.append(
                 _as_dict(ChatMessage(role=Role.SYSTEM, content=system_prompt))
             )
-        messages.append(_as_dict(ChatMessage(role=Role.USER, content=message)))
+        if message is None:
+             raise ValueError("Message cannot be None if messages list is None")
+             
+        messages_payload.append(_as_dict(ChatMessage(role=Role.USER, content=message)))
     else:
-        messages = [_as_dict(m) for m in messages]
+        messages_payload = [_as_dict(m) for m in messages]
 
     try:
         completion = await client.chat.completions.create(
-            model=model, messages=messages
+            model=model, messages=messages_payload
         )
 
         response_text = completion.choices[0].message.content
@@ -173,7 +176,7 @@ async def get_model_response(
             for keyword in ["context length", "maximum context", "tokens"]
         ):
             # Calculate approximate token count from messages
-            total_chars = sum(len(str(m)) for m in messages)
+            total_chars = sum(len(str(m)) for m in messages_payload)
             approx_tokens = total_chars // 4  # Rough approximation
 
             raise Exception(

@@ -10,7 +10,7 @@ This module provides typed, high-level functions for:
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .models import (
     ActorRole,
@@ -514,7 +514,7 @@ def get_field_access_info(
 
 def detect_guard_issues(
     graph: "DependencyGraph",
-    slither: "Any" = None,
+    slither: Any = None,
 ) -> list[GuardIssue]:
     """
     Detect impossible guards and access control issues.
@@ -549,7 +549,7 @@ def detect_guard_issues(
 
 def _detect_tx_origin_issues_slither(
     graph: "DependencyGraph",
-    slither: "Any",
+    slither: Any,
 ) -> list[GuardIssue]:
     """Detect tx.origin issues using Slither IR."""
     issues: list[GuardIssue] = []
@@ -679,7 +679,7 @@ def _detect_tx_origin_issues_slither(
 
 def _detect_impossible_conditions_slither(
     graph: "DependencyGraph",
-    slither: "Any",
+    slither: Any,
 ) -> list[GuardIssue]:
     """Detect impossible boolean conditions like if (x != A || x != B)."""
     issues: list[GuardIssue] = []
@@ -800,7 +800,8 @@ def get_liveness_invariants(
                 if issue.modifier_name:
                     mod_ids = graph.find_functions(issue.modifier_name)
                     for mod_id in mod_ids:
-                        if graph._nodes.get(mod_id, {}).kind == NodeKind.MODIFIER:
+                        node = graph._nodes.get(mod_id)
+                        if node and node.kind == NodeKind.MODIFIER:
                             users = list(
                                 graph.neighbors(
                                     mod_id,

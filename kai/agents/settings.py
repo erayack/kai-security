@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -53,5 +54,5 @@ EXPLOITS_PATH = "exploits.json"
 TEST_SCRIPTS_PATH = "test/"
 
 # Logging settings
-MONGO_URI: str = os.getenv("MONGO_URI")
+MONGO_URI: Optional[str] = os.getenv("MONGO_URI")
 MONGO_DB_NAME: str = "kai"

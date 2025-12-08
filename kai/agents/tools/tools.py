@@ -102,7 +102,10 @@ def read_file(
         # Resolve relative paths relative to agent's working_dir
         try:
             agent = _get_current_agent()
-            file_path = _normalize_agent_path(file_path)
+            normalized = _normalize_agent_path(file_path)
+            if normalized is None:
+                return f"Error: Invalid path resolution for {file_path}"
+            file_path = normalized
         except (NameError, TypeError):
             pass
 
@@ -205,7 +208,10 @@ def list_files(path: Optional[str] = None, depth: int = 2) -> str:
             except (NameError, TypeError):
                 dir_path = os.getcwd()
         else:
-            dir_path = _normalize_agent_path(path)
+            normalized = _normalize_agent_path(path)
+            if normalized is None:
+                 return f"Error: Invalid path resolution for {path}"
+            dir_path = normalized
 
         # Scope validation (if _get_current_agent is available)
         try:

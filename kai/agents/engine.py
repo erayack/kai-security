@@ -8,9 +8,9 @@ import subprocess
 import sys
 import threading
 import traceback
-import types
 import warnings
 
+from typing import Optional
 from kai.agents.settings import SANDBOX_TIMEOUT
 
 # Filter out event loop cleanup warnings (harmless during shutdown)
@@ -43,7 +43,7 @@ def _run_user_code(
     blacklist: list,
     available_functions: dict,
     log: bool = False,
-    agent_id: str = None,
+    agent_id: Optional[str] = None,
 ) -> tuple[dict, str]:
     """
     Execute code under sandboxed conditions (limited file access, optional installs,
@@ -223,7 +223,7 @@ def _run_user_code(
             logging.error(
                 "Unhandled exception in sandbox worker: %s", traceback.format_exc()
             )
-        return None, f"Sandbox worker error: {str(e)}"
+        return {}, f"Sandbox worker error: {str(e)}"
 
 
 async def _execute_with_delegation_async(
@@ -479,11 +479,11 @@ def execute_sandboxed_code(
     code: str,
     timeout: int = SANDBOX_TIMEOUT,
     allow_installs: bool = False,
-    requirements_path: str = None,
-    allowed_path: str = None,
-    blacklist: list = None,
-    available_functions: dict = None,
-    import_module: str = None,
+    requirements_path: Optional[str] = None,
+    allowed_path: Optional[str] = None,
+    blacklist: Optional[list] = None,
+    available_functions: Optional[dict] = None,
+    import_module: Optional[str] = None,
     log: bool = False,
     agent_instance=None,  # NEW: Pass agent instance for sub-agent delegation
 ) -> tuple[dict, str]:
@@ -525,10 +525,10 @@ def execute_sandboxed_code(
                     "Failed to install requirements from %s: %s", requirements_path, e
                 )
                 # If requirements fail to install, we can choose to abort or continue. Here, abort execution.
-                return None, f"Failed to install requirements: {e}"
+                return {}, f"Failed to install requirements: {e}"
         else:
             logging.error("Requirements file %s not found.", requirements_path)
-            return None, f"Requirements file not found: {requirements_path}"
+            return {}, f"Requirements file not found: {requirements_path}"
 
     # Check if this is a sub-agent or code contains special functions - if so, execute in main process
     # Sub-agents need main process for proper tool function access
@@ -556,7 +556,7 @@ def execute_sandboxed_code(
                         available_functions[name] = attr
         except ImportError as e:
             logging.error(f"Failed to import module {import_module}: {e}")
-            return None, f"Failed to import module {import_module}: {e}"
+            return {}, f"Failed to import module {import_module}: {e}"
 
     # Add agent instance to registry and pass only the ID (NEW)
     agent_id = None
@@ -596,14 +596,14 @@ def execute_sandboxed_code(
         if agent_id:
             with _agent_registry_lock:
                 _agent_registry.pop(agent_id, None)
-        return None, f"TimeoutError: Code execution exceeded {timeout} seconds."
+        return {}, f"TimeoutError: Code execution exceeded {timeout} seconds."
 
     if result.returncode != 0:
         # Clean up agent from registry
         if agent_id:
             with _agent_registry_lock:
                 _agent_registry.pop(agent_id, None)
-        return None, result.stderr.decode().strip()
+        return {}, result.stderr.decode().strip()
 
     try:
         local_vars, error_msg = pickle.loads(result.stdout)
@@ -612,7 +612,7 @@ def execute_sandboxed_code(
         if agent_id:
             with _agent_registry_lock:
                 _agent_registry.pop(agent_id, None)
-        return None, f"Failed to decode sandbox output: {e}"
+        return {}, f"Failed to decode sandbox output: {e}"
 
     if error_msg is None:
         error_msg = ""

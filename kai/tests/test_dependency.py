@@ -681,10 +681,10 @@ class TestLivenessInvariants:
             "confidence": 1.0,
             "source": "guard_analysis",
         }
-        assert inv["id"].startswith("LIVENESS_")
+        assert isinstance(inv["id"], str) and inv["id"].startswith("LIVENESS_")
         assert inv["type"] == "liveness"
-        assert "must be callable" in inv["rule"]
-        assert inv["confidence"] >= 0.0 and inv["confidence"] <= 1.0
+        assert isinstance(inv["rule"], str) and "must be callable" in inv["rule"]
+        assert isinstance(inv["confidence"], float) and inv["confidence"] >= 0.0 and inv["confidence"] <= 1.0
 
     def test_liveness_from_guard_issues(self, tmp_path):
         """Should generate liveness invariants from guard issues."""
