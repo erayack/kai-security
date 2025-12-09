@@ -11,16 +11,12 @@ from pathlib import Path
 import pytest
 
 from kai.utils.dependency import (
-    DependencyAnalysis,
     DependencyGraph,
     EdgeKind,
-    FieldAccessInfo,
-    GuardIssue,
-    GuardIssueType,
     Node,
     NodeKind,
-    Severity,
 )
+from kai.utils.dependency.models import SourceSpan
 
 
 # Path to the cached dependency graph
@@ -35,12 +31,6 @@ def graph() -> DependencyGraph:
     return DependencyGraph.from_json(GRAPH_JSON)
 
 
-@pytest.fixture(scope="module")
-def analysis(graph: DependencyGraph) -> DependencyAnalysis:
-    """Create a DependencyAnalysis wrapper for the graph."""
-    return DependencyAnalysis(graph)
-
-
 class TestGraphBasics:
     """Tests for basic graph operations."""
 
@@ -51,54 +41,64 @@ class TestGraphBasics:
 
     def test_nodes_by_kind(self, graph: DependencyGraph):
         """Should be able to filter nodes by kind."""
-        contracts = graph.nodes(NodeKind.CONTRACT)
-        functions = graph.nodes(NodeKind.FUNCTION)
-        state_vars = graph.nodes(NodeKind.STATE_VAR)
+        containers = graph.nodes(NodeKind.CONTAINER)
+        units = graph.nodes(NodeKind.UNIT)
+        variables = graph.nodes(NodeKind.VARIABLE)
         files = graph.nodes(NodeKind.FILE)
 
-        assert len(contracts) > 0, "Should have contract nodes"
-        assert len(functions) > 0, "Should have function nodes"
-        assert len(state_vars) > 0, "Should have state variable nodes"
+        assert len(containers) > 0, "Should have container nodes"
+        assert len(units) > 0, "Should have unit nodes"
+        assert len(variables) > 0, "Should have variable nodes"
         assert len(files) > 0, "Should have file nodes"
 
     def test_node_access(self, graph: DependencyGraph):
         """Should be able to access individual nodes."""
-        contract_ids = list(graph.nodes(NodeKind.CONTRACT))
-        assert len(contract_ids) > 0
+        container_ids = list(graph.nodes(NodeKind.CONTAINER))
+        assert len(container_ids) > 0
 
-        node = graph.node(contract_ids[0])
-        assert node.kind == NodeKind.CONTRACT
+        node = graph.node(container_ids[0])
+        assert node.kind == NodeKind.CONTAINER
         assert node.name is not None
-        assert node.id == contract_ids[0]
+        assert node.id == container_ids[0]
 
-    def test_find_contracts(self, graph: DependencyGraph):
-        """Should find contracts by name."""
+    def test_find_containers(self, graph: DependencyGraph):
+        """Should find containers by name."""
         # Look for a contract we know exists in bbp-public-assets
-        results = graph.find_contracts("StakedUSDeV2")
-        assert len(results) > 0, "Should find StakedUSDeV2 contract"
+        results = graph.find_containers("StakedUSDeV2")
+        assert len(results) > 0, "Should find StakedUSDeV2 container"
 
-    def test_find_functions(self, graph: DependencyGraph):
-        """Should find functions by name."""
-        results = graph.find_functions("withdraw")
-        assert len(results) > 0, "Should find withdraw function(s)"
+    def test_find_units(self, graph: DependencyGraph):
+        """Should find units by name."""
+        results = graph.find_units("withdraw")
+        assert len(results) > 0, "Should find withdraw unit(s)"
+
+    def test_node_span_present(self, graph: DependencyGraph):
+        """Nodes should have span information."""
+        container_ids = list(graph.nodes(NodeKind.CONTAINER))
+        if container_ids:
+            node = graph.node(container_ids[0])
+            assert node.span is not None, "Container should have span"
+            assert node.span.file is not None, "Span should have file"
+            assert node.span.start_line >= 1, "Span should have valid start_line"
 
 
 class TestPublicEntrypoints:
     """Tests for public entrypoint detection."""
 
     def test_public_entrypoints_exist(self, graph: DependencyGraph):
-        """Should find public/external functions."""
+        """Should find public/external units."""
         entrypoints = graph.public_entrypoints()
         assert len(entrypoints) > 0, "Should have public entrypoints"
 
     def test_public_entrypoints_are_public(self, graph: DependencyGraph):
-        """All entrypoints should have public/external visibility."""
+        """All entrypoints should have public/external visibility in meta."""
         entrypoints = graph.public_entrypoints()
         for ep in entrypoints[:20]:  # Sample first 20
             node = graph.node(ep)
-            assert node.kind == NodeKind.FUNCTION
-            assert node.visibility in ("public", "external"), (
-                f"Entrypoint {node.name} has visibility {node.visibility}"
+            assert node.kind == NodeKind.UNIT
+            visibility = node.meta.get("visibility", "")
+            assert visibility in ("public", "external"), (
+                f"Entrypoint {node.name} has visibility {visibility}"
             )
 
     def test_excludes_constructors(self, graph: DependencyGraph):
@@ -148,14 +148,14 @@ class TestDeriveRelatedFiles:
 class TestBFS:
     """Tests for BFS traversal."""
 
-    def test_bfs_from_function(self, graph: DependencyGraph):
-        """BFS should find connected nodes from a function."""
-        func_ids = graph.find_functions("withdraw")
-        if not func_ids:
-            pytest.skip("No withdraw function found")
+    def test_bfs_from_unit(self, graph: DependencyGraph):
+        """BFS should find connected nodes from a unit."""
+        unit_ids = graph.find_units("withdraw")
+        if not unit_ids:
+            pytest.skip("No withdraw unit found")
 
         visited = graph.bfs(
-            func_ids[:1],
+            unit_ids[:1],
             max_hops=2,
             edge_kinds={EdgeKind.CALLS, EdgeKind.READS, EdgeKind.WRITES},
             direction="out",
@@ -164,185 +164,51 @@ class TestBFS:
 
     def test_bfs_respects_max_hops(self, graph: DependencyGraph):
         """BFS with lower max_hops should visit fewer nodes."""
-        func_ids = graph.find_functions("withdraw")
-        if not func_ids:
-            pytest.skip("No withdraw function found")
+        unit_ids = graph.find_units("withdraw")
+        if not unit_ids:
+            pytest.skip("No withdraw unit found")
 
-        visited_1 = graph.bfs(func_ids[:1], max_hops=1, direction="both")
-        visited_3 = graph.bfs(func_ids[:1], max_hops=3, direction="both")
+        visited_1 = graph.bfs(unit_ids[:1], max_hops=1, direction="both")
+        visited_3 = graph.bfs(unit_ids[:1], max_hops=3, direction="both")
         assert len(visited_1) <= len(visited_3)
 
 
-class TestActorRoles:
-    """Tests for actor role analysis."""
+class TestNeighbors:
+    """Tests for neighbor queries."""
 
-    def test_get_actor_roles(self, analysis: DependencyAnalysis):
-        """Should extract actor roles from modifier patterns."""
-        roles = analysis.get_actor_roles()
-        assert len(roles) > 0, "Should find at least one role"
+    def test_neighbors_out(self, graph: DependencyGraph):
+        """Should find outgoing neighbors."""
+        unit_ids = list(graph.nodes(NodeKind.UNIT))[:10]
+        for uid in unit_ids:
+            neighbors = list(
+                graph.neighbors(uid, edge_kinds={EdgeKind.CALLS}, direction="out")
+            )
+            # Just verify it doesn't crash
+            assert isinstance(neighbors, list)
 
-    def test_role_structure(self, analysis: DependencyAnalysis):
-        """Actor roles should have proper structure."""
-        roles = analysis.get_actor_roles()
-        for role in roles:
-            assert role.role is not None
-            assert role.trust in ("High", "Medium", "Low", "None", "N/A")
-            assert isinstance(role.modifier_pattern, list)
-            assert isinstance(role.privileges, list)
-            assert role.function_count >= 0
+    def test_neighbors_in(self, graph: DependencyGraph):
+        """Should find incoming neighbors."""
+        unit_ids = list(graph.nodes(NodeKind.UNIT))[:10]
+        for uid in unit_ids:
+            neighbors = list(
+                graph.neighbors(uid, edge_kinds={EdgeKind.CALLS}, direction="in")
+            )
+            assert isinstance(neighbors, list)
 
-    def test_user_role_exists(self, analysis: DependencyAnalysis):
-        """Should detect 'User' role for unprotected functions."""
-        roles = analysis.get_actor_roles()
-        role_names = [r.role for r in roles]
-        assert "User" in role_names, "Should have User role for unprotected functions"
-
-    def test_protected_roles_exist(self, analysis: DependencyAnalysis):
-        """Should detect protected roles like Owner, RoleBased."""
-        roles = analysis.get_actor_roles()
-        role_names = [r.role for r in roles]
-        # bbp-public-assets uses access control, should have at least one protected role
-        protected = [
-            r for r in role_names if r not in ("User", "Pausable", "ReentrancyGuard")
-        ]
-        assert len(protected) > 0, "Should find protected roles"
-
-
-class TestWritePaths:
-    """Tests for write path tracing."""
-
-    def test_get_write_paths_for_known_var(self, analysis: DependencyAnalysis):
-        """Should trace write paths for known state variables."""
-        # _balances is a common ERC20 variable
-        paths = analysis.get_write_paths("_balances")
-        assert len(paths) > 0, "Should find write paths for _balances"
-
-    def test_write_path_structure(self, analysis: DependencyAnalysis):
-        """Write paths should have proper structure."""
-        paths = analysis.get_write_paths("_balances")
-        for path in paths[:5]:  # Check first 5
-            assert path.entrypoint is not None
-            assert isinstance(path.path, list)
-            assert len(path.path) > 0
-            assert path.writer is not None
-            assert path.var_name == "_balances"
-
-    def test_write_path_starts_with_entrypoint(self, analysis: DependencyAnalysis):
-        """Write path should start with the entrypoint."""
-        paths = analysis.get_write_paths("_balances")
-        for path in paths[:5]:
-            assert path.path[0] == path.entrypoint
-
-    def test_nonexistent_var_returns_empty(self, analysis: DependencyAnalysis):
-        """Non-existent variable should return empty list."""
-        paths = analysis.get_write_paths("nonexistent_variable_xyz")
-        assert paths == []
-
-
-class TestContextSliceMeta:
-    """Tests for context slice generation."""
-
-    def test_get_context_slice_meta(self, analysis: DependencyAnalysis):
-        """Should generate context slice for a target function."""
-        ctx = analysis.get_context_slice(
-            target_func="withdraw",
-            invariant_seeds=["cooldowns", "_balances"],
-            depth=2,
-        )
-        assert ctx.target_func == "withdraw"
-        assert ctx.invariant_seeds == ["cooldowns", "_balances"]
-
-    def test_context_slice_finds_related_files(self, analysis: DependencyAnalysis):
-        """Context slice should find related files."""
-        ctx = analysis.get_context_slice(
-            target_func="withdraw", invariant_seeds=["_balances"], depth=2
-        )
-        assert len(ctx.related_files) > 0, "Should find related files"
-
-    def test_context_slice_includes_write_paths(self, analysis: DependencyAnalysis):
-        """Context slice should include write paths when requested."""
-        ctx = analysis.get_context_slice(
-            target_func="withdraw",
-            invariant_seeds=["_balances"],
-            depth=2,
-            include_write_paths=True,
-        )
-        assert len(ctx.write_paths) > 0, "Should include write paths"
-
-    def test_context_slice_symbols(self, analysis: DependencyAnalysis):
-        """Context slice should collect relevant symbols."""
-        ctx = analysis.get_context_slice(
-            target_func="withdraw", invariant_seeds=["cooldowns"], depth=2
-        )
-        assert len(ctx.symbols) > 0, "Should collect symbols"
-
-    def test_context_slice_to_dict(self, analysis: DependencyAnalysis):
-        """Context slice should serialize to dict."""
-        ctx = analysis.get_context_slice(
-            target_func="withdraw", invariant_seeds=["_balances"], depth=2
-        )
-        d = ctx.to_dict()
-        assert "target_func" in d
-        assert "related_files" in d
-        assert "symbols" in d
-        assert "write_paths" in d
-
-
-class TestStateVarInfo:
-    """Tests for state variable info extraction."""
-
-    def test_get_state_var_info(self, analysis: DependencyAnalysis):
-        """Should get info for known state variables."""
-        infos = analysis.get_state_var_info("cooldowns")
-        assert len(infos) > 0, "Should find cooldowns variable"
-
-    def test_state_var_info_structure(self, analysis: DependencyAnalysis):
-        """State var info should have proper structure."""
-        infos = analysis.get_state_var_info("cooldowns")
-        for info in infos:
-            assert info.name == "cooldowns"
-            assert info.var_id is not None
-            assert isinstance(info.writers, list)
-            assert isinstance(info.readers, list)
-
-    def test_state_var_info_has_writers(self, analysis: DependencyAnalysis):
-        """Should detect functions that write to state vars."""
-        infos = analysis.get_state_var_info("cooldowns")
-        has_writers = any(len(info.writers) > 0 for info in infos)
-        assert has_writers, "cooldowns should have writers"
-
-    def test_nonexistent_var_returns_empty(self, analysis: DependencyAnalysis):
-        """Non-existent variable should return empty list."""
-        infos = analysis.get_state_var_info("nonexistent_variable_xyz")
-        assert infos == []
-
-
-class TestInvariantVectors:
-    """Tests for invariant vector mapping."""
-
-    def test_get_invariant_vectors(self, analysis: DependencyAnalysis):
-        """Should map variables to their writers."""
-        vectors = analysis.get_invariant_vectors(
-            ["cooldowns", "_balances", "_totalSupply"]
-        )
-        assert len(vectors) > 0, "Should find at least one variable"
-
-    def test_invariant_vectors_format(self, analysis: DependencyAnalysis):
-        """Vectors should map var names to contract:function format."""
-        vectors = analysis.get_invariant_vectors(["_balances"])
-        if "_balances" in vectors:
-            for writer in vectors["_balances"]:
-                # Should be "Contract:function" or just "function"
-                assert isinstance(writer, str)
-
-    def test_invariant_vectors_multiple_vars(self, analysis: DependencyAnalysis):
-        """Should handle multiple variables."""
-        vars_to_check = ["cooldowns", "_balances", "_totalSupply", "vestingAmount"]
-        vectors = analysis.get_invariant_vectors(vars_to_check)
-        # Should return dict with keys matching requested vars (if they exist)
-        for var, writers in vectors.items():
-            assert var in vars_to_check
-            assert isinstance(writers, list)
+    def test_neighbors_both(self, graph: DependencyGraph):
+        """Should find both incoming and outgoing neighbors."""
+        unit_ids = list(graph.nodes(NodeKind.UNIT))[:5]
+        for uid in unit_ids:
+            out_neighbors = set(
+                graph.neighbors(uid, edge_kinds={EdgeKind.CALLS}, direction="out")
+            )
+            in_neighbors = set(
+                graph.neighbors(uid, edge_kinds={EdgeKind.CALLS}, direction="in")
+            )
+            both_neighbors = set(
+                graph.neighbors(uid, edge_kinds={EdgeKind.CALLS}, direction="both")
+            )
+            assert both_neighbors == out_neighbors | in_neighbors
 
 
 class TestSerialization:
@@ -366,379 +232,308 @@ class TestSerialization:
         assert len(loaded._nodes) == len(graph._nodes)
         assert len(loaded._edges) == len(graph._edges)
 
-
-class TestStructFieldTracking:
-    """Tests for struct field access tracking."""
-
-    def test_node_kind_struct_field_exists(self):
-        """STRUCT_FIELD NodeKind should exist."""
-        assert NodeKind.STRUCT_FIELD == "struct_field"
-
-    def test_edge_kind_field_edges_exist(self):
-        """READS_FIELD and WRITES_FIELD EdgeKinds should exist."""
-        assert EdgeKind.READS_FIELD == "reads_field"
-        assert EdgeKind.WRITES_FIELD == "writes_field"
-
-    def test_get_field_access_info_empty_graph(self, analysis: DependencyAnalysis):
-        """Should return empty list when no struct fields exist."""
-        # The pre-built graph doesn't have struct fields (built before this feature)
-        fields = analysis.get_field_access_info()
-        # This is expected to be empty for the existing graph
-        assert isinstance(fields, list)
-
-    def test_field_access_info_structure(self):
-        """FieldAccessInfo should have proper structure."""
-        info = FieldAccessInfo(
-            field_name="Proof.key",
-            field_id="field:Proof.key",
-            struct_type="Proof",
-            member="key",
-            readers=["Verifier:verify"],
-            writers=[],
-        )
-        assert info.field_name == "Proof.key"
-        assert info.struct_type == "Proof"
-        assert info.member == "key"
-        assert "Verifier:verify" in info.readers
-        assert info.writers == []
-
-    def test_field_access_info_to_dict(self):
-        """FieldAccessInfo should serialize to dict."""
-        info = FieldAccessInfo(
-            field_name="UserInfo.amount",
-            field_id="field:UserInfo.amount",
-            struct_type="UserInfo",
-            member="amount",
-            readers=["Pool:getBalance"],
-            writers=["Pool:deposit", "Pool:withdraw"],
-        )
-        d = info.to_dict()
-        assert d["field_name"] == "UserInfo.amount"
-        assert d["struct_type"] == "UserInfo"
-        assert d["member"] == "amount"
-        assert "Pool:getBalance" in d["readers"]
-        assert "Pool:deposit" in d["writers"]
-
-    def test_manual_field_node_creation(self, tmp_path):
-        """Should be able to manually create and query field nodes."""
-        # Create a minimal graph with field nodes
+    def test_node_structure_roundtrip(self, tmp_path):
+        """Nodes with span and meta should survive roundtrip."""
         g = DependencyGraph(tmp_path)
 
-        # Add a contract
-        g.add_node(
-            Node(
-                id="contract:1",
-                kind=NodeKind.CONTRACT,
-                name="Verifier",
-                file="Verifier.sol",
-            )
+        span = SourceSpan(
+            file="Test.sol",
+            start_line=10,
+            end_line=25,
+            start_col=1,
+            end_col=None,
         )
 
-        # Add a function
         g.add_node(
             Node(
-                id="func:1",
-                kind=NodeKind.FUNCTION,
-                name="verify",
-                contract="contract:1",
-                file="Verifier.sol",
-                visibility="public",
-            )
-        )
-
-        # Add struct field nodes
-        g.add_node(
-            Node(
-                id="field:Proof.key",
-                kind=NodeKind.STRUCT_FIELD,
-                name="Proof.key",
-                contract="contract:1",
-                file="Verifier.sol",
-                meta={"struct_type": "Proof", "field_name": "key"},
+                id="container:Test",
+                kind=NodeKind.CONTAINER,
+                name="Test",
+                span=span,
+                parent_id=None,
+                meta={"subkind": "contract", "abstract": False},
             )
         )
 
         g.add_node(
             Node(
-                id="field:Proof.value",
-                kind=NodeKind.STRUCT_FIELD,
-                name="Proof.value",
-                contract="contract:1",
-                file="Verifier.sol",
-                meta={"struct_type": "Proof", "field_name": "value"},
-            )
-        )
-
-        # Add edges
-        g.add_edge("func:1", "field:Proof.key", EdgeKind.READS_FIELD)
-        g.add_edge("func:1", "field:Proof.value", EdgeKind.WRITES_FIELD)
-
-        # Query field access via DependencyAnalysis
-        a = DependencyAnalysis(g)
-        fields = a.get_field_access_info()
-        assert len(fields) == 2
-
-        # Check filtering by struct type
-        proof_fields = a.get_field_access_info(struct_type="Proof")
-        assert len(proof_fields) == 2
-
-        # Check filtering by field name
-        key_fields = a.get_field_access_info(field_name="Proof.key")
-        assert len(key_fields) == 1
-        assert key_fields[0].field_name == "Proof.key"
-        assert "Verifier:verify" in key_fields[0].readers
-
-        value_fields = a.get_field_access_info(field_name="Proof.value")
-        assert len(value_fields) == 1
-        assert "Verifier:verify" in value_fields[0].writers
-
-    def test_field_node_serialization_roundtrip(self, tmp_path):
-        """Graph with field nodes should survive JSON roundtrip."""
-        g = DependencyGraph(tmp_path)
-
-        g.add_node(
-            Node(id="contract:1", kind=NodeKind.CONTRACT, name="Test", file="Test.sol")
-        )
-
-        g.add_node(
-            Node(
-                id="field:Data.x",
-                kind=NodeKind.STRUCT_FIELD,
-                name="Data.x",
-                contract="contract:1",
-                meta={"struct_type": "Data", "field_name": "x"},
-            )
-        )
-
-        g.add_node(
-            Node(
-                id="func:1",
-                kind=NodeKind.FUNCTION,
+                id="unit:Test:foo",
+                kind=NodeKind.UNIT,
                 name="foo",
-                contract="contract:1",
-                visibility="public",
+                span=SourceSpan(file="Test.sol", start_line=15, end_line=20),
+                parent_id="container:Test",
+                meta={"visibility": "public", "signature": "foo()"},
             )
         )
 
-        g.add_edge("func:1", "field:Data.x", EdgeKind.READS_FIELD)
+        g.add_edge("container:Test", "unit:Test:foo", EdgeKind.DEFINES)
 
         # Save and reload
-        json_path = tmp_path / "field_graph.json"
+        json_path = tmp_path / "struct_graph.json"
         g.to_json(json_path)
 
         loaded = DependencyGraph.from_json(json_path)
 
-        # Verify nodes
-        assert "field:Data.x" in loaded._nodes
-        field_node = loaded.node("field:Data.x")
-        assert field_node.kind == NodeKind.STRUCT_FIELD
-        assert field_node.name == "Data.x"
-        assert field_node.meta["struct_type"] == "Data"
+        # Verify container
+        container = loaded.node("container:Test")
+        assert container.kind == NodeKind.CONTAINER
+        assert container.name == "Test"
+        assert container.span.file == "Test.sol"
+        assert container.span.start_line == 10
+        assert container.span.end_line == 25
+        assert container.meta["subkind"] == "contract"
 
-        # Verify edges
+        # Verify unit
+        unit = loaded.node("unit:Test:foo")
+        assert unit.kind == NodeKind.UNIT
+        assert unit.parent_id == "container:Test"
+        assert unit.meta["visibility"] == "public"
+        assert unit.meta["signature"] == "foo()"
+
+        # Verify edge
         neighbors = list(
             loaded.neighbors(
-                "func:1", edge_kinds={EdgeKind.READS_FIELD}, direction="out"
+                "container:Test", edge_kinds={EdgeKind.DEFINES}, direction="out"
             )
         )
-        assert "field:Data.x" in neighbors
+        assert "unit:Test:foo" in neighbors
 
 
-class TestGuardDetection:
-    """Tests for guard issue detection."""
+class TestManualGraphConstruction:
+    """Tests for manually constructing graphs."""
 
-    def test_guard_issue_types_exist(self):
-        """GuardIssueType enum should have expected values."""
-        assert GuardIssueType.TX_ORIGIN_ADDRESS_THIS == "tx_origin_address_this"
-        assert GuardIssueType.TX_ORIGIN_IN_AUTH == "tx_origin_in_auth"
-        assert GuardIssueType.IMPOSSIBLE_OR_CONDITION == "impossible_or_condition"
-        assert GuardIssueType.UNSATISFIABLE_GUARD == "unsatisfiable_guard"
-        assert GuardIssueType.ALWAYS_REVERTS == "always_reverts"
-
-    def test_severity_levels_exist(self):
-        """Severity enum should have expected values."""
-        assert Severity.CRITICAL == "critical"
-        assert Severity.HIGH == "high"
-        assert Severity.MEDIUM == "medium"
-        assert Severity.LOW == "low"
-        assert Severity.INFO == "info"
-
-    def test_guard_issue_structure(self):
-        """GuardIssue should have proper structure."""
-        issue = GuardIssue(
-            issue_type=GuardIssueType.TX_ORIGIN_ADDRESS_THIS,
-            severity=Severity.CRITICAL,
-            function_name="_onlySelfCalled",
-            function_id="mod:123",
-            modifier_name="_onlySelfCalled",
-            contract_name="RecoveryModule",
-            file="src/RecoveryModule.sol",
-            line=45,
-            description="tx.origin == address(this) is always false",
-            pattern="tx.origin != address(this)",
-            recommendation="Use msg.sender instead",
-        )
-        assert issue.issue_type == GuardIssueType.TX_ORIGIN_ADDRESS_THIS
-        assert issue.severity == Severity.CRITICAL
-        assert issue.function_name == "_onlySelfCalled"
-        assert issue.modifier_name == "_onlySelfCalled"
-
-    def test_guard_issue_to_dict(self):
-        """GuardIssue should serialize to dict."""
-        issue = GuardIssue(
-            issue_type=GuardIssueType.TX_ORIGIN_IN_AUTH,
-            severity=Severity.MEDIUM,
-            function_name="onlyOwner",
-            function_id="mod:456",
-            modifier_name="onlyOwner",
-            contract_name="Ownable",
-            file="src/Ownable.sol",
-            line=20,
-            description="tx.origin used for authorization",
-            pattern="require(tx.origin == owner)",
-            recommendation="Use msg.sender",
-        )
-        d = issue.to_dict()
-        assert d["issue_type"] == "tx_origin_in_auth"
-        assert d["severity"] == "medium"
-        assert d["function_name"] == "onlyOwner"
-        assert d["line"] == 20
-
-    def test_detect_guard_issues_without_slither(self, analysis: DependencyAnalysis):
-        """detect_guard_issues should work without Slither (graph-only heuristics)."""
-        issues = analysis.detect_guard_issues()
-        # Should return a list (may be empty if no suspicious patterns)
-        assert isinstance(issues, list)
-
-    def test_detect_suspicious_modifier_patterns(self, tmp_path):
-        """Should detect modifiers with suspicious names like onlySelf."""
+    def test_create_minimal_graph(self, tmp_path):
+        """Should be able to create a minimal graph manually."""
         g = DependencyGraph(tmp_path)
 
-        # Add contract
+        # Add file node
         g.add_node(
             Node(
-                id="contract:1",
-                kind=NodeKind.CONTRACT,
-                name="RecoveryModule",
-                file="src/RecoveryModule.sol",
+                id="file:Test.sol",
+                kind=NodeKind.FILE,
+                name="Test.sol",
+                span=SourceSpan(file="Test.sol", start_line=1, end_line=1),
             )
         )
 
-        # Add suspicious modifier
+        # Add container node
         g.add_node(
             Node(
-                id="mod:1",
-                kind=NodeKind.MODIFIER,
-                name="_onlySelfCalled",
-                contract="contract:1",
-                file="src/RecoveryModule.sol",
+                id="container:Test",
+                kind=NodeKind.CONTAINER,
+                name="Test",
+                span=SourceSpan(file="Test.sol", start_line=5, end_line=50),
+                parent_id="file:Test.sol",
+                meta={"subkind": "contract"},
             )
         )
 
-        # Add function using the modifier
+        # Add unit node
         g.add_node(
             Node(
-                id="func:1",
-                kind=NodeKind.FUNCTION,
-                name="addRecoveryProvider",
-                contract="contract:1",
-                file="src/RecoveryModule.sol",
-                visibility="external",
+                id="unit:Test:transfer",
+                kind=NodeKind.UNIT,
+                name="transfer",
+                span=SourceSpan(file="Test.sol", start_line=10, end_line=20),
+                parent_id="container:Test",
+                meta={"visibility": "external", "signature": "transfer(address,uint256)"},
             )
         )
-        g.add_edge("func:1", "mod:1", EdgeKind.USES_MODIFIER)
 
-        # Detect issues via DependencyAnalysis
-        a = DependencyAnalysis(g)
-        issues = a.detect_guard_issues()
-
-        # Should flag the suspicious modifier
-        assert len(issues) >= 1
-        onlyself_issues = [i for i in issues if "onlyself" in i.function_name.lower()]
-        assert len(onlyself_issues) >= 1
-        assert onlyself_issues[0].issue_type == GuardIssueType.UNSATISFIABLE_GUARD
-
-
-class TestLivenessInvariants:
-    """Tests for LIVENESS invariant generation."""
-
-    def test_get_liveness_invariants_from_graph(self, analysis: DependencyAnalysis):
-        """Should generate liveness invariants from modifier patterns."""
-        invariants = analysis.get_liveness_invariants()
-        # Should return a list (may have invariants from actor roles)
-        assert isinstance(invariants, list)
-
-    def test_liveness_invariant_structure(self):
-        """Liveness invariants should have expected structure."""
-        inv = {
-            "id": "LIVENESS_addRecoveryProvider",
-            "type": "liveness",
-            "rule": "Function addRecoveryProvider must be callable by Admin",
-            "target_functions": ["addRecoveryProvider"],
-            "target_files": ["src/RecoveryModule.sol"],
-            "confidence": 1.0,
-            "source": "guard_analysis",
-        }
-        assert isinstance(inv["id"], str) and inv["id"].startswith("LIVENESS_")
-        assert inv["type"] == "liveness"
-        assert isinstance(inv["rule"], str) and "must be callable" in inv["rule"]
-        assert (
-            isinstance(inv["confidence"], float)
-            and inv["confidence"] >= 0.0
-            and inv["confidence"] <= 1.0
+        # Add variable node
+        g.add_node(
+            Node(
+                id="var:Test:balances",
+                kind=NodeKind.VARIABLE,
+                name="balances",
+                span=SourceSpan(file="Test.sol", start_line=6, end_line=6),
+                parent_id="container:Test",
+                meta={"type": "mapping(address => uint256)"},
+            )
         )
 
-    def test_liveness_from_guard_issues(self, tmp_path):
-        """Should generate liveness invariants from guard issues."""
+        # Add edges
+        g.add_edge("file:Test.sol", "container:Test", EdgeKind.DEFINES)
+        g.add_edge("container:Test", "unit:Test:transfer", EdgeKind.DEFINES)
+        g.add_edge("container:Test", "var:Test:balances", EdgeKind.DEFINES)
+        g.add_edge("unit:Test:transfer", "var:Test:balances", EdgeKind.WRITES)
+
+        # Verify structure
+        assert len(g.nodes(NodeKind.FILE)) == 1
+        assert len(g.nodes(NodeKind.CONTAINER)) == 1
+        assert len(g.nodes(NodeKind.UNIT)) == 1
+        assert len(g.nodes(NodeKind.VARIABLE)) == 1
+
+        # Verify relationships
+        containers = g.containers_in_file("Test.sol")
+        assert "container:Test" in containers
+
+        units = g.units_in_container("container:Test")
+        assert "unit:Test:transfer" in units
+
+        # Verify writes edge
+        writes = list(
+            g.neighbors("unit:Test:transfer", edge_kinds={EdgeKind.WRITES}, direction="out")
+        )
+        assert "var:Test:balances" in writes
+
+    def test_interface_nodes(self, tmp_path):
+        """Should be able to create interface (modifier) nodes."""
         g = DependencyGraph(tmp_path)
 
-        # Create a graph with a suspicious modifier that will trigger guard issues
         g.add_node(
             Node(
-                id="contract:1",
-                kind=NodeKind.CONTRACT,
-                name="TestContract",
-                file="Test.sol",
+                id="container:Ownable",
+                kind=NodeKind.CONTAINER,
+                name="Ownable",
+                span=SourceSpan(file="Ownable.sol", start_line=1, end_line=50),
+                meta={"subkind": "contract"},
             )
         )
+
         g.add_node(
             Node(
-                id="mod:1",
-                kind=NodeKind.MODIFIER,
-                name="_onlySelfCalled",  # Suspicious modifier name
-                contract="contract:1",
-                file="Test.sol",
+                id="interface:Ownable:onlyOwner",
+                kind=NodeKind.INTERFACE,
+                name="onlyOwner",
+                span=SourceSpan(file="Ownable.sol", start_line=10, end_line=15),
+                parent_id="container:Ownable",
+                meta={"subkind": "modifier"},
             )
         )
+
         g.add_node(
             Node(
-                id="func:1",
-                kind=NodeKind.FUNCTION,
-                name="criticalFunction",
-                contract="contract:1",
-                file="Test.sol",
-                visibility="external",
+                id="unit:Ownable:transferOwnership",
+                kind=NodeKind.UNIT,
+                name="transferOwnership",
+                span=SourceSpan(file="Ownable.sol", start_line=20, end_line=30),
+                parent_id="container:Ownable",
+                meta={"visibility": "public", "signature": "transferOwnership(address)"},
             )
         )
-        g.add_edge("func:1", "mod:1", EdgeKind.USES_MODIFIER)
 
-        # Create DependencyAnalysis and generate invariants
-        a = DependencyAnalysis(g)
-        invariants = a.get_liveness_invariants()
+        # Unit ACCEPTS the interface (modifier)
+        g.add_edge("unit:Ownable:transferOwnership", "interface:Ownable:onlyOwner", EdgeKind.ACCEPTS)
+        g.add_edge("container:Ownable", "interface:Ownable:onlyOwner", EdgeKind.DEFINES)
+        g.add_edge("container:Ownable", "unit:Ownable:transferOwnership", EdgeKind.DEFINES)
 
-        # Should generate at least one liveness invariant from guard analysis
-        assert len(invariants) >= 1
-        liveness_inv = invariants[0]
-        assert liveness_inv.type.value == "liveness"
-        assert liveness_inv.source == "guard_analysis"
+        # Verify
+        modifiers = list(
+            g.neighbors(
+                "unit:Ownable:transferOwnership",
+                edge_kinds={EdgeKind.ACCEPTS},
+                direction="out",
+            )
+        )
+        assert "interface:Ownable:onlyOwner" in modifiers
 
-    def test_liveness_from_modifier_patterns(self, analysis: DependencyAnalysis):
-        """Should generate liveness invariants from protected functions."""
-        invariants = analysis.get_liveness_invariants()
+        # Interface nodes should be findable via find_units (since they're indexed similarly)
+        results = g.find_units("onlyOwner")
+        assert "interface:Ownable:onlyOwner" in results
 
-        # Should find some from modifier patterns (roles with High/Medium trust)
-        pattern_invariants = [i for i in invariants if i.source == "modifier_pattern"]
-        # If the graph has protected functions, should have some
-        if len(analysis.get_actor_roles()) > 1:  # More than just "User"
-            # May or may not have pattern-based invariants depending on roles
-            assert isinstance(pattern_invariants, list)
+    def test_type_def_nodes(self, tmp_path):
+        """Should be able to create type_def (struct/enum) nodes."""
+        g = DependencyGraph(tmp_path)
+
+        g.add_node(
+            Node(
+                id="container:Token",
+                kind=NodeKind.CONTAINER,
+                name="Token",
+                span=SourceSpan(file="Token.sol", start_line=1, end_line=100),
+                meta={"subkind": "contract"},
+            )
+        )
+
+        g.add_node(
+            Node(
+                id="type_def:Token:UserInfo",
+                kind=NodeKind.TYPE_DEF,
+                name="UserInfo",
+                span=SourceSpan(file="Token.sol", start_line=5, end_line=10),
+                parent_id="container:Token",
+                meta={"subkind": "struct", "fields": ["amount", "rewardDebt"]},
+            )
+        )
+
+        g.add_node(
+            Node(
+                id="unit:Token:deposit",
+                kind=NodeKind.UNIT,
+                name="deposit",
+                span=SourceSpan(file="Token.sol", start_line=20, end_line=40),
+                parent_id="container:Token",
+                meta={"visibility": "external", "signature": "deposit(uint256)"},
+            )
+        )
+
+        # Unit uses the type
+        g.add_edge("unit:Token:deposit", "type_def:Token:UserInfo", EdgeKind.USES_TYPE)
+
+        # Verify
+        used_types = list(
+            g.neighbors(
+                "unit:Token:deposit", edge_kinds={EdgeKind.USES_TYPE}, direction="out"
+            )
+        )
+        assert "type_def:Token:UserInfo" in used_types
+
+
+class TestEdgeKinds:
+    """Tests for edge kind values."""
+
+    def test_edge_kind_values(self):
+        """EdgeKind enum should have expected values."""
+        assert EdgeKind.DEFINES == "defines"
+        assert EdgeKind.IMPORTS == "imports"
+        assert EdgeKind.INHERITS == "inherits"
+        assert EdgeKind.CALLS == "calls"
+        assert EdgeKind.ACCEPTS == "accepts"
+        assert EdgeKind.READS == "reads"
+        assert EdgeKind.WRITES == "writes"
+        assert EdgeKind.EMITS == "emits"
+        assert EdgeKind.USES_TYPE == "uses_type"
+
+
+class TestNodeKinds:
+    """Tests for node kind values."""
+
+    def test_node_kind_values(self):
+        """NodeKind enum should have expected values."""
+        assert NodeKind.FILE == "file"
+        assert NodeKind.CONTAINER == "container"
+        assert NodeKind.UNIT == "unit"
+        assert NodeKind.INTERFACE == "interface"
+        assert NodeKind.VARIABLE == "variable"
+        assert NodeKind.TYPE_DEF == "type_def"
+        assert NodeKind.EVENT == "event"
+        assert NodeKind.EXTERNAL == "external"
+
+
+class TestFileOperations:
+    """Tests for file-related operations."""
+
+    def test_file_node_lookup(self, graph: DependencyGraph):
+        """Should be able to find file nodes by path."""
+        # The fixture should have file nodes
+        file_nodes = graph.nodes(NodeKind.FILE)
+        if not file_nodes:
+            pytest.skip("No file nodes in fixture")
+
+        # Pick a file node and verify lookup
+        fid = next(iter(file_nodes))
+        node = graph.node(fid)
+        if node.span:
+            found_id = graph.file_node(node.span.file)
+            assert found_id == fid
+
+    def test_containers_in_file(self, graph: DependencyGraph):
+        """Should find containers defined in a file."""
+        containers = graph.containers_in_file("contracts/StakedUSDeV2.sol")
+        assert len(containers) > 0, "Should find containers in StakedUSDeV2.sol"
+
+    def test_units_in_file(self, graph: DependencyGraph):
+        """Should find units defined in a file."""
+        units = graph.units_in_file("contracts/StakedUSDeV2.sol")
+        assert len(units) > 0, "Should find units in StakedUSDeV2.sol"
