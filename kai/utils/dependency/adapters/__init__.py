@@ -25,15 +25,13 @@ Usage:
     roles = get_actor_roles(graph, adapter=adapter)
 """
 
-from .base import DomainAdapter, TrustLevel, get_adapter_for_framework
+from .base import DomainAdapter
 from .solidity import SolidityAdapter
 
 __all__ = [
     # Abstract base
     "DomainAdapter",
-    "TrustLevel",
     # Factory
-    "get_adapter_for_framework",
     # Concrete adapters
     "SolidityAdapter",
 ]

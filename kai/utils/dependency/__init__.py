@@ -6,93 +6,70 @@ from projects using static analysis tools.
 
 Features:
 - DependencyGraph: Core graph data structure for code dependencies
-- DependencyAnalysis: High-level analysis wrapper with caching
+- DependencyAnalysis: 5-Tool API for grounded codebase exploration
 - Node/Edge models: Typed representations of code elements
 - Builders: Functions to construct graphs from analysis tools (e.g., Slither)
 - Adapters: Domain-specific adapters for language/framework support (extensible)
 
+5-Tool API:
+    search_nodes     - "Where is X?" - Find code elements by name
+    inspect_container - "What's inside X?" - List contents of a contract/module
+    read_context     - "Show me the code" - Get source with resolved types and guards
+    get_references   - "Who uses X?" - Find callers, readers, writers
+    trace_reachability - "Can I exploit X?" - Prove if function is reachable
+
 Usage:
-    from kai.utils.dependency import DependencyGraph, DependencyAnalysis, build_from_slither
+    from kai.utils.dependency import DependencyGraph, DependencyAnalysis
 
-    # Build from a project
-    graph = build_from_slither("/path/to/project")
-
-    # Or load from cached JSON
     graph = DependencyGraph.from_json("dependency_graph.json")
-
-    # Query the graph (basic)
-    files = graph.derive_related_files("src/Vault.sol", depth=2)
-
-    # High-level analysis via DependencyAnalysis (typed results + caching)
     analysis = DependencyAnalysis(graph)
-    roles = analysis.get_actor_roles()           # -> list[ActorRole]
-    paths = analysis.get_write_paths("_balances")  # -> list[WritePath]
-    ctx = analysis.get_context_slice("withdraw", ["_balances"])  # -> ContextSliceMeta
 
-    # Using adapters for different frameworks
-    from kai.utils.dependency.adapters import SolidityAdapter, get_adapter_for_framework
+    # Find a function
+    results = analysis.search_nodes("withdraw")
 
-    adapter = get_adapter_for_framework("foundry")  # Auto-detect
-    analysis = DependencyAnalysis(graph, adapter=adapter)
+    # See what's in a contract
+    contents = analysis.inspect_container(contract_id)
+
+    # Get code with types resolved
+    context = analysis.read_context(func_id)
+
+    # Find who calls this
+    refs = analysis.get_references(func_id, ref_type="callers")
+
+    # Check if exploitable
+    path = analysis.trace_reachability(public_func_id, vulnerable_func_id)
 """
 
 # Core models
 from .models import (
-    Direction,
     EdgeKind,
-    EdgeMeta,
-    FieldAccessInfo,
-    GuardIssue,
-    GuardIssueType,
     Node,
     NodeKind,
-    Severity,
-    TrustLevel,
-    # Analysis result types
-    ActorRole,
-    ContextSliceMeta,
-    StateVarInfo,
+    # Legacy result types (for backwards compatibility)
     WritePath,
-    # New types for v2
-    CallPath,
-    EventEmission,
-    LibraryUsage,
 )
 
 # Graph class
 from .graph import DependencyGraph
 
 # Builders
-from .builders import build_from_slither
+from .builders import SolidityBuilder
 
 # Analysis wrapper class
-from .analysis import DependencyAnalysis
+from .analysis import GraphQueryEngine
 
 __all__ = [
     # Core Models
     "NodeKind",
     "EdgeKind",
     "Node",
-    "EdgeMeta",
-    "Direction",
-    "TrustLevel",
-    # Result Types
-    "ActorRole",
-    "ContextSliceMeta",
-    "FieldAccessInfo",
-    "GuardIssue",
-    "GuardIssueType",
-    "Severity",
-    "StateVarInfo",
+    # Legacy Result Types (backwards compatibility)
     "WritePath",
-    # New types for v2
-    "CallPath",
-    "EventEmission",
-    "LibraryUsage",
+    # 5-Tool API Types
     # Graph
     "DependencyGraph",
     # Analysis
-    "DependencyAnalysis",
+    "GraphQueryEngine",
     # Builders
-    "build_from_slither",
+    "SolidityBuilder",
 ]

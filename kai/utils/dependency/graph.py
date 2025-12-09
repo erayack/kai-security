@@ -8,19 +8,18 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
-from .models import Direction, EdgeKind, EdgeMeta, Node, NodeKind
+from .models import Direction, EdgeKind, EdgeMeta, Node, NodeKind, SourceSpan
 
 
 class DependencyGraph:
     """
-    A directed, typed multigraph for building ContextSlice inputs.
+    A directed, typed multigraph for code analysis.
 
-    Core invariant for slicing:
-      - Everything ultimately reduces to FILE nodes.
-      - FILE is reachable via:
-          function/modifier -> contract -> file
-          statevar -> contract -> file
-          imports -> file
+    Language-agnostic structure:
+      - FILE nodes are the root anchors
+      - CONTAINER nodes (contracts/modules/classes) are defined by files
+      - UNIT nodes (functions/methods) are defined by containers
+      - All nodes have optional SourceSpan for grounding
     """
 
     def __init__(self, root_dir: str | Path) -> None:
@@ -46,10 +45,6 @@ class DependencyGraph:
         self._contract_by_name: Dict[str, Set[str]] = defaultdict(set)
         self._file_by_path: Dict[str, str] = {}  # relpath -> node_id
 
-    # ---------------------------
-    # IDs / path normalization
-    # ---------------------------
-
     def norm_path(self, path: str | Path) -> str:
         """Normalize a path to a repo-relative posix string."""
         p = Path(path)
@@ -70,10 +65,6 @@ class DependencyGraph:
         rel = self.norm_path(file_path)
         return f"file:{rel}"
 
-    # ---------------------------
-    # Mutation
-    # ---------------------------
-
     def add_node(self, node: Node) -> None:
         """Add a node to the graph."""
         if node.id in self._nodes:
@@ -81,11 +72,14 @@ class DependencyGraph:
         self._nodes[node.id] = node
         self._by_kind[node.kind].add(node.id)
 
-        if node.kind == NodeKind.FILE and node.file:
-            self._file_by_path[node.file] = node.id
-        elif node.kind == NodeKind.CONTRACT:
+        # Index by file path
+        file_path = node.span.file if node.span else None
+        if node.kind == NodeKind.FILE and file_path:
+            self._file_by_path[self.norm_path(file_path)] = node.id
+        # Index by name for containers and units
+        elif node.kind == NodeKind.CONTAINER:
             self._contract_by_name[node.name].add(node.id)
-        elif node.kind in (NodeKind.FUNCTION, NodeKind.MODIFIER):
+        elif node.kind in (NodeKind.UNIT, NodeKind.INTERFACE):
             self._fn_by_name[node.name].add(node.id)
 
     def add_edge(self, src: str, dst: str, kind: EdgeKind, **meta: Any) -> None:
@@ -101,10 +95,6 @@ class DependencyGraph:
         self._edges[key] = EdgeMeta(kind=kind, meta=dict(meta))
         self._out[src][kind].add(dst)
         self._in[dst][kind].add(src)
-
-    # ---------------------------
-    # Accessors / queries
-    # ---------------------------
 
     def node(self, node_id: str) -> Node:
         """Get a node by ID."""
@@ -140,13 +130,17 @@ class DependencyGraph:
                 for s in srcs:
                     yield s
 
-    def find_contracts(self, name: str) -> List[str]:
-        """Find contract node IDs by name."""
+    def find_containers(self, name: str) -> List[str]:
+        """Find container node IDs by name."""
         return sorted(self._contract_by_name.get(name, set()))
 
-    def find_functions(self, name: str) -> List[str]:
-        """Find function/modifier node IDs by name."""
+    def find_units(self, name: str) -> List[str]:
+        """Find unit/interface node IDs by name."""
         return sorted(self._fn_by_name.get(name, set()))
+
+    # Legacy aliases
+    find_contracts = find_containers
+    find_functions = find_units
 
     def file_node(self, file_path: str | Path) -> Optional[str]:
         """Get the node ID for a file path."""
@@ -158,42 +152,40 @@ class DependencyGraph:
         candidate = f"file:{rel}"
         return candidate if candidate in self._nodes else None
 
-    def contracts_in_file(self, file_path: str | Path) -> List[str]:
-        """Get contract node IDs defined in a file."""
+    def containers_in_file(self, file_path: str | Path) -> List[str]:
+        """Get container node IDs defined in a file."""
         fid = self.file_node(file_path)
         if not fid:
             return []
         return sorted(self._out.get(fid, {}).get(EdgeKind.DEFINES, set()))
 
-    def functions_in_contract(self, contract_id: str) -> List[str]:
-        """Get function/modifier node IDs declared in a contract."""
-        out = self._out.get(contract_id, {})
-        fns = set(out.get(EdgeKind.DECLARES_FUNCTION, set()))
-        mods = set(out.get(EdgeKind.DECLARES_MODIFIER, set()))
-        return sorted(fns | mods)
+    def units_in_container(self, container_id: str) -> List[str]:
+        """Get unit/interface node IDs defined in a container."""
+        return sorted(self._out.get(container_id, {}).get(EdgeKind.DEFINES, set()))
 
-    def functions_in_file(self, file_path: str | Path) -> List[str]:
-        """Get all function/modifier node IDs in a file."""
-        fns: Set[str] = set()
-        for cid in self.contracts_in_file(file_path):
-            fns |= set(self.functions_in_contract(cid))
-        return sorted(fns)
+    def units_in_file(self, file_path: str | Path) -> List[str]:
+        """Get all unit/interface node IDs in a file."""
+        units: Set[str] = set()
+        for cid in self.containers_in_file(file_path):
+            units |= set(self.units_in_container(cid))
+        return sorted(units)
 
     def public_entrypoints(self) -> List[str]:
-        """Get all public/external function node IDs."""
+        """Get all public/external unit node IDs."""
         out: List[str] = []
-        for fid in self.nodes(NodeKind.FUNCTION):
-            n = self._nodes[fid]
-            vis = (n.visibility or "").lower()
+        for uid in self.nodes(NodeKind.UNIT):
+            n = self._nodes[uid]
+            vis = (n.meta.get("visibility") or "").lower()
             if vis in ("public", "external") and not n.meta.get(
                 "is_constructor", False
             ):
-                out.append(fid)
+                out.append(uid)
         return sorted(out)
 
-    # ---------------------------
-    # Slicing
-    # ---------------------------
+    # Legacy aliases
+    contracts_in_file = containers_in_file
+    functions_in_contract = units_in_container
+    functions_in_file = units_in_file
 
     def bfs(
         self,
@@ -242,34 +234,34 @@ class DependencyGraph:
 
         Modes:
           - MINIMAL: Just the target file
-          - REAL_SOURCE: imports + inheritance + calls + statevar deps + modifiers
+          - REAL_SOURCE: imports + inheritance + calls + reads/writes
           - BROAD: All edge types
         """
         fid = self.file_node(target_file)
         if not fid:
             return []
 
+        target_n = self._nodes[fid]
+        target_path = (
+            target_n.span.file if target_n.span else self.norm_path(target_file)
+        )
+
         if mode == "MINIMAL":
-            rel = self._nodes[fid].file or self.norm_path(target_file)
-            return [rel]
+            return [target_path]
 
         if mode == "BROAD":
             kinds = set(EdgeKind)  # everything
         else:
-            # "REAL_SOURCE": imports + inheritance + calls + statevar deps + modifiers
+            # "REAL_SOURCE": imports + defines + inheritance + calls + reads/writes
             kinds = {
                 EdgeKind.IMPORTS,
                 EdgeKind.DEFINES,
                 EdgeKind.INHERITS,
-                EdgeKind.DECLARES_FUNCTION,
-                EdgeKind.DECLARES_MODIFIER,
-                EdgeKind.DECLARES_STATEVAR,
-                EdgeKind.USES_MODIFIER,
                 EdgeKind.CALLS,
-                EdgeKind.HIGH_LEVEL_CALL,
-                EdgeKind.LOW_LEVEL_CALL,
+                EdgeKind.ACCEPTS,
                 EdgeKind.READS,
                 EdgeKind.WRITES,
+                EdgeKind.USES_TYPE,
             }
 
         visited = self.bfs(
@@ -277,18 +269,19 @@ class DependencyGraph:
             max_hops=depth,
             edge_kinds=kinds,
             direction=direction,
-            expand_kinds=None,  # expand everything
+            expand_kinds=None,
         )
 
         files: Set[str] = set()
         for nid in visited:
             n = self._nodes[nid]
-            if n.kind == NodeKind.FILE and n.file:
-                if include_tests or not self._looks_like_test(n.file):
-                    files.add(n.file)
+            file_path = n.span.file if n.span else None
+            if n.kind == NodeKind.FILE and file_path:
+                if include_tests or not self._looks_like_test(file_path):
+                    files.add(file_path)
 
-        # Always include the target even if heuristics flag it as test.
-        files.add(self._nodes[fid].file or self.norm_path(target_file))
+        # Always include the target
+        files.add(target_path)
         return sorted(files)
 
     @staticmethod
@@ -303,27 +296,31 @@ class DependencyGraph:
             or p.endswith(".spec.sol")
         )
 
-    # ---------------------------
-    # JSON (cacheable artifact)
-    # ---------------------------
-
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the graph to a dictionary."""
+        nodes = []
+        for n in self._nodes.values():
+            node_dict: Dict[str, Any] = {
+                "id": n.id,
+                "kind": n.kind.value,
+                "name": n.name,
+                "meta": dict(n.meta) if n.meta else {},
+            }
+            if n.span:
+                node_dict["span"] = {
+                    "file": n.span.file,
+                    "start_line": n.span.start_line,
+                    "end_line": n.span.end_line,
+                    "start_col": n.span.start_col,
+                    "end_col": n.span.end_col,
+                }
+            if n.parent_id:
+                node_dict["parent_id"] = n.parent_id
+            nodes.append(node_dict)
+
         return {
             "root_dir": str(self.root_dir),
-            "nodes": [
-                {
-                    "id": n.id,
-                    "kind": n.kind.value,
-                    "name": n.name,
-                    "file": n.file,
-                    "contract": n.contract,
-                    "signature": n.signature,
-                    "visibility": n.visibility,
-                    "meta": n.meta,
-                }
-                for n in self._nodes.values()
-            ],
+            "nodes": nodes,
             "edges": [
                 {"src": s, "kind": k.value, "dst": d, "meta": m}
                 for (s, k, d), em in self._edges.items()
@@ -340,15 +337,25 @@ class DependencyGraph:
         """Load a graph from a dictionary."""
         g = cls(data["root_dir"])
         for nd in data["nodes"]:
+            # Parse span if present
+            span = None
+            if "span" in nd and nd["span"]:
+                sp = nd["span"]
+                span = SourceSpan(
+                    file=sp["file"],
+                    start_line=sp["start_line"],
+                    end_line=sp["end_line"],
+                    start_col=sp.get("start_col"),
+                    end_col=sp.get("end_col"),
+                )
+
             g.add_node(
                 Node(
                     id=nd["id"],
                     kind=NodeKind(nd["kind"]),
                     name=nd["name"],
-                    file=nd.get("file"),
-                    contract=nd.get("contract"),
-                    signature=nd.get("signature"),
-                    visibility=nd.get("visibility"),
+                    span=span,
+                    parent_id=nd.get("parent_id"),
                     meta=nd.get("meta") or {},
                 )
             )
@@ -360,3 +367,16 @@ class DependencyGraph:
     def from_json(cls, path: str | Path) -> "DependencyGraph":
         """Load a graph from a JSON file."""
         return cls.from_dict(json.loads(Path(path).read_text()))
+
+    def get_edge_meta(
+        self, src: str, dst: str, kind: Optional[EdgeKind] = None
+    ) -> Optional[EdgeMeta]:
+        """Get edge metadata between two nodes."""
+        if kind:
+            key = (src, kind, dst)
+            return self._edges.get(key)
+        # Find any edge between src and dst
+        for (s, k, d), em in self._edges.items():
+            if s == src and d == dst:
+                return em
+        return None
