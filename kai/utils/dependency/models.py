@@ -29,14 +29,18 @@ class EdgeKind(str, Enum):
     DECLARES_FUNCTION = "declares_fn"  # contract -> function
     DECLARES_MODIFIER = "declares_mod"  # contract -> modifier
     DECLARES_STATEVAR = "declares_var"  # contract -> statevar
+    DECLARES_EVENT = "declares_event"  # contract -> event
     USES_MODIFIER = "uses_modifier"  # function -> modifier
     CALLS = "calls"  # function/modifier -> function/modifier
     HIGH_LEVEL_CALL = "high_level_call"  # function -> contract/external
     LOW_LEVEL_CALL = "low_level_call"  # function -> external
+    LIBRARY_CALL = "library_call"  # function -> library function
+    USES_LIBRARY = "uses_library"  # contract -> library (using X for Y)
     READS = "reads"  # function/modifier -> statevar
     WRITES = "writes"  # function/modifier -> statevar
     READS_FIELD = "reads_field"  # function/modifier -> struct_field
     WRITES_FIELD = "writes_field"  # function/modifier -> struct_field
+    EMITS = "emits"  # function/modifier -> event
 
 
 @dataclass(frozen=True)
@@ -261,4 +265,153 @@ class GuardIssue:
             "description": self.description,
             "pattern": self.pattern,
             "recommendation": self.recommendation,
+        }
+
+
+# ---------------------------
+# Call Path Types (Graph-level)
+# ---------------------------
+
+
+@dataclass
+class CallPath:
+    """
+    A typed call path through the contract system (graph-level).
+
+    Used by workers to understand execution paths for:
+    - StateWorker: Finding impossible call sequences
+    - GamifiedWorker: Coordinating actor sequences
+    - QuantWorker: Tracing numeric flows
+
+    Each step contains both the node ID (for graph operations)
+    and human-readable information (for analysis/display).
+    """
+
+    steps: list[str]  # Node IDs in order: ["func:1", "func:2", "func:3"]
+    step_names: list[
+        str
+    ]  # Human readable: ["Vault.deposit", "Vault._mint", "ERC20._update"]
+    contracts: list[str]  # Contracts involved: ["Vault", "Vault", "ERC20"]
+    edge_types: list[str]  # Edge kinds used: ["calls", "calls"]
+    entry_visibility: Optional[str] = None  # "public", "external", etc.
+    terminates_at: Optional[str] = None  # "statevar", "event", "external", etc.
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def length(self) -> int:
+        """Number of hops in the path."""
+        return len(self.steps) - 1 if self.steps else 0
+
+    @property
+    def entrypoint(self) -> Optional[str]:
+        """First step node ID."""
+        return self.steps[0] if self.steps else None
+
+    @property
+    def entrypoint_name(self) -> Optional[str]:
+        """First step human-readable name."""
+        return self.step_names[0] if self.step_names else None
+
+    @property
+    def endpoint(self) -> Optional[str]:
+        """Last step node ID."""
+        return self.steps[-1] if self.steps else None
+
+    @property
+    def endpoint_name(self) -> Optional[str]:
+        """Last step human-readable name."""
+        return self.step_names[-1] if self.step_names else None
+
+    @property
+    def crosses_contracts(self) -> bool:
+        """Whether the path crosses contract boundaries."""
+        return len(set(self.contracts)) > 1
+
+    @property
+    def unique_contracts(self) -> list[str]:
+        """Unique contracts in the path, in order of first appearance."""
+        seen: set[str] = set()
+        result: list[str] = []
+        for c in self.contracts:
+            if c not in seen:
+                seen.add(c)
+                result.append(c)
+        return result
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "steps": self.steps,
+            "step_names": self.step_names,
+            "contracts": self.contracts,
+            "edge_types": self.edge_types,
+            "entry_visibility": self.entry_visibility,
+            "terminates_at": self.terminates_at,
+            "length": self.length,
+            "crosses_contracts": self.crosses_contracts,
+            "meta": self.meta,
+        }
+
+    def __str__(self) -> str:
+        return " -> ".join(self.step_names)
+
+
+# ---------------------------
+# Event Emission Types
+# ---------------------------
+
+
+@dataclass
+class EventEmission:
+    """Information about event emission from a function."""
+
+    event_name: str
+    event_id: str
+    emitter_func: str
+    emitter_func_id: str
+    contract: Optional[str]
+    file: Optional[str]
+    indexed_params: list[str] = field(default_factory=list)
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "event_name": self.event_name,
+            "event_id": self.event_id,
+            "emitter_func": self.emitter_func,
+            "emitter_func_id": self.emitter_func_id,
+            "contract": self.contract,
+            "file": self.file,
+            "indexed_params": self.indexed_params,
+            "meta": self.meta,
+        }
+
+
+# ---------------------------
+# Library Usage Types
+# ---------------------------
+
+
+@dataclass
+class LibraryUsage:
+    """Information about library usage via 'using X for Y' directive."""
+
+    library_name: str
+    library_id: str
+    target_type: str  # The type Y in "using X for Y"
+    consumer_contract: str
+    consumer_contract_id: str
+    file: Optional[str]
+    functions_used: list[str] = field(
+        default_factory=list
+    )  # Which library funcs are called
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "library_name": self.library_name,
+            "library_id": self.library_id,
+            "target_type": self.target_type,
+            "consumer_contract": self.consumer_contract,
+            "consumer_contract_id": self.consumer_contract_id,
+            "file": self.file,
+            "functions_used": self.functions_used,
         }

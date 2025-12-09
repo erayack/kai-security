@@ -375,3 +375,88 @@ class EnvironmentSetupOutput(BaseModel):
     error_message: Optional[str]
     master_repo_path: str
     repo_slug: str
+
+
+# ---------------------------
+# Actor Analysis Schemas
+# ---------------------------
+
+
+class SuspiciousFunction(BaseModel):
+    """Function flagged by heuristic scan for potential access control issues."""
+
+    function_name: str
+    function_id: str
+    contract_name: Optional[str] = None
+    file_path: Optional[str] = None
+    visibility: str
+    patterns_matched: List[str] = Field(default_factory=list)
+    has_modifier: bool = False
+    reason: str
+    writes_state: bool = False
+
+
+class PrivilegeChain(BaseModel):
+    """Cross-contract privilege chain (e.g., Keeper -> Vault -> Strategy)."""
+
+    source_contract: str
+    source_function: str
+    source_role: Optional[str] = None
+    target_contract: str
+    target_function: str
+    call_path: List[str] = Field(default_factory=list)
+    can_send_eth: bool = False
+    edge_count: int = 1
+
+
+class Actor(BaseModel):
+    """Actor with roles and privileges (enhanced ActorRole)."""
+
+    role: str
+    trust_level: str  # "High", "Medium", "Low", "None", "N/A"
+    modifier_patterns: List[str] = Field(default_factory=list)
+    direct_privileges: List[str] = Field(default_factory=list)
+    indirect_privileges: List[str] = Field(default_factory=list)
+    function_count: int = 0
+    contracts: List[str] = Field(default_factory=list)
+
+
+class LLMReviewResult(BaseModel):
+    """Result from LLM review of a suspicious function."""
+
+    function_name: str
+    contract_name: Optional[str] = None
+    is_vulnerability: bool
+    confidence: float = Field(ge=0.0, le=1.0)
+    issue_type: Optional[str] = None
+    description: str
+    recommendation: Optional[str] = None
+
+
+class ActorAnalysisInput(BaseModel):
+    """Input for ActorAnalysisProcess."""
+
+    graph: Any  # DependencyGraph object
+    slither: Optional[Any] = None
+    model_name: str = "z-ai/glm-4.6"
+    use_openai: bool = True
+    enable_llm_review: bool = True
+    max_suspicious_for_llm: int = 200
+
+
+class ActorReport(BaseModel):
+    """Output of ActorAnalysisProcess."""
+
+    actors: List[Actor] = Field(default_factory=list)
+    privilege_chains: List[PrivilegeChain] = Field(default_factory=list)
+    guard_issues: List[Dict[str, Any]] = Field(default_factory=list)
+    suspicious_functions: List[SuspiciousFunction] = Field(default_factory=list)
+    llm_review_results: List[LLMReviewResult] = Field(default_factory=list)
+    llm_invoked: bool = False
+    llm_tokens_used: Dict[str, int] = Field(default_factory=dict)
+    llm_cost_estimate: float = 0.0
+    total_public_functions: int = 0
+    protected_functions: int = 0
+    unprotected_functions: int = 0
+    suspicious_count: int = 0
+    confirmed_issues: int = 0

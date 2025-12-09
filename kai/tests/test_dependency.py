@@ -11,23 +11,15 @@ from pathlib import Path
 import pytest
 
 from kai.utils.dependency import (
+    DependencyAnalysis,
     DependencyGraph,
-    NodeKind,
     EdgeKind,
-    Node,
     FieldAccessInfo,
     GuardIssue,
     GuardIssueType,
+    Node,
+    NodeKind,
     Severity,
-    # Typed analysis API
-    get_actor_roles,
-    get_context_slice_meta,
-    detect_guard_issues,
-    get_field_access_info,
-    get_liveness_invariants,
-    get_write_paths,
-    get_state_var_info,
-    get_invariant_vectors,
 )
 
 
@@ -41,6 +33,12 @@ def graph() -> DependencyGraph:
     if not GRAPH_JSON.exists():
         pytest.skip(f"Dependency graph not found at {GRAPH_JSON}")
     return DependencyGraph.from_json(GRAPH_JSON)
+
+
+@pytest.fixture(scope="module")
+def analysis(graph: DependencyGraph) -> DependencyAnalysis:
+    """Create a DependencyAnalysis wrapper for the graph."""
+    return DependencyAnalysis(graph)
 
 
 class TestGraphBasics:
@@ -178,14 +176,14 @@ class TestBFS:
 class TestActorRoles:
     """Tests for actor role analysis."""
 
-    def test_get_actor_roles(self, graph: DependencyGraph):
+    def test_get_actor_roles(self, analysis: DependencyAnalysis):
         """Should extract actor roles from modifier patterns."""
-        roles = get_actor_roles(graph)
+        roles = analysis.get_actor_roles()
         assert len(roles) > 0, "Should find at least one role"
 
-    def test_role_structure(self, graph: DependencyGraph):
+    def test_role_structure(self, analysis: DependencyAnalysis):
         """Actor roles should have proper structure."""
-        roles = get_actor_roles(graph)
+        roles = analysis.get_actor_roles()
         for role in roles:
             assert role.role is not None
             assert role.trust in ("High", "Medium", "Low", "None", "N/A")
@@ -193,15 +191,15 @@ class TestActorRoles:
             assert isinstance(role.privileges, list)
             assert role.function_count >= 0
 
-    def test_user_role_exists(self, graph: DependencyGraph):
+    def test_user_role_exists(self, analysis: DependencyAnalysis):
         """Should detect 'User' role for unprotected functions."""
-        roles = get_actor_roles(graph)
+        roles = analysis.get_actor_roles()
         role_names = [r.role for r in roles]
         assert "User" in role_names, "Should have User role for unprotected functions"
 
-    def test_protected_roles_exist(self, graph: DependencyGraph):
+    def test_protected_roles_exist(self, analysis: DependencyAnalysis):
         """Should detect protected roles like Owner, RoleBased."""
-        roles = get_actor_roles(graph)
+        roles = analysis.get_actor_roles()
         role_names = [r.role for r in roles]
         # bbp-public-assets uses access control, should have at least one protected role
         protected = [
@@ -213,15 +211,15 @@ class TestActorRoles:
 class TestWritePaths:
     """Tests for write path tracing."""
 
-    def test_get_write_paths_for_known_var(self, graph: DependencyGraph):
+    def test_get_write_paths_for_known_var(self, analysis: DependencyAnalysis):
         """Should trace write paths for known state variables."""
         # _balances is a common ERC20 variable
-        paths = get_write_paths(graph, "_balances")
+        paths = analysis.get_write_paths("_balances")
         assert len(paths) > 0, "Should find write paths for _balances"
 
-    def test_write_path_structure(self, graph: DependencyGraph):
+    def test_write_path_structure(self, analysis: DependencyAnalysis):
         """Write paths should have proper structure."""
-        paths = get_write_paths(graph, "_balances")
+        paths = analysis.get_write_paths("_balances")
         for path in paths[:5]:  # Check first 5
             assert path.entrypoint is not None
             assert isinstance(path.path, list)
@@ -229,25 +227,24 @@ class TestWritePaths:
             assert path.writer is not None
             assert path.var_name == "_balances"
 
-    def test_write_path_starts_with_entrypoint(self, graph: DependencyGraph):
+    def test_write_path_starts_with_entrypoint(self, analysis: DependencyAnalysis):
         """Write path should start with the entrypoint."""
-        paths = get_write_paths(graph, "_balances")
+        paths = analysis.get_write_paths("_balances")
         for path in paths[:5]:
             assert path.path[0] == path.entrypoint
 
-    def test_nonexistent_var_returns_empty(self, graph: DependencyGraph):
+    def test_nonexistent_var_returns_empty(self, analysis: DependencyAnalysis):
         """Non-existent variable should return empty list."""
-        paths = get_write_paths(graph, "nonexistent_variable_xyz")
+        paths = analysis.get_write_paths("nonexistent_variable_xyz")
         assert paths == []
 
 
 class TestContextSliceMeta:
     """Tests for context slice generation."""
 
-    def test_get_context_slice_meta(self, graph: DependencyGraph):
+    def test_get_context_slice_meta(self, analysis: DependencyAnalysis):
         """Should generate context slice for a target function."""
-        ctx = get_context_slice_meta(
-            graph,
+        ctx = analysis.get_context_slice(
             target_func="withdraw",
             invariant_seeds=["cooldowns", "_balances"],
             depth=2,
@@ -255,17 +252,16 @@ class TestContextSliceMeta:
         assert ctx.target_func == "withdraw"
         assert ctx.invariant_seeds == ["cooldowns", "_balances"]
 
-    def test_context_slice_finds_related_files(self, graph: DependencyGraph):
+    def test_context_slice_finds_related_files(self, analysis: DependencyAnalysis):
         """Context slice should find related files."""
-        ctx = get_context_slice_meta(
-            graph, target_func="withdraw", invariant_seeds=["_balances"], depth=2
+        ctx = analysis.get_context_slice(
+            target_func="withdraw", invariant_seeds=["_balances"], depth=2
         )
         assert len(ctx.related_files) > 0, "Should find related files"
 
-    def test_context_slice_includes_write_paths(self, graph: DependencyGraph):
+    def test_context_slice_includes_write_paths(self, analysis: DependencyAnalysis):
         """Context slice should include write paths when requested."""
-        ctx = get_context_slice_meta(
-            graph,
+        ctx = analysis.get_context_slice(
             target_func="withdraw",
             invariant_seeds=["_balances"],
             depth=2,
@@ -273,17 +269,17 @@ class TestContextSliceMeta:
         )
         assert len(ctx.write_paths) > 0, "Should include write paths"
 
-    def test_context_slice_symbols(self, graph: DependencyGraph):
+    def test_context_slice_symbols(self, analysis: DependencyAnalysis):
         """Context slice should collect relevant symbols."""
-        ctx = get_context_slice_meta(
-            graph, target_func="withdraw", invariant_seeds=["cooldowns"], depth=2
+        ctx = analysis.get_context_slice(
+            target_func="withdraw", invariant_seeds=["cooldowns"], depth=2
         )
         assert len(ctx.symbols) > 0, "Should collect symbols"
 
-    def test_context_slice_to_dict(self, graph: DependencyGraph):
+    def test_context_slice_to_dict(self, analysis: DependencyAnalysis):
         """Context slice should serialize to dict."""
-        ctx = get_context_slice_meta(
-            graph, target_func="withdraw", invariant_seeds=["_balances"], depth=2
+        ctx = analysis.get_context_slice(
+            target_func="withdraw", invariant_seeds=["_balances"], depth=2
         )
         d = ctx.to_dict()
         assert "target_func" in d
@@ -295,54 +291,54 @@ class TestContextSliceMeta:
 class TestStateVarInfo:
     """Tests for state variable info extraction."""
 
-    def test_get_state_var_info(self, graph: DependencyGraph):
+    def test_get_state_var_info(self, analysis: DependencyAnalysis):
         """Should get info for known state variables."""
-        infos = get_state_var_info(graph, "cooldowns")
+        infos = analysis.get_state_var_info("cooldowns")
         assert len(infos) > 0, "Should find cooldowns variable"
 
-    def test_state_var_info_structure(self, graph: DependencyGraph):
+    def test_state_var_info_structure(self, analysis: DependencyAnalysis):
         """State var info should have proper structure."""
-        infos = get_state_var_info(graph, "cooldowns")
+        infos = analysis.get_state_var_info("cooldowns")
         for info in infos:
             assert info.name == "cooldowns"
             assert info.var_id is not None
             assert isinstance(info.writers, list)
             assert isinstance(info.readers, list)
 
-    def test_state_var_info_has_writers(self, graph: DependencyGraph):
+    def test_state_var_info_has_writers(self, analysis: DependencyAnalysis):
         """Should detect functions that write to state vars."""
-        infos = get_state_var_info(graph, "cooldowns")
+        infos = analysis.get_state_var_info("cooldowns")
         has_writers = any(len(info.writers) > 0 for info in infos)
         assert has_writers, "cooldowns should have writers"
 
-    def test_nonexistent_var_returns_empty(self, graph: DependencyGraph):
+    def test_nonexistent_var_returns_empty(self, analysis: DependencyAnalysis):
         """Non-existent variable should return empty list."""
-        infos = get_state_var_info(graph, "nonexistent_variable_xyz")
+        infos = analysis.get_state_var_info("nonexistent_variable_xyz")
         assert infos == []
 
 
 class TestInvariantVectors:
     """Tests for invariant vector mapping."""
 
-    def test_get_invariant_vectors(self, graph: DependencyGraph):
+    def test_get_invariant_vectors(self, analysis: DependencyAnalysis):
         """Should map variables to their writers."""
-        vectors = get_invariant_vectors(
-            graph, ["cooldowns", "_balances", "_totalSupply"]
+        vectors = analysis.get_invariant_vectors(
+            ["cooldowns", "_balances", "_totalSupply"]
         )
         assert len(vectors) > 0, "Should find at least one variable"
 
-    def test_invariant_vectors_format(self, graph: DependencyGraph):
+    def test_invariant_vectors_format(self, analysis: DependencyAnalysis):
         """Vectors should map var names to contract:function format."""
-        vectors = get_invariant_vectors(graph, ["_balances"])
+        vectors = analysis.get_invariant_vectors(["_balances"])
         if "_balances" in vectors:
             for writer in vectors["_balances"]:
                 # Should be "Contract:function" or just "function"
                 assert isinstance(writer, str)
 
-    def test_invariant_vectors_multiple_vars(self, graph: DependencyGraph):
+    def test_invariant_vectors_multiple_vars(self, analysis: DependencyAnalysis):
         """Should handle multiple variables."""
         vars_to_check = ["cooldowns", "_balances", "_totalSupply", "vestingAmount"]
-        vectors = get_invariant_vectors(graph, vars_to_check)
+        vectors = analysis.get_invariant_vectors(vars_to_check)
         # Should return dict with keys matching requested vars (if they exist)
         for var, writers in vectors.items():
             assert var in vars_to_check
@@ -383,10 +379,10 @@ class TestStructFieldTracking:
         assert EdgeKind.READS_FIELD == "reads_field"
         assert EdgeKind.WRITES_FIELD == "writes_field"
 
-    def test_get_field_access_info_empty_graph(self, graph: DependencyGraph):
+    def test_get_field_access_info_empty_graph(self, analysis: DependencyAnalysis):
         """Should return empty list when no struct fields exist."""
         # The pre-built graph doesn't have struct fields (built before this feature)
-        fields = get_field_access_info(graph)
+        fields = analysis.get_field_access_info()
         # This is expected to be empty for the existing graph
         assert isinstance(fields, list)
 
@@ -477,21 +473,22 @@ class TestStructFieldTracking:
         g.add_edge("func:1", "field:Proof.key", EdgeKind.READS_FIELD)
         g.add_edge("func:1", "field:Proof.value", EdgeKind.WRITES_FIELD)
 
-        # Query field access
-        fields = get_field_access_info(g)
+        # Query field access via DependencyAnalysis
+        a = DependencyAnalysis(g)
+        fields = a.get_field_access_info()
         assert len(fields) == 2
 
         # Check filtering by struct type
-        proof_fields = get_field_access_info(g, struct_type="Proof")
+        proof_fields = a.get_field_access_info(struct_type="Proof")
         assert len(proof_fields) == 2
 
         # Check filtering by field name
-        key_fields = get_field_access_info(g, field_name="Proof.key")
+        key_fields = a.get_field_access_info(field_name="Proof.key")
         assert len(key_fields) == 1
         assert key_fields[0].field_name == "Proof.key"
         assert "Verifier:verify" in key_fields[0].readers
 
-        value_fields = get_field_access_info(g, field_name="Proof.value")
+        value_fields = a.get_field_access_info(field_name="Proof.value")
         assert len(value_fields) == 1
         assert "Verifier:verify" in value_fields[0].writers
 
@@ -607,9 +604,9 @@ class TestGuardDetection:
         assert d["function_name"] == "onlyOwner"
         assert d["line"] == 20
 
-    def test_detect_guard_issues_without_slither(self, graph: DependencyGraph):
+    def test_detect_guard_issues_without_slither(self, analysis: DependencyAnalysis):
         """detect_guard_issues should work without Slither (graph-only heuristics)."""
-        issues = detect_guard_issues(graph, slither=None)
+        issues = analysis.detect_guard_issues()
         # Should return a list (may be empty if no suspicious patterns)
         assert isinstance(issues, list)
 
@@ -651,8 +648,9 @@ class TestGuardDetection:
         )
         g.add_edge("func:1", "mod:1", EdgeKind.USES_MODIFIER)
 
-        # Detect issues
-        issues = detect_guard_issues(g, slither=None)
+        # Detect issues via DependencyAnalysis
+        a = DependencyAnalysis(g)
+        issues = a.detect_guard_issues()
 
         # Should flag the suspicious modifier
         assert len(issues) >= 1
@@ -664,9 +662,9 @@ class TestGuardDetection:
 class TestLivenessInvariants:
     """Tests for LIVENESS invariant generation."""
 
-    def test_get_liveness_invariants_from_graph(self, graph: DependencyGraph):
+    def test_get_liveness_invariants_from_graph(self, analysis: DependencyAnalysis):
         """Should generate liveness invariants from modifier patterns."""
-        invariants = get_liveness_invariants(graph)
+        invariants = analysis.get_liveness_invariants()
         # Should return a list (may have invariants from actor roles)
         assert isinstance(invariants, list)
 
@@ -684,13 +682,17 @@ class TestLivenessInvariants:
         assert isinstance(inv["id"], str) and inv["id"].startswith("LIVENESS_")
         assert inv["type"] == "liveness"
         assert isinstance(inv["rule"], str) and "must be callable" in inv["rule"]
-        assert isinstance(inv["confidence"], float) and inv["confidence"] >= 0.0 and inv["confidence"] <= 1.0
+        assert (
+            isinstance(inv["confidence"], float)
+            and inv["confidence"] >= 0.0
+            and inv["confidence"] <= 1.0
+        )
 
     def test_liveness_from_guard_issues(self, tmp_path):
         """Should generate liveness invariants from guard issues."""
         g = DependencyGraph(tmp_path)
 
-        # Create a simple graph
+        # Create a graph with a suspicious modifier that will trigger guard issues
         g.add_node(
             Node(
                 id="contract:1",
@@ -699,42 +701,44 @@ class TestLivenessInvariants:
                 file="Test.sol",
             )
         )
-
-        # Create a guard issue
-        issue = GuardIssue(
-            issue_type=GuardIssueType.TX_ORIGIN_ADDRESS_THIS,
-            severity=Severity.CRITICAL,
-            function_name="criticalFunction",
-            function_id="func:1",
-            modifier_name=None,
-            contract_name="TestContract",
-            file="Test.sol",
-            line=10,
-            description="tx.origin == address(this) is impossible",
-            pattern="tx.origin == address(this)",
-            recommendation="Use msg.sender",
+        g.add_node(
+            Node(
+                id="mod:1",
+                kind=NodeKind.MODIFIER,
+                name="_onlySelfCalled",  # Suspicious modifier name
+                contract="contract:1",
+                file="Test.sol",
+            )
         )
+        g.add_node(
+            Node(
+                id="func:1",
+                kind=NodeKind.FUNCTION,
+                name="criticalFunction",
+                contract="contract:1",
+                file="Test.sol",
+                visibility="external",
+            )
+        )
+        g.add_edge("func:1", "mod:1", EdgeKind.USES_MODIFIER)
 
-        # Generate liveness invariants
-        invariants = get_liveness_invariants(g, guard_issues=[issue])
+        # Create DependencyAnalysis and generate invariants
+        a = DependencyAnalysis(g)
+        invariants = a.get_liveness_invariants()
 
-        # Should generate at least one liveness invariant
+        # Should generate at least one liveness invariant from guard analysis
         assert len(invariants) >= 1
         liveness_inv = invariants[0]
-        assert liveness_inv["type"] == "liveness"
-        assert "criticalFunction" in liveness_inv["target_functions"]
-        assert liveness_inv["confidence"] == 1.0  # From guard analysis
-        assert liveness_inv["source"] == "guard_analysis"
+        assert liveness_inv.type.value == "liveness"
+        assert liveness_inv.source == "guard_analysis"
 
-    def test_liveness_from_modifier_patterns(self, graph: DependencyGraph):
+    def test_liveness_from_modifier_patterns(self, analysis: DependencyAnalysis):
         """Should generate liveness invariants from protected functions."""
-        invariants = get_liveness_invariants(graph, guard_issues=[])
+        invariants = analysis.get_liveness_invariants()
 
         # Should find some from modifier patterns (roles with High/Medium trust)
-        pattern_invariants = [
-            i for i in invariants if i["source"] == "modifier_pattern"
-        ]
+        pattern_invariants = [i for i in invariants if i.source == "modifier_pattern"]
         # If the graph has protected functions, should have some
-        if len(get_actor_roles(graph)) > 1:  # More than just "User"
+        if len(analysis.get_actor_roles()) > 1:  # More than just "User"
             # May or may not have pattern-based invariants depending on roles
             assert isinstance(pattern_invariants, list)

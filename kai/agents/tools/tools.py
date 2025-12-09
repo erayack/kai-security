@@ -210,7 +210,7 @@ def list_files(path: Optional[str] = None, depth: int = 2) -> str:
         else:
             normalized = _normalize_agent_path(path)
             if normalized is None:
-                 return f"Error: Invalid path resolution for {path}"
+                return f"Error: Invalid path resolution for {path}"
             dir_path = normalized
 
         # Scope validation (if _get_current_agent is available)

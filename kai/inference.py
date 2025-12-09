@@ -144,8 +144,8 @@ async def get_model_response(
                 _as_dict(ChatMessage(role=Role.SYSTEM, content=system_prompt))
             )
         if message is None:
-             raise ValueError("Message cannot be None if messages list is None")
-             
+            raise ValueError("Message cannot be None if messages list is None")
+
         messages_payload.append(_as_dict(ChatMessage(role=Role.USER, content=message)))
     else:
         messages_payload = [_as_dict(m) for m in messages]

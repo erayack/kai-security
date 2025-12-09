@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 class BaseProcess(ABC, Generic[InputT, OutputT]):
     """
     Abstract base class for all Kai processes.
-    
-    A Process is a discrete unit of work that takes an input, 
+
+    A Process is a discrete unit of work that takes an input,
     performs some logic using the global context, and returns an output.
     """
 
@@ -26,10 +26,10 @@ class BaseProcess(ABC, Generic[InputT, OutputT]):
     async def execute(self, input_data: InputT) -> OutputT:
         """
         Core logic of the process. Must be implemented by subclasses.
-        
+
         Args:
             input_data: The structured input for this process.
-            
+
         Returns:
             The structured output of this process.
         """
@@ -38,17 +38,19 @@ class BaseProcess(ABC, Generic[InputT, OutputT]):
     async def run(self, input_data: InputT) -> OutputT:
         """
         Executes the process with logging and error handling wrapper.
-        
+
         Args:
             input_data: The structured input for this process.
-            
+
         Returns:
             The structured output of this process.
-            
+
         Raises:
             Exception: If the process execution fails.
         """
-        self.logger.info(f"Starting process execution with input type: {type(input_data).__name__}")
+        self.logger.info(
+            f"Starting process execution with input type: {type(input_data).__name__}"
+        )
         try:
             result = await self.execute(input_data)
             self.logger.info("Process execution completed successfully")

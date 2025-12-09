@@ -1,4 +1,3 @@
-
 import os
 import shutil
 from pathlib import Path
@@ -48,7 +47,9 @@ async def test_envsetup_process_integration(monkeypatch):
             repo_url=repo_url,
             num_turns=int(os.getenv("SETUP_TURNS", settings.DEFAULT_TURNS)),
             model_name=model_name,
-            use_openai=bool(settings.OPENAI_API_KEY and not settings.OPENROUTER_API_KEY),
+            use_openai=bool(
+                settings.OPENAI_API_KEY and not settings.OPENROUTER_API_KEY
+            ),
             repo_path_override=repo_path_override,
         )
     )

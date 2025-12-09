@@ -289,11 +289,13 @@ def build_from_slither(
                     src_fid, dst_fid, EdgeKind.IMPORTS, import_path=imp, resolved=True
                 )
 
-    # --- Build contract/function/var nodes
+    # --- Build contract/function/var/event nodes
     contract_node_by_slither_id: Dict[int, str] = {}
     fn_node_by_slither_id: Dict[int, str] = {}
     mod_node_by_slither_id: Dict[int, str] = {}
     var_node_by_canonical: Dict[str, str] = {}
+    event_node_by_canonical: Dict[str, str] = {}
+    library_contracts: Set[str] = set()  # Track which contracts are libraries
 
     # Contracts
     for c in getattr(sl, "contracts", []) or []:
@@ -389,6 +391,79 @@ def build_from_slither(
                     )
                 )
             g.add_edge(c_node, v_node, EdgeKind.DECLARES_STATEVAR)
+
+    # Events (declared)
+    for c in getattr(sl, "contracts", []) or []:
+        if getattr(c, "id") is None:
+            continue
+        cid = int(getattr(c, "id"))
+        c_node = contract_node_by_slither_id[cid]
+
+        # Track if this is a library contract
+        if g._nodes[c_node].meta.get("is_library", False):
+            library_contracts.add(c_node)
+
+        events = getattr(c, "events_declared", None) or getattr(c, "events", None) or []
+        for evt in events:
+            evt_name = str(getattr(evt, "name", ""))
+            evt_can = str(getattr(evt, "canonical_name", "")) or f"{cid}.{evt_name}"
+
+            if evt_can in event_node_by_canonical:
+                continue
+
+            evt_node = f"event:{evt_can}"
+            event_node_by_canonical[evt_can] = evt_node
+
+            # Extract indexed parameters
+            indexed_params: List[str] = []
+            for param in getattr(evt, "elems", []) or []:
+                if getattr(param, "indexed", False):
+                    indexed_params.append(str(getattr(param, "name", "")))
+
+            file_rel = _file_rel_for(evt, g) or g._nodes[c_node].file
+            g.add_node(
+                Node(
+                    id=evt_node,
+                    kind=NodeKind.EVENT,
+                    name=evt_name or evt_can,
+                    contract=c_node,
+                    file=file_rel,
+                    signature=str(getattr(evt, "full_name", "")) or None,
+                    meta={
+                        "canonical_name": evt_can,
+                        "indexed_params": indexed_params,
+                    },
+                )
+            )
+            g.add_edge(c_node, evt_node, EdgeKind.DECLARES_EVENT)
+
+    # Using directives (using X for Y) -> USES_LIBRARY
+    for c in getattr(sl, "contracts", []) or []:
+        if getattr(c, "id") is None:
+            continue
+        cid = int(getattr(c, "id"))
+        c_node = contract_node_by_slither_id[cid]
+
+        # Slither stores using directives in different ways depending on version
+        using_for = getattr(c, "using_for", None) or {}
+        if isinstance(using_for, dict):
+            for target_type, libraries in using_for.items():
+                libs = libraries if isinstance(libraries, list) else [libraries]
+                for lib in libs:
+                    lib_contract = getattr(lib, "contract", lib)
+                    try:
+                        lib_cid = int(getattr(lib_contract, "id"))
+                        lib_node = contract_node_by_slither_id.get(lib_cid)
+                    except Exception:
+                        lib_node = None
+
+                    if lib_node:
+                        g.add_edge(
+                            c_node,
+                            lib_node,
+                            EdgeKind.USES_LIBRARY,
+                            target_type=str(target_type),
+                        )
 
     # Functions + Modifiers (declared)
     for c in getattr(sl, "contracts", []) or []:
@@ -526,7 +601,7 @@ def build_from_slither(
                 if v_node:
                     g.add_edge(src_nid, v_node, EdgeKind.WRITES)
 
-            # internal calls -> CALLS
+            # internal calls -> CALLS or LIBRARY_CALL
             for ir in getattr(fnlike, "internal_calls", []) or []:
                 callee = getattr(ir, "function", None)
                 if callee is None:
@@ -535,9 +610,25 @@ def build_from_slither(
                     callee, fn_node_by_slither_id, mod_node_by_slither_id
                 )
                 if dst_nid:
-                    g.add_edge(src_nid, dst_nid, EdgeKind.CALLS, call_type="internal")
+                    # Check if this is a library call
+                    callee_contract = (
+                        g._nodes[dst_nid].contract if dst_nid in g._nodes else None
+                    )
+                    is_library_call = callee_contract in library_contracts
 
-            # high level calls (external-ish)
+                    if is_library_call:
+                        g.add_edge(
+                            src_nid,
+                            dst_nid,
+                            EdgeKind.LIBRARY_CALL,
+                            call_type="internal",
+                        )
+                    else:
+                        g.add_edge(
+                            src_nid, dst_nid, EdgeKind.CALLS, call_type="internal"
+                        )
+
+            # high level calls (external-ish) -> CALLS, HIGH_LEVEL_CALL, or LIBRARY_CALL
             for target_contract, call in getattr(fnlike, "high_level_calls", []) or []:
                 fn_obj = getattr(call, "function", None)
                 dst_nid = (
@@ -547,26 +638,42 @@ def build_from_slither(
                     if fn_obj is not None
                     else None
                 )
-                if dst_nid:
-                    g.add_edge(
-                        src_nid,
-                        dst_nid,
-                        EdgeKind.CALLS,
-                        call_type="high_level_resolved",
-                    )
-                else:
-                    # fall back to contract node target
-                    try:
-                        tcid = int(getattr(target_contract, "id"))
-                        tc_node = contract_node_by_slither_id.get(tcid)
-                    except Exception:
-                        tc_node = None
 
+                # Check if target is a library
+                try:
+                    tcid = int(getattr(target_contract, "id"))
+                    tc_node = contract_node_by_slither_id.get(tcid)
+                except Exception:
+                    tc_node = None
+
+                is_library_call = tc_node in library_contracts
+
+                if dst_nid:
+                    if is_library_call:
+                        g.add_edge(
+                            src_nid,
+                            dst_nid,
+                            EdgeKind.LIBRARY_CALL,
+                            call_type="high_level_resolved",
+                        )
+                    else:
+                        g.add_edge(
+                            src_nid,
+                            dst_nid,
+                            EdgeKind.CALLS,
+                            call_type="high_level_resolved",
+                        )
+                else:
                     if tc_node:
+                        edge_kind = (
+                            EdgeKind.LIBRARY_CALL
+                            if is_library_call
+                            else EdgeKind.HIGH_LEVEL_CALL
+                        )
                         g.add_edge(
                             src_nid,
                             tc_node,
-                            EdgeKind.HIGH_LEVEL_CALL,
+                            edge_kind,
                             function_name=str(getattr(call, "function_name", "")),
                             type_call=str(getattr(call, "type_call", "")),
                             can_send_eth=bool(
@@ -578,6 +685,23 @@ def build_from_slither(
                         g.add_node(Node(id=ext, kind=NodeKind.EXTERNAL, name=ext))
                         g.add_edge(src_nid, ext, EdgeKind.HIGH_LEVEL_CALL)
 
+            # library calls via Slither's library_calls attribute
+            for lib_call in getattr(fnlike, "library_calls", []) or []:
+                lib_contract, lib_fn = (
+                    lib_call
+                    if isinstance(lib_call, tuple) and len(lib_call) == 2
+                    else (None, lib_call)
+                )
+                if lib_fn is None:
+                    continue
+                dst_nid = _node_id_for_fnlike(
+                    lib_fn, fn_node_by_slither_id, mod_node_by_slither_id
+                )
+                if dst_nid:
+                    g.add_edge(
+                        src_nid, dst_nid, EdgeKind.LIBRARY_CALL, call_type="library"
+                    )
+
             # low level calls (call/delegatecall/etc) -> external node
             for ll in getattr(fnlike, "low_level_calls", []) or []:
                 if not include_external_nodes:
@@ -586,5 +710,32 @@ def build_from_slither(
                 if ext not in g._nodes:
                     g.add_node(Node(id=ext, kind=NodeKind.EXTERNAL, name=ext))
                 g.add_edge(src_nid, ext, EdgeKind.LOW_LEVEL_CALL)
+
+            # Event emissions -> EMITS
+            # Try IR-level first for accuracy
+            emitted_events: Set[str] = set()
+            for node in getattr(fnlike, "nodes", []) or []:
+                for ir in getattr(node, "irs", []) or []:
+                    # Look for EventCall in SlithIR
+                    ir_type = type(ir).__name__
+                    if ir_type == "EventCall":
+                        evt_name = str(getattr(ir, "name", ""))
+                        if evt_name:
+                            emitted_events.add(evt_name)
+
+            # Fallback: use Slither's events_emitted if available
+            if not emitted_events:
+                for evt in getattr(fnlike, "events_emitted", []) or []:
+                    evt_name = str(getattr(evt, "name", ""))
+                    if evt_name:
+                        emitted_events.add(evt_name)
+
+            # Add EMITS edges
+            for evt_name in emitted_events:
+                # Find matching event node
+                for evt_can, evt_nid in event_node_by_canonical.items():
+                    if evt_can.endswith(f".{evt_name}") or evt_name == evt_can:
+                        g.add_edge(src_nid, evt_nid, EdgeKind.EMITS)
+                        break
 
     return g
