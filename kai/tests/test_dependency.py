@@ -336,7 +336,10 @@ class TestManualGraphConstruction:
                 name="transfer",
                 span=SourceSpan(file="Test.sol", start_line=10, end_line=20),
                 parent_id="container:Test",
-                meta={"visibility": "external", "signature": "transfer(address,uint256)"},
+                meta={
+                    "visibility": "external",
+                    "signature": "transfer(address,uint256)",
+                },
             )
         )
 
@@ -373,7 +376,9 @@ class TestManualGraphConstruction:
 
         # Verify writes edge
         writes = list(
-            g.neighbors("unit:Test:transfer", edge_kinds={EdgeKind.WRITES}, direction="out")
+            g.neighbors(
+                "unit:Test:transfer", edge_kinds={EdgeKind.WRITES}, direction="out"
+            )
         )
         assert "var:Test:balances" in writes
 
@@ -409,14 +414,23 @@ class TestManualGraphConstruction:
                 name="transferOwnership",
                 span=SourceSpan(file="Ownable.sol", start_line=20, end_line=30),
                 parent_id="container:Ownable",
-                meta={"visibility": "public", "signature": "transferOwnership(address)"},
+                meta={
+                    "visibility": "public",
+                    "signature": "transferOwnership(address)",
+                },
             )
         )
 
         # Unit ACCEPTS the interface (modifier)
-        g.add_edge("unit:Ownable:transferOwnership", "interface:Ownable:onlyOwner", EdgeKind.ACCEPTS)
+        g.add_edge(
+            "unit:Ownable:transferOwnership",
+            "interface:Ownable:onlyOwner",
+            EdgeKind.ACCEPTS,
+        )
         g.add_edge("container:Ownable", "interface:Ownable:onlyOwner", EdgeKind.DEFINES)
-        g.add_edge("container:Ownable", "unit:Ownable:transferOwnership", EdgeKind.DEFINES)
+        g.add_edge(
+            "container:Ownable", "unit:Ownable:transferOwnership", EdgeKind.DEFINES
+        )
 
         # Verify
         modifiers = list(
