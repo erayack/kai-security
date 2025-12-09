@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional
-from ..models import Node, SourceSpan
+from ..models import Node
 
 
 class DomainAdapter(ABC):
@@ -37,9 +37,16 @@ class DomainAdapter(ABC):
         pass
 
     @abstractmethod
-    def resolve_symbol(self, name: str, context_graph: "DependencyGraph") -> List[str]:
+    def resolve_symbol(
+        self, name: str, context_graph: "DependencyGraph", scope: Optional[str] = None
+    ) -> List[str]:
         """
         Resolve a user-provided string (e.g. "deposit") to Node IDs.
         Handles fuzzy matching or language-specific overloading.
+
+        Args:
+            name: Symbol name to resolve
+            context_graph: The dependency graph to search
+            scope: Optional container ID to limit search scope
         """
         pass

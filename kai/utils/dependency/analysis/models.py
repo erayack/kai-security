@@ -2,11 +2,9 @@
 kai/analysis/models.py
 """
 
-from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Literal
-
-# Re-use existing NodeKind/EdgeKind from your graph.py
-from ..models import NodeKind, EdgeKind, SourceSpan
+from dataclasses import dataclass
+from typing import List, Dict, Any, Optional
+from ..models import NodeKind
 
 
 @dataclass(frozen=True)

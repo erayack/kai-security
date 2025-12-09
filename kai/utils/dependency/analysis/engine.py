@@ -3,8 +3,9 @@ kai/analysis/engine.py
 """
 
 from collections import deque
-from typing import List, Dict, Any, Optional, Set, Literal, Union
-from .models import NodeRef, ContextSlice, EvidencePack, NodeKind, EdgeKind, SourceSpan
+from typing import List, Dict, Any, Optional, Literal
+from .models import NodeRef, ContextSlice, EvidencePack
+from ..models import EdgeKind
 from ..adapters.base import DomainAdapter
 from ..graph import DependencyGraph
 
