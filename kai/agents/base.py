@@ -53,7 +53,9 @@ class BaseAgent(ABC):
         model: Optional[str] = None,
         agent_type: Optional[AgentType] = None,
         use_openai: bool = False,
-        scope_paths: Optional[list[str]] = None,  # NEW: Restrict file access to these paths
+        scope_paths: Optional[
+            list[str]
+        ] = None,  # NEW: Restrict file access to these paths
         parent_agent_id: Optional[str] = None,  # NEW: Track hierarchy
         depth: int = 0,  # NEW: Depth in hierarchy
         max_depth: int = MAX_DEPTH,  # NEW: Maximum recursion depth
@@ -94,7 +96,9 @@ class BaseAgent(ABC):
                     # Remove any leading repo directory names to avoid duplication
                     # e.g. if p is "repos/xxx/programs/store/" and repo_path ends with "repos/xxx"
                     clean_p = p
-                    repo_name = os.path.basename(self.repo_path) if self.repo_path else ""
+                    repo_name = (
+                        os.path.basename(self.repo_path) if self.repo_path else ""
+                    )
                     if clean_p.startswith("repos/"):
                         # Strip everything up to and including the repo name
                         parts = clean_p.split("/")

@@ -6,38 +6,21 @@ from projects using static analysis tools.
 
 Features:
 - DependencyGraph: Core graph data structure for code dependencies
-- DependencyAnalysis: 5-Tool API for grounded codebase exploration
+- GraphQueryEngine: Query engine for grounded codebase exploration
 - Node/Edge models: Typed representations of code elements
 - Builders: Functions to construct graphs from analysis tools (e.g., Slither)
 - Adapters: Domain-specific adapters for language/framework support (extensible)
 
-5-Tool API:
-    search_nodes     - "Where is X?" - Find code elements by name
-    inspect_container - "What's inside X?" - List contents of a contract/module
-    read_context     - "Show me the code" - Get source with resolved types and guards
-    get_references   - "Who uses X?" - Find callers, readers, writers
-    trace_reachability - "Can I exploit X?" - Prove if function is reachable
-
-Usage:
-    from kai.utils.dependency import DependencyGraph, DependencyAnalysis
-
-    graph = DependencyGraph.from_json("dependency_graph.json")
-    analysis = DependencyAnalysis(graph)
-
-    # Find a function
-    results = analysis.search_nodes("withdraw")
-
-    # See what's in a contract
-    contents = analysis.inspect_container(contract_id)
-
-    # Get code with types resolved
-    context = analysis.read_context(func_id)
-
-    # Find who calls this
-    refs = analysis.get_references(func_id, ref_type="callers")
-
-    # Check if exploitable
-    path = analysis.trace_reachability(public_func_id, vulnerable_func_id)
+GraphQueryEngine API:
+    resolve          - "Where is X?" - Find code elements by name (returns List[NodeRef])
+    loc              - "Where exactly?" - Get file/line location for a node
+    snippet          - "Show me the code" - Pull minimal code ranges
+    neighbors        - "What's connected?" - Atomic local expansion by edge type
+    callers/callees  - "Who calls/is called?" - Shortcut for call graph queries
+    paths            - "How to reach X?" - BFS-based bounded path enumeration
+    data_paths       - "Who writes X?" - Trace entrypoints to state variable access
+    slice            - "What context?" - Build justified context slice for analysis
+    explain          - "Prove it!" - Generate verifiable evidence for a path
 """
 
 # Core models

@@ -62,9 +62,7 @@ def load_system_prompt(
 
             if tools_schema:
                 system_prompt = (
-                    system_prompt
-                    + "\n\n## Available Tools\n"
-                    + tools_schema.strip()
+                    system_prompt + "\n\n## Available Tools\n" + tools_schema.strip()
                 )
 
             return system_prompt
@@ -100,9 +98,9 @@ def generate_tool_schema(tools_module: str) -> str:
         doc = inspect.getdoc(obj) or ""
         if doc:
             doc = inspect.cleandoc(doc)
-            doc_lines = ['    """'] + [f"    {line}" for line in doc.splitlines()] + [
-                '    """'
-            ]
+            doc_lines = (
+                ['    """'] + [f"    {line}" for line in doc.splitlines()] + ['    """']
+            )
         else:
             doc_lines = []
 
