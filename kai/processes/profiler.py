@@ -10,7 +10,7 @@ from kai.schemas import (
     ProfilerOutput,
     ProtocolManifesto,
 )
-from kai.utils.dependency.builders import build_from_slither
+from kai.utils.dependency.builders import SolidityBuilder
 from kai.utils.dependency.graph import DependencyGraph
 
 
@@ -18,7 +18,7 @@ def build_dependency_graph(project_root: str) -> DependencyGraph:
     """
     Build a dependency graph for the project root.
     """
-    return build_from_slither(project_root)
+    return SolidityBuilder().build(project_root)
 
 
 class ProfilerProcess(BaseProcess[ProfilerInput, ProfilerOutput]):
@@ -108,4 +108,3 @@ class ProfilerProcess(BaseProcess[ProfilerInput, ProfilerOutput]):
         name = Path(repo_path).name or "repo"
         safe_name = re.sub(r"[^A-Za-z0-9._-]", "-", name)
         return safe_name
-
