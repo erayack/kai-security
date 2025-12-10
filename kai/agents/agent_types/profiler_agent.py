@@ -3,14 +3,18 @@ from typing import Optional
 
 from kai.agents.base import BaseAgent
 from kai.agents.utils import AgentType, check_done, generate_tool_schema
-from kai.schemas import AgentResponse, MasterContext
+from kai.schemas import AgentResponse, MasterContext, ProtocolManifesto
 
 
-class SetupAgent(BaseAgent):
-    """Agent for setting up a codebase and emitting MasterContext."""
+class ProfilerAgent(BaseAgent):
+    """
+    Agent that profiles a repository and emits a ProtocolManifesto.
+    """
 
     def __init__(
         self,
+        master_context: MasterContext,
+        dependency_graph=None,
         max_tool_turns: Optional[int] = None,
         repo_path: Optional[str] = None,
         use_vllm: bool = False,
@@ -18,24 +22,28 @@ class SetupAgent(BaseAgent):
         use_openai: bool = False,
         execution_id: Optional[str] = None,
     ):
-        tools_schema = generate_tool_schema("kai.agents.tools.setup_tools")
+        tools_schema = generate_tool_schema("kai.agents.tools.profiler_tools")
         super().__init__(
             max_tool_turns=max_tool_turns,
             repo_path=repo_path,
             use_vllm=use_vllm,
             model=model,
-            agent_type=AgentType.SETUP,
+            agent_type=AgentType.PROFILER,
             use_openai=use_openai,
             system_prompt_tools_schema=tools_schema,
         )
+
+        # Expose master context and dependency graph for tools and prompt grounding
+        self.master_context = master_context
+        self.dependency_graph = dependency_graph
 
         if execution_id:
             self.execution_id = execution_id
 
     @staticmethod
-    def _extract_master_context(response: str) -> Optional[MasterContext]:
+    def _extract_manifesto(response: str) -> Optional[ProtocolManifesto]:
         """
-        Parse MasterContext JSON embedded inside <done>...</done>.
+        Parse ProtocolManifesto JSON embedded inside <done>...</done>.
         """
         if "<done>" not in response or "</done>" not in response:
             return None
@@ -46,32 +54,34 @@ class SetupAgent(BaseAgent):
 
         try:
             data = json.loads(payload)
-            return MasterContext(**data)
+            return ProtocolManifesto(**data)
         except Exception:
             return None
 
     def check_termination(self, response: str, python_code: str) -> bool:
         """
-        Setup agent terminates when it produces a done block (with or without MasterContext).
+        Profiler agent terminates when it produces a done block (with or without manifesto).
         """
         done_present = check_done(response)
         return bool(done_present and not python_code)
 
     def get_tools_module(self) -> str:
         """
-        Get the tools module for setup agent.
+        Get the tools module for profiler agent.
         """
-        return "kai.agents.tools.setup_tools"
+        return "kai.agents.tools.profiler_tools"
 
     def extract_final_result(
         self, thoughts: str, python_code: str, response: str
     ) -> AgentResponse:
         """
-        Extract the final result for setup agent, including MasterContext if present.
+        Extract the final result for profiler agent, including ProtocolManifesto if present.
         """
-        master_context = self._extract_master_context(response)
+        manifesto = self._extract_manifesto(response)
         return AgentResponse(
             thoughts=thoughts,
             python_block=python_code,
-            master_context=master_context,
+            protocol_manifesto=manifesto,
+            master_context=self.master_context,
         )
+

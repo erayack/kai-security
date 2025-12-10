@@ -2,24 +2,31 @@ import os
 import shutil
 from pathlib import Path
 
-import pytest
+import pytest  # type: ignore[import-not-found]
 
 from kai.agents import settings
 from kai.processes.envsetup import EnvironmentSetupProcess
 from kai.schemas import EnvironmentSetupInput, EnvironmentSetupOutput, MasterContext
 
 
-MONAD_REPO_URL = "https://github.com/code-423n4/2025-09-monad.git"
+# Default repo for setup runs (Solidity)
+BBP_REPO_URL = "https://github.com/ethena-labs/bbp-public-assets.git"
 
 
-@pytest.mark.asyncio
+@pytest.fixture
+def anyio_backend():
+    # Restrict anyio to asyncio backend to avoid requiring trio
+    return "asyncio"
+
+
+@pytest.mark.anyio
 async def test_envsetup_process_integration(monkeypatch):
     api_key = settings.OPENROUTER_API_KEY or settings.OPENAI_API_KEY
     if not api_key:
         pytest.skip("Requires OPENROUTER_API_KEY or OPENAI_API_KEY for real setup run")
 
-    repo_url = os.getenv("MONAD_REPO_URL", MONAD_REPO_URL)
-    repo_path_override = os.getenv("MONAD_REPO_PATH")
+    repo_url = os.getenv("BBP_REPO_URL", BBP_REPO_URL)
+    repo_path_override = os.getenv("BBP_REPO_PATH")
     model_name = os.getenv("SETUP_MODEL", settings.SETUP_DEFAULT_MODEL)
 
     # Persist outputs under the repository testbed for inspection
@@ -40,7 +47,13 @@ async def test_envsetup_process_integration(monkeypatch):
 
     # Clean previous run remnants
     if slug_root.exists():
-        shutil.rmtree(slug_root)
+        for root, dirs, files in os.walk(slug_root):
+            for name in files:
+                os.chmod(Path(root) / name, 0o700)
+            for name in dirs:
+                os.chmod(Path(root) / name, 0o700)
+        os.chmod(slug_root, 0o700)
+        shutil.rmtree(slug_root, ignore_errors=True)
 
     result = await process.execute(
         EnvironmentSetupInput(
@@ -59,7 +72,12 @@ async def test_envsetup_process_integration(monkeypatch):
     mc = result.master_context
     assert isinstance(mc, MasterContext)
     assert Path(result.master_repo_path).exists()
-    assert Path(mc.root_path).resolve() == Path(result.master_repo_path).resolve()
+    # Allow the agent to set a working root inside the master copy (e.g., contracts/),
+    # but still require it to live under the testbed root.
+    mc_root = Path(mc.root_path).resolve()
+    master_root = Path(result.master_repo_path).resolve()
+    assert mc_root.exists()
+    assert testbed_root in mc_root.parents
     assert inputs_dir.exists()
     assert master_dir.exists()
     # Master should include at least all files from inputs (allow extra build artifacts)

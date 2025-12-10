@@ -1,4 +1,6 @@
 from enum import Enum
+import importlib
+import inspect
 import os
 import pathspec
 import re
@@ -12,6 +14,7 @@ class AgentType(Enum):
     NON_DUPLICATE_VERIFIER = "non_duplicate_verifier"
     TEST_GENERATOR = "test_generator"
     SETUP = settings.SETUP_AGENT_PROMPT_PATH
+    PROFILER = settings.PROFILER_AGENT_PROMPT_PATH
     FIXER = "fixer"
 
 
@@ -19,6 +22,8 @@ def agent_type_to_kind(agent_type: AgentType) -> str:
     """Convert AgentType enum to kind string for database storage."""
     if agent_type == AgentType.SETUP:
         return "setup"
+    if agent_type == AgentType.PROFILER:
+        return "profiler"
     return "unknown"
 
 
@@ -30,14 +35,13 @@ def load_system_prompt(
     max_turns: int = settings.MAX_TOOL_TURNS,
     depth: int = 0,
     max_depth: int = settings.MAX_DEPTH,
+    tools_schema: str | None = None,
 ) -> str:
     """
-    Load the system prompt from the file (only SETUP supported in this migration).
+    Load the system prompt from the file (SETUP and PROFILER supported).
     """
-    if agent_type != AgentType.SETUP:
-        raise ValueError(
-            f"Unsupported agent type for Kai v2 base/setup scope: {agent_type}"
-        )
+    if agent_type not in {AgentType.SETUP, AgentType.PROFILER}:
+        raise ValueError(f"Unsupported agent type for Kai v2 scope: {agent_type}")
 
     prompt_path = agent_type.value
     try:
@@ -56,9 +60,62 @@ def load_system_prompt(
                 system_prompt = system_prompt.replace("{{depth}}", str(depth))
                 system_prompt = system_prompt.replace("{{max_depth}}", str(max_depth))
 
+            if tools_schema:
+                system_prompt = (
+                    system_prompt
+                    + "\n\n## Available Tools\n"
+                    + tools_schema.strip()
+                )
+
             return system_prompt
     except FileNotFoundError:
         raise FileNotFoundError(f"System prompt file not found at {prompt_path}")
+
+
+def generate_tool_schema(tools_module: str) -> str:
+    """
+    Generate a tool schema for a tools module, formatted as Python stubs with docstrings.
+    """
+    try:
+        module = importlib.import_module(tools_module)
+    except Exception as e:
+        return f"Error importing tools module {tools_module}: {e}"
+
+    lines: list[str] = ["```python"]
+
+    for name, obj in vars(module).items():
+        if name.startswith("_"):
+            continue
+        if not inspect.isfunction(obj):
+            continue
+
+        try:
+            sig = str(inspect.signature(obj))
+        except Exception:
+            sig = "(...)"
+
+        is_async = inspect.iscoroutinefunction(obj)
+        header = f"async def {name}{sig}:" if is_async else f"def {name}{sig}:"
+
+        doc = inspect.getdoc(obj) or ""
+        if doc:
+            doc = inspect.cleandoc(doc)
+            doc_lines = ['    """'] + [f"    {line}" for line in doc.splitlines()] + [
+                '    """'
+            ]
+        else:
+            doc_lines = []
+
+        lines.append(header)
+        lines.extend(doc_lines)
+        lines.append("    pass")
+        lines.append("")  # blank line between functions
+
+    if len(lines) == 1:  # only header
+        return f"No public functions found in {tools_module}"
+
+    lines.append("```")
+    return "\n".join(lines)
 
 
 def extract_python_code(response: str) -> str:

@@ -39,7 +39,6 @@ from logger.mongo_logger import (
     log_agent_metrics,
     log_agent_complete,
 )
-import sys
 import copy
 
 
@@ -48,18 +47,21 @@ class BaseAgent(ABC):
 
     def __init__(
         self,
-        max_tool_turns: int = MAX_TOOL_TURNS,
-        repo_path: str = None,
+        max_tool_turns: Optional[int] = None,
+        repo_path: Optional[str] = None,
         use_vllm: bool = False,
-        model: str = None,
-        agent_type: AgentType = None,
+        model: Optional[str] = None,
+        agent_type: Optional[AgentType] = None,
         use_openai: bool = False,
-        scope_paths: list[str] = None,  # NEW: Restrict file access to these paths
-        parent_agent_id: str = None,  # NEW: Track hierarchy
+        scope_paths: Optional[list[str]] = None,  # NEW: Restrict file access to these paths
+        parent_agent_id: Optional[str] = None,  # NEW: Track hierarchy
         depth: int = 0,  # NEW: Depth in hierarchy
         max_depth: int = MAX_DEPTH,  # NEW: Maximum recursion depth
+        system_prompt_tools_schema: str | None = None,
     ):
-        self.agent_type = agent_type
+        if agent_type is None:
+            raise ValueError("agent_type must be provided")
+        self.agent_type: AgentType = agent_type
 
         # Agent identification and hierarchy (NEW)
         self.agent_id = str(ObjectId())  # Convert to string for JSON serialization
@@ -72,7 +74,7 @@ class BaseAgent(ABC):
 
         # Scope restriction (NEW)
         self.scope_paths = scope_paths
-        self.repo_path = os.path.abspath(repo_path) if repo_path else None
+        self.repo_path = os.path.abspath(repo_path) if repo_path else os.getcwd()
 
         if scope_paths:
             self.restricted_scope = True
@@ -82,7 +84,7 @@ class BaseAgent(ABC):
                 # If path is already absolute and within repo_path, use it as-is
                 if os.path.isabs(p):
                     abs_p = os.path.abspath(p)
-                    if abs_p.startswith(self.repo_path):
+                    if self.repo_path and abs_p.startswith(self.repo_path):
                         self.allowed_paths.append(abs_p)
                     else:
                         # Absolute path outside repo - shouldn't happen but handle it
@@ -92,7 +94,7 @@ class BaseAgent(ABC):
                     # Remove any leading repo directory names to avoid duplication
                     # e.g. if p is "repos/xxx/programs/store/" and repo_path ends with "repos/xxx"
                     clean_p = p
-                    repo_name = os.path.basename(self.repo_path)
+                    repo_name = os.path.basename(self.repo_path) if self.repo_path else ""
                     if clean_p.startswith("repos/"):
                         # Strip everything up to and including the repo name
                         parts = clean_p.split("/")
@@ -116,6 +118,11 @@ class BaseAgent(ABC):
         # Track sub-agents spawned by this agent (NEW)
         self.sub_agent_reports: list = []  # Will hold SubAgentReport objects
 
+        # Configure tool turn budget early for downstream consumers
+        self.max_tool_turns = (
+            max_tool_turns if max_tool_turns is not None else MAX_TOOL_TURNS
+        )
+
         # Set exploits.json path based on working directory (dynamic per agent)
         self.exploits_path = os.path.join(self.working_dir, "exploits.json")
 
@@ -124,13 +131,14 @@ class BaseAgent(ABC):
         is_sub_agent = depth > 0
         scope_path_str = scope_paths[0] if scope_paths else ""
         self.system_prompt = load_system_prompt(
-            agent_type,
+            self.agent_type,
             is_sub_agent=is_sub_agent,
             scope_path=scope_path_str,
             task_description="",  # Will be set in delegation instruction
-            max_turns=max_tool_turns,
+            max_turns=self.max_tool_turns,
             depth=depth,
             max_depth=max_depth,
+            tools_schema=system_prompt_tools_schema,
         )
         self.messages: list[ChatMessage] = [
             ChatMessage(role=Role.SYSTEM, content=self.system_prompt)
@@ -142,7 +150,6 @@ class BaseAgent(ABC):
         self._max_completion_warnings = 3
 
         # Set the maximum number of tool turns and use_vllm flag
-        self.max_tool_turns = max_tool_turns
         self.use_vllm = use_vllm
         self.use_openai = use_openai
 
@@ -536,12 +543,21 @@ class BaseAgent(ABC):
                 )
 
                 if last_message_was_tool_result and not is_finder_agent:
-                    # Model returned empty after tool result - treat as completion
-                    logger.info(f"{agent_desc} - Completed (no more responses)")
-                    break
+                    # Model returned nothing right after a tool result; nudge it to finish properly
+                    self._add_message(
+                        ChatMessage(
+                            role=Role.USER,
+                            content=(
+                                "You just received tool results. Continue with "
+                                "<think> reasoning and finish with a <done>{...}</done> "
+                                "containing the required JSON."
+                            ),
+                        )
+                    )
+                    continue
 
                 # If we get too many malformed responses in a row, terminate gracefully
-                if self._malformed_count >= 2 and not is_finder_agent:
+                if self._malformed_count >= 3 and not is_finder_agent:
                     logger.info(
                         f"{agent_desc} - Completed (no more structured responses)"
                     )
@@ -636,7 +652,7 @@ class BaseAgent(ABC):
     def save_conversation(
         self,
         log: bool = False,
-        save_folder: str = None,
+        save_folder: Optional[str] = None,
         prefix: Optional[str] = None,
     ):
         """
@@ -845,7 +861,7 @@ class BaseAgent(ABC):
             try:
                 with open(file_path + ".error", "w") as f:
                     f.write(error_msg)
-            except:
+            except Exception:
                 pass
 
         return file_path

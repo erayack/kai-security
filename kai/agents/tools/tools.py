@@ -9,8 +9,12 @@ import os
 import json
 import subprocess
 import uuid
-from typing import Optional, Union
+from typing import Optional, Union, Dict, Any, List, Literal
+
 from kai.agents.utils import load_gitignore_spec, should_ignore_path
+from kai.utils.dependency import GraphQueryEngine
+from kai.utils.dependency.adapters import SolidityAdapter
+from kai.utils.dependency.analysis import FileSourceLoader
 
 
 def _get_current_agent():
@@ -29,7 +33,7 @@ def _get_current_agent():
             if "_agent_instance" in frame.f_globals:
                 return frame.f_globals["_agent_instance"]
             frame = frame.f_back
-    except:
+    except Exception:
         pass
     return None
 
@@ -78,6 +82,112 @@ def _normalize_agent_path(path: Optional[str]) -> Optional[str]:
     if normalized:
         return os.path.abspath(normalized)
     return os.getcwd()
+
+
+def _get_dependency_graph():
+    """Retrieve the dependency graph attached to the current agent, if any."""
+    agent = _get_current_agent()
+    if agent and getattr(agent, "dependency_graph", None) is not None:
+        return agent.dependency_graph
+    return None
+
+
+def _get_query_engine() -> Optional[GraphQueryEngine]:
+    """
+    Build a GraphQueryEngine for the current agent if a dependency graph is present.
+    """
+    graph = _get_dependency_graph()
+    agent = _get_current_agent()
+    if graph is None or agent is None:
+        return None
+
+    base_path = getattr(agent, "repo_path", None) or getattr(agent, "working_dir", None) or os.getcwd()
+    adapter = SolidityAdapter()
+    source_loader = FileSourceLoader(base_path)
+    return GraphQueryEngine(graph=graph, adapter=adapter, source_loader=source_loader)
+
+
+def dependency_graph_related_files(
+    file_path: str,
+    *,
+    depth: int = 2,
+    mode: str = "REAL_SOURCE",
+    include_tests: bool = False,
+    direction: Literal["in", "out", "both"] = "both",
+) -> Dict[str, Any]:
+    """
+    Derive related files around a target file using the dependency graph (read-only).
+    """
+    engine = _get_query_engine()
+    if engine is None:
+        return {"error": "Dependency graph is not available to the agent"}
+
+    try:
+        files = engine.graph.derive_related_files(
+            file_path,
+            depth=depth,
+            mode=mode,
+            include_tests=include_tests,
+            direction=direction,
+        )
+        return {"files": files}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def dependency_graph_public_entrypoints() -> Dict[str, Any]:
+    """
+    List public/external entrypoints discovered in the dependency graph.
+    """
+    engine = _get_query_engine()
+    if engine is None:
+        return {"error": "Dependency graph is not available to the agent"}
+
+    try:
+        entries: List[Dict[str, Any]] = []
+        for nid in engine.graph.public_entrypoints():
+            node = engine.graph.node(nid)
+            entries.append(
+                {
+                    "id": nid,
+                    "name": node.name,
+                    "contract": node.contract,
+                    "file": node.file,
+                    "visibility": node.visibility,
+                    "signature": node.signature,
+                }
+            )
+        return {"entrypoints": entries}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def dependency_graph_functions_in_file(file_path: str) -> Dict[str, Any]:
+    """
+    List functions/modifiers declared in a given file.
+    """
+    engine = _get_query_engine()
+    if engine is None:
+        return {"error": "Dependency graph is not available to the agent"}
+
+    try:
+        fids = engine.graph.functions_in_file(file_path)
+        out = []
+        for fid in fids:
+            node = engine.graph.node(fid)
+            out.append(
+                {
+                    "id": fid,
+                    "name": node.name,
+                    "contract": node.contract,
+                    "file": node.file,
+                    "visibility": node.visibility,
+                    "signature": node.signature,
+                }
+            )
+        return {"functions": out}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 def read_file(
@@ -929,10 +1039,6 @@ def update_file(file_path: str, old_content: str, new_content: str) -> Union[boo
                 else old_content
             )
             return f"Error: Could not find the specified content in the file. Looking for: '{preview}'"
-
-        # Count occurrences (multiple matches handled by replacing first only)
-        occurrences = current_content.count(old_content)
-        # Note: If multiple matches exist, only first one is replaced
 
         # Perform the replacement (only first occurrence)
         updated_content = current_content.replace(old_content, new_content, 1)

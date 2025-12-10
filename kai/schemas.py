@@ -38,6 +38,8 @@ class AgentResponse(BaseModel):
     test_script: Optional[str] = None
     suggest_fix: Optional[str] = None
     master_context: Optional[MasterContext] = None
+    # Profiler-specific optional payload
+    protocol_manifesto: Optional["ProtocolManifesto"] = None
 
     def __str__(self):
         return (
@@ -460,3 +462,63 @@ class ActorReport(BaseModel):
     unprotected_functions: int = 0
     suspicious_count: int = 0
     confirmed_issues: int = 0
+
+class Feature(BaseModel):
+      name: str
+      description: str
+      actors: list[str]
+
+class ProtocolManifesto(BaseModel):
+
+      name: str
+      purpose: str                              
+      description: str                             
+      domain: str = ""
+      programming_languages: list[str] 
+  
+      intended_users: list[str] = Field(default_factory=list)
+      # ["depositors", "borrowers", "admins"] - semantic roles, not modifier names
+
+      # === Domain concepts ===
+      key_concepts: dict[str, str] = Field(default_factory=dict)
+      # {"health_factor": "ratio determining liquidation eligibility",
+      #  "utilization": "borrowed / total liquidity"}
+
+      # === Key Features ===
+      key_features: list[Feature]
+
+      @model_validator(mode="before")
+      @classmethod
+      def coerce_key_concepts(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+          # Allow key_concepts provided as a list of strings; coerce to {k: k}
+          if not isinstance(values, dict):
+              return values
+          kc = values.get("key_concepts")
+          if isinstance(kc, list):
+              coerced = {}
+              for item in kc:
+                  if isinstance(item, str):
+                      coerced[item] = item
+              values["key_concepts"] = coerced
+          return values
+
+class ProfilerInput(BaseModel):
+    master_context: MasterContext
+    num_turns: int
+    model_name: str
+    use_openai: bool = False
+    execution_id: Optional[str] = None
+
+
+class ProfilerOutput(BaseModel):
+    response: Optional[AgentResponse]
+    protocol_manifesto: Optional[ProtocolManifesto]
+    estimated_cost: float
+    total_tokens: Dict[str, int]
+    success: bool
+    error_message: Optional[str]
+    repo_path: str
+
+
+# Resolve forward references for models that refer to ProtocolManifesto
+AgentResponse.model_rebuild()
