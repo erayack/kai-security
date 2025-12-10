@@ -37,10 +37,11 @@ class FileSourceLoader:
 
         total = len(lines)
         if start > total:
-            raise ValueError(f"Start line {start} out of range (file has {total} lines)")
+            raise ValueError(
+                f"Start line {start} out of range (file has {total} lines)"
+            )
 
         # Clamp end to file length
         start_idx = start - 1
         end_idx = min(end, total)
         return "".join(lines[start_idx:end_idx])
-

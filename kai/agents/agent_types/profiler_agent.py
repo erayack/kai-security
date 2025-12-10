@@ -84,4 +84,3 @@ class ProfilerAgent(BaseAgent):
             protocol_manifesto=manifesto,
             master_context=self.master_context,
         )
-
