@@ -320,14 +320,16 @@ def dependency_graph_public_entrypoints() -> Union[List[NodeRef], Dict[str, str]
     Get all public/external function entrypoints in the dependency graph.
 
     Returns functions with "public" or "external" visibility (excluding constructors).
-    These are the entry points that can be called from outside the contract.
+    Includes ALL public functions - both protocol code and libraries.
+
+    For protocol-only entrypoints (excluding libraries), use dependency_graph_protocol_entrypoints().
 
     Returns:
         List of NodeRef objects representing public entrypoint functions.
         Returns {"error": "..."} if the graph is unavailable.
 
     Examples:
-        # Get all public entry points
+        # Get all public entry points (including libraries)
         entrypoints = dependency_graph_public_entrypoints()
         for ep in entrypoints:
             print(f"{ep.container}.{ep.name} - {ep.signature}")
@@ -341,6 +343,38 @@ def dependency_graph_public_entrypoints() -> Union[List[NodeRef], Dict[str, str]
         entrypoint_ids = engine.graph.public_entrypoints()
         # Convert to NodeRef using the engine's helper
         return [engine._to_ref(engine.graph.node(nid)) for nid in entrypoint_ids]
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def dependency_graph_protocol_entrypoints() -> Union[List[NodeRef], Dict[str, str]]:
+    """
+    Get public/external entrypoints that belong to the protocol (not libraries).
+
+    This is the primary tool for identifying the attack surface. It filters out:
+    - Library code (OpenZeppelin, Solmate, forge-std, etc.)
+    - Test files
+
+    Use this instead of dependency_graph_public_entrypoints() when you want
+    only the protocol's own functions, not inherited library functions.
+
+    Returns:
+        List of NodeRef objects representing protocol entrypoint functions.
+        Returns {"error": "..."} if the graph is unavailable.
+
+    Examples:
+        # Get protocol attack surface
+        entrypoints = dependency_graph_protocol_entrypoints()
+        for ep in entrypoints:
+            print(f"{ep.container}.{ep.name} - {ep.signature}")
+            # e.g., "Vault.deposit - deposit(uint256)"
+    """
+    engine = _get_query_engine()
+    if engine is None:
+        return {"error": "Dependency graph is not available to the agent"}
+
+    try:
+        return engine.protocol_entrypoints()
     except Exception as e:
         return {"error": str(e)}
 

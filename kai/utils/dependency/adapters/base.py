@@ -40,6 +40,14 @@ class DomainAdapter(ABC):
         pass
 
     @abstractmethod
+    def is_library_file(self, file_path: str) -> bool:
+        """
+        Is this file from an external library (not protocol code)?
+        E.g., OpenZeppelin, Solmate, forge-std, node_modules, lib/
+        """
+        pass
+
+    @abstractmethod
     def resolve_symbol(
         self, name: str, context_graph: "DependencyGraph", scope: Optional[str] = None
     ) -> List[str]:

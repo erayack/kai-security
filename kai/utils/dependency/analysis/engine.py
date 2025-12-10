@@ -88,6 +88,39 @@ class GraphQueryEngine:
         """Who does this call?"""
         return self.neighbors(func_id, [EdgeKind.CALLS], "out")
 
+    def protocol_entrypoints(self) -> List[NodeRef]:
+        """
+        Get public/external entrypoints that belong to the protocol (not libraries).
+
+        Filters out:
+        - Library code (OpenZeppelin, Solmate, forge-std, etc.)
+        - Test files
+
+        Returns:
+            List of NodeRef for protocol entrypoints (the attack surface).
+        """
+        results = []
+        for nid in self.graph.public_entrypoints():
+            node = self.graph.node(nid)
+
+            # Skip if no file info
+            if not node.span or not node.span.file:
+                continue
+
+            file_path = node.span.file
+
+            # Filter out library files
+            if self.adapter.is_library_file(file_path):
+                continue
+
+            # Filter out test files
+            if self.adapter.is_test_file(file_path):
+                continue
+
+            results.append(self._to_ref(node))
+
+        return results
+
     def paths(
         self,
         src_ids: List[str],

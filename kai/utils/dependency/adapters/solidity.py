@@ -73,6 +73,39 @@ class SolidityAdapter(DomainAdapter):
             or p.endswith(".spec.sol")
         )
 
+    def is_library_file(self, file_path: str) -> bool:
+        """
+        Check if a file path is from an external library.
+
+        Identifies common Solidity dependency patterns:
+        - node_modules/ (npm packages)
+        - lib/ (forge dependencies)
+        - @openzeppelin, @solmate, etc. (namespaced packages)
+        - forge-std (foundry standard library)
+        """
+        p = file_path.lower()
+        library_indicators = [
+            # Dependency directories
+            "node_modules/",
+            "/lib/",
+            # Common namespaced packages
+            "@openzeppelin",
+            "@solmate",
+            "@rari-capital",
+            "@uniswap",
+            "@aave",
+            "@chainlink",
+            "@compound",
+            # Foundry/forge
+            "forge-std/",
+            "ds-test/",
+            # Other common libs
+            "solady/",
+            "solmate/",
+            "openzeppelin-contracts/",
+        ]
+        return any(indicator in p for indicator in library_indicators)
+
     def resolve_symbol(
         self,
         name: str,

@@ -18,7 +18,12 @@ class ChatMessage(BaseModel):
 
 class Command(BaseModel):
     command: str
-    order_of_execution: int = Field(ge=0, le=100, description="The order of execution of the command will be executed in. 0 is the first command to be executed, 1 the second , and so on.")
+    order_of_execution: int = Field(
+        ge=0,
+        le=100,
+        description="The order of execution of the command will be executed in. 0 is the first command to be executed, 1 the second , and so on.",
+    )
+
 
 class MasterContext(BaseModel):
     """
