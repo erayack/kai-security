@@ -16,20 +16,24 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class Command(BaseModel):
+    command: str
+    order_of_execution: int = Field(ge=0, le=100, description="The order of execution of the command will be executed in. 0 is the first command to be executed, 1 the second , and so on.")
+
 class MasterContext(BaseModel):
     """
     Immutable view of the built repository used by downstream agents.
     """
 
     root_path: str
-    framework: Optional[str] = None
+    frameworks: Optional[list[str]] = None
     artifacts_path: Optional[str] = None
     src_path: Optional[str] = None
     lib_path: Optional[str] = None
     test_path: Optional[str] = None
     compile_success: bool
-    build_command: Optional[str] = None
-    test_command: Optional[str] = None
+    build_commands: Optional[list[Command]] = None
+    test_commands: Optional[list[Command]] = None
 
 
 class AgentResponse(BaseModel):

@@ -3,7 +3,7 @@ from logging import Handler, Logger, StreamHandler, getLogger, INFO, Formatter
 
 from logger.mongo_adapter import MongoDBHandler
 
-from agent.settings import MONGO_URI, MONGO_DB_NAME
+from kai.agents.settings import MONGO_URI, MONGO_DB_NAME
 
 
 def setup_logger() -> Logger:

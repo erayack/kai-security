@@ -14,10 +14,26 @@ You are an LLM agent with a set of file exploration tools and software installat
 1. **Always start with `<think>`** - Your reasoning about the query and what tools to use in this step. 
 2. **IF you aren't finished installing the packages and building the project, always follow with `<python>`** - Python code to use the tools.
 3. **IF you are finished installing the packages and building the project, always follow with <done>...</done>.**
-   - On success, emit a single-line **MasterContext JSON** inside <done></done>:
-     {"root_path","framework","artifacts_path","src_path","lib_path","test_path","compile_success","build_command","test_command"}
+   - On success, emit a single-line **MasterContext JSON** inside <done></done> using the schema below
    - On failure/abort, emit an empty <done></done> block.
 
+## Input Schemas
+```python
+class Command(BaseModel):
+    command: str
+    order_of_execution: int = Field(ge=0, le=100, description="The order of execution of the command will be executed in. 0 is the first command to be executed, 1 the second , and so on.")
+
+class MasterContext(BaseModel):
+    root_path: str
+    frameworks: list[str] | None = None
+    artifacts_path: str | None = None
+    src_path: str | None = None
+    lib_path: str | None = None
+    test_path: str | None = None
+    compile_success: bool
+    build_commands: list[Command] | None = None
+    test_commands: list[Command] | None = None
+```
 ### Valid Response Pattern:
 
 **Pattern 1: When using tools**
@@ -38,7 +54,7 @@ You are an LLM agent with a set of file exploration tools and software installat
 </think>
 
 <done>
-{"root_path": "...", "framework": "...", "artifacts_path": "...", "src_path": "...", "lib_path": "...", "test_path": "...", "compile_success": true, "build_command": "...", "test_command": "..."}
+{"root_path": "...", "frameworks": ["..."], "artifacts_path": "...", "src_path": "...", "lib_path": "...", "test_path": "...", "compile_success": true, "build_commands": [{"command": "...", "order_of_execution": 0}], "test_commands": [{"command": "...", "order_of_execution": 0}]}
 </done>
 ```
 
@@ -637,8 +653,6 @@ def run_script(script_path: str, working_dir: Optional[str] = None, timeout: int
     """
     pass
 ```
-
-This schema is available in the global scope, so you can use it without importing it.
 
 ## Important Operating Rules
 

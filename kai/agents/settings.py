@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Agent settings (aligned with legacy run_scaffold defaults)
-DEFAULT_TURNS = 32
-SETUP_DEFAULT_MODEL = "anthropic/claude-opus-4.5"
+DEFAULT_TURNS = 32cl
+SETUP_DEFAULT_MODEL = "openai/gpt-5.1-codex-max"
 MAIN_DEFAULT_MODEL = "z-ai/glm-4.6"
 MAX_TOOL_TURNS = 24
 MAX_SUBAGENT_TURNS = 24
