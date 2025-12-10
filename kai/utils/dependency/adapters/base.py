@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, TYPE_CHECKING
 from ..models import Node
+
+if TYPE_CHECKING:
+    from ..graph import DependencyGraph
 
 
 class DomainAdapter(ABC):

@@ -1,13 +1,6 @@
 import os
-import tempfile
-import uuid
-import json
 import subprocess
-from pathlib import Path
-from typing import Union, Optional, List
-
-from kai.schemas import GrepResponse, Exploit, ExploitLocation, ExploitSeverity
-from kai.agents.tools.tools import read_file, list_files, cargo_test, anchor_test, ctest
+from typing import Optional, List
 
 
 def _get_current_agent():
@@ -24,7 +17,7 @@ def _get_current_agent():
             if "_agent_instance" in frame.f_locals:
                 return frame.f_locals["_agent_instance"]
             frame = frame.f_back
-    except:
+    except Exception:
         pass
     return None
 

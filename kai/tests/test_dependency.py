@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
+import pytest  # type: ignore[import-not-found]
 
 from kai.utils.dependency import (
     DependencyGraph,

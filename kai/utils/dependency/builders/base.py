@@ -6,6 +6,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
+from ..models import SourceSpan
+
 from ..graph import DependencyGraph
 
 
@@ -36,12 +38,12 @@ class BaseBuilder(ABC):
         pass
 
     @abstractmethod
-    def extract_span(self, obj: Any) -> Optional[dict]:
+    def extract_span(self, obj: Any) -> Optional[SourceSpan]:
         """
         Extract source span from a language-specific object.
 
         Returns:
-            Dict with {file, start_line, end_line, start_col, end_col} or None
+            SourceSpan or None
         """
         pass
 

@@ -75,8 +75,8 @@ class SolidityAdapter(DomainAdapter):
 
     def resolve_symbol(
         self,
-        symbol: str,
-        graph: "DependencyGraph",
+        name: str,
+        context_graph: "DependencyGraph",
         scope: Optional[str] = None,
     ) -> List[str]:
         """
@@ -93,15 +93,15 @@ class SolidityAdapter(DomainAdapter):
         candidate_ids: List[str] = []
 
         # Check if symbol is already a node ID
-        if symbol in graph._nodes:
-            return [symbol]
+        if name in context_graph._nodes:
+            return [name]
 
         # Search by name across all nodes
-        for nid in graph._nodes:
-            node = graph._nodes[nid]
+        for nid in context_graph._nodes:
+            node = context_graph._nodes[nid]
 
             # Match by name
-            if node.name == symbol:
+            if node.name == name:
                 # If scope specified, check parent
                 if scope is not None:
                     if node.parent_id != scope:
@@ -111,7 +111,7 @@ class SolidityAdapter(DomainAdapter):
             # Also check signature for functions
             if node.kind == NodeKind.UNIT:
                 sig = node.meta.get("signature", "")
-                if sig and sig.startswith(f"{symbol}("):
+                if sig and sig.startswith(f"{name}("):
                     if scope is None or node.parent_id == scope:
                         candidate_ids.append(nid)
 

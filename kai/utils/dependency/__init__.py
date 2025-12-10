@@ -56,7 +56,7 @@ from .graph import DependencyGraph
 from .builders import SolidityBuilder
 
 # Analysis wrapper class
-from .analysis import GraphQueryEngine
+from .analysis import GraphQueryEngine, FileSourceLoader
 
 __all__ = [
     # Core Models
@@ -70,6 +70,7 @@ __all__ = [
     "DependencyGraph",
     # Analysis
     "GraphQueryEngine",
+    "FileSourceLoader",
     # Builders
     "SolidityBuilder",
 ]

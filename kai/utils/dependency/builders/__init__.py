@@ -31,12 +31,16 @@ Usage:
     graph = builder.build("/path/to/project")
 """
 
+from pathlib import Path
+
 from .base import BaseBuilder
 from .solidity import SolidityBuilder
+from ..graph import DependencyGraph
 
 __all__ = [
     "BaseBuilder",
     "SolidityBuilder",
+    "build_from_slither",
 ]
 
 
@@ -54,3 +58,16 @@ def get_builder(language: str) -> BaseBuilder:
         )
 
     return builder_cls()
+
+
+def build_from_slither(project_root: str | Path, **kwargs) -> DependencyGraph:
+    """
+    Convenience helper to build a dependency graph for a Solidity project using Slither.
+    Falls back to an empty graph if Slither is unavailable.
+    """
+    try:
+        builder = SolidityBuilder()
+        return builder.build(project_root, **kwargs)
+    except ImportError:
+        # Slither not installed; return an empty graph so callers can proceed gracefully
+        return DependencyGraph(Path(project_root).resolve())

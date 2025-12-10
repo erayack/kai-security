@@ -39,7 +39,7 @@ def get_agent_from_registry(agent_id: str):
 def _run_user_code(
     code: str,
     allow_installs: bool,
-    allowed_path: str,
+    allowed_path: Optional[str],
     blacklist: list,
     available_functions: dict,
     log: bool = False,
@@ -76,7 +76,7 @@ def _run_user_code(
                     )
                 return orig_open(file, *args, **kwargs)
 
-            builtins.open = secure_open
+            builtins.open = secure_open  # type: ignore[assignment]
 
             # Optionally, restrict other file-related functions (remove, rename, etc.) similarly
             # We'll patch a couple of common ones as an example:
@@ -90,7 +90,7 @@ def _run_user_code(
                     )
                 return orig_remove(path, *args, **kwargs)
 
-            os.remove = secure_remove
+            os.remove = secure_remove  # type: ignore[assignment]
 
             orig_rename = os.rename
 
@@ -103,7 +103,7 @@ def _run_user_code(
                     )
                 return orig_rename(src, dst, *args, **kwargs)
 
-            os.rename = secure_rename
+            os.rename = secure_rename  # type: ignore[assignment]
 
         # Apply blacklist restrictions by removing or disabling blacklisted builtins or attributes
         if blacklist:
@@ -161,7 +161,7 @@ def _run_user_code(
                     # Retry the import after installation
                     return orig_import(name, globals, locals, fromlist, level)
 
-            builtins.__import__ = custom_import
+            builtins.__import__ = custom_import  # type: ignore[assignment]
 
         # Prepare an isolated execution namespace. We use an empty globals dict with a fresh builtins.
         exec_globals = {"__builtins__": builtins.__dict__}
@@ -215,7 +215,7 @@ def _run_user_code(
         if log:
             logging.info("Sandbox execution finished")
 
-        return safe_locals, error_msg
+        return safe_locals, error_msg or ""
 
     except Exception as e:
         # Catch any unhandled exceptions in the worker process
@@ -228,8 +228,8 @@ def _run_user_code(
 
 async def _execute_with_delegation_async(
     code: str,
-    allowed_path: str,
-    import_module: str,
+    allowed_path: Optional[str],
+    import_module: Optional[str],
     agent_instance,
 ) -> tuple[dict, str]:
     """
@@ -327,15 +327,15 @@ async def _async_wrapper():
                 safe_locals[var] = repr(val)
 
         return safe_locals, ""
-    except Exception as e:
+    except Exception:
         tb = traceback.format_exc()
         return {}, f"Exception in code execution:\n{tb}"
 
 
 def _execute_with_delegation(
     code: str,
-    allowed_path: str,
-    import_module: str,
+    allowed_path: Optional[str],
+    import_module: Optional[str],
     agent_instance,
 ) -> tuple[dict, str]:
     """
@@ -357,7 +357,6 @@ def _execute_with_delegation(
             # Set custom exception handler to suppress harmless cleanup errors
             def handle_exception(loop, context):
                 exception = context.get("exception")
-                message = context.get("message", "")
 
                 # Suppress "Event loop is closed" errors from httpx/anyio cleanup
                 # These happen when httpx tries to close connections after the loop is closed
@@ -630,6 +629,7 @@ def _subprocess_entry() -> None:
     params_b64 = os.environ.get("SANDBOX_PARAMS")
     if not params_b64:
         sys.exit(1)
+    assert params_b64 is not None
     params = pickle.loads(base64.b64decode(params_b64))
     locals_dict, error = _run_user_code(
         params["code"],

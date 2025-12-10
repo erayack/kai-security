@@ -34,10 +34,7 @@ class SolidityBuilder(BaseBuilder):
     def build(
         self,
         source: str | Path,
-        *,
-        slither_kwargs: Optional[Dict[str, Any]] = None,
-        include_external: bool = True,
-        build_imports: bool = True,
+        **kwargs,
     ) -> DependencyGraph:
         """
         Build graph from a Solidity project.
@@ -48,6 +45,9 @@ class SolidityBuilder(BaseBuilder):
             include_external: Include unresolved external nodes
             build_imports: Parse and build import edges
         """
+        slither_kwargs: Optional[Dict[str, Any]] = kwargs.get("slither_kwargs")
+        include_external: bool = kwargs.get("include_external", True)
+        build_imports: bool = kwargs.get("build_imports", True)
         project_root = Path(source).resolve()
         graph = DependencyGraph(project_root)
 
