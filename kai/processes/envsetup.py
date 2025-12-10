@@ -26,8 +26,13 @@ class EnvironmentSetupProcess(
     async def execute(
         self, input_data: EnvironmentSetupInput
     ) -> EnvironmentSetupOutput:
+        # Derive the slug from the actual source we will use. If the caller
+        # provides a materialized repo_path_override, prefer that for slugging
+        # so we don't accidentally reuse a slug from an old URL (which can lead
+        # to copying the wrong repository into the master workspace).
         repo_url = input_data.repo_url
-        repo_slug = self._repo_slug(repo_url)
+        slug_source = input_data.repo_path_override or repo_url
+        repo_slug = self._repo_slug(slug_source)
         inputs_root = self._inputs_root(repo_slug)
         master_root = self._master_root(repo_slug)
 

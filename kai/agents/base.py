@@ -535,7 +535,9 @@ class BaseAgent(ABC):
                 self._malformed_count += 1
 
                 # If the malformed response comes after a successful tool execution,
-                # treat it as intentional completion rather than an error
+                # treat it as intentional completion rather than an error. Defer the
+                # nudge to the next loop iteration via _pending_feedback so the loop
+                # keeps running even though python_code is now empty.
                 last_message_was_tool_result = (
                     len(self.messages) > 0
                     and self.messages[-1].role == Role.USER
@@ -543,16 +545,11 @@ class BaseAgent(ABC):
                 )
 
                 if last_message_was_tool_result and not is_finder_agent:
-                    # Model returned nothing right after a tool result; nudge it to finish properly
-                    self._add_message(
-                        ChatMessage(
-                            role=Role.USER,
-                            content=(
-                                "You just received tool results. Continue with "
-                                "<think> reasoning and finish with a <done>{...}</done> "
-                                "containing the required JSON."
-                            ),
-                        )
+                    # Queue a follow-up prompt and keep the loop alive
+                    self._pending_feedback = (
+                        "You just received tool results. Continue with "
+                        "<think> reasoning and finish with a <done>{...}</done> "
+                        "containing the required JSON."
                     )
                     continue
 

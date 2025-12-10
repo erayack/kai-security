@@ -75,7 +75,6 @@ async def test_envsetup_process_integration(monkeypatch):
     # Allow the agent to set a working root inside the master copy (e.g., contracts/),
     # but still require it to live under the testbed root.
     mc_root = Path(mc.root_path).resolve()
-    master_root = Path(result.master_repo_path).resolve()
     assert mc_root.exists()
     assert testbed_root in mc_root.parents
     assert inputs_dir.exists()
