@@ -14,6 +14,7 @@ from logger.mongo_adapter import MongoDBHandler
 DEFAULT_PROFILER_REPO_URL = "https://github.com/ethena-labs/bbp-public-assets.git"
 DEFAULT_MASTER_CONTEXT_FILENAME = "bbp_master_context.json"
 
+
 @pytest.fixture
 def anyio_backend():
     # Restrict anyio to asyncio backend to avoid requiring trio
@@ -35,12 +36,16 @@ def disable_mongo_logging():
 
 def _load_master_context(master_context_filename: str) -> MasterContext:
     """Load a MasterContext fixture by short name."""
-    fixture_path = Path(__file__).resolve().parent / "fixtures" / master_context_filename
+    fixture_path = (
+        Path(__file__).resolve().parent / "fixtures" / master_context_filename
+    )
     data = json.loads(fixture_path.read_text())
     return MasterContext(**data)
 
 
-def _normalize_master_context_paths(mc: MasterContext, project_root: Path) -> MasterContext:
+def _normalize_master_context_paths(
+    mc: MasterContext, project_root: Path
+) -> MasterContext:
     """
     Convert any relative paths in the fixture to absolute paths anchored at the project root
     and coerce root_path to the most specific existing directory.
@@ -108,7 +113,9 @@ async def test_profiler_process_live_with_fixture():
             master_context=mc,
             num_turns=16,
             model_name=settings.MAIN_DEFAULT_MODEL,
-            use_openai=bool(settings.OPENAI_API_KEY and not settings.OPENROUTER_API_KEY),
+            use_openai=bool(
+                settings.OPENAI_API_KEY and not settings.OPENROUTER_API_KEY
+            ),
         )
     )
 
@@ -116,4 +123,3 @@ async def test_profiler_process_live_with_fixture():
     assert result.protocol_manifesto is not None
     assert result.response is not None
     assert result.total_tokens.get("prompt_tokens", 0) > 0
-
