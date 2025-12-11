@@ -1,7 +1,10 @@
 from enum import Enum
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
+
+# Adapter type literal for structured output validation
+AdapterType = Literal["solidity"]
 
 
 class Role(str, Enum):
@@ -39,6 +42,7 @@ class MasterContext(BaseModel):
     compile_success: bool
     build_commands: Optional[list[Command]] = None
     test_commands: Optional[list[Command]] = None
+    adapter: AdapterType = "solidity"  # Domain adapter for dependency graph analysis
 
 
 class AgentResponse(BaseModel):
@@ -529,6 +533,74 @@ class ProfilerOutput(BaseModel):
     success: bool
     error_message: Optional[str]
     repo_path: str
+
+
+# ---------------------------
+# Actor Matrix Schemas (Grounded)
+# ---------------------------
+
+
+class Privilege(BaseModel):
+    """A single privilege (entrypoint) with full grounding info."""
+
+    id: str  # Node ID (e.g., "Vault.withdraw(uint256)")
+    name: str  # Function name
+    container: str  # Contract name
+    signature: Optional[str] = None  # Full signature
+    file: Optional[str] = None  # Source file path
+    writes_state: bool = False  # Does it write state variables?
+    write_targets: List[str] = Field(default_factory=list)  # State vars written
+
+
+class RoleEvidence(BaseModel):
+    """Evidence anchoring a role assignment to code."""
+
+    function_id: str
+    modifiers: List[str] = Field(
+        default_factory=list
+    )  # Modifier names from ACCEPTS edges
+    snippet_file: Optional[str] = None
+    snippet_lines: Optional[List[int]] = None  # [start, end]
+
+
+class ActorMatrixRole(BaseModel):
+    """A role in the ActorMatrix with grounded privileges and evidence."""
+
+    name: str  # Role name (e.g., "Owner", "User")
+    trust: str  # "high", "medium", "low", "none", "review_required"
+    access_signature: List[str] = Field(default_factory=list)  # Normalized modifiers
+    privileges: List[Privilege] = Field(default_factory=list)
+    evidence: List[RoleEvidence] = Field(default_factory=list)
+    risk_score: int = 0  # Aggregate of state writes
+
+
+class ActorMatrix(BaseModel):
+    """
+    Grounded ActorMatrix output.
+
+    All privileges are anchored to node IDs, not bare names.
+    Evidence links roles to actual code locations.
+    """
+
+    roles: List[ActorMatrixRole] = Field(default_factory=list)
+    stats: Dict[str, int] = Field(default_factory=dict)
+    # stats: {total_entrypoints, unprotected_count, review_required_count}
+
+
+class ActorMatrixInput(BaseModel):
+    """Input for ActorProcess."""
+
+    master_context: "MasterContext"
+    dependency_graph: Any  # DependencyGraph object
+    protocol_manifesto: Optional["ProtocolManifesto"] = None
+
+
+class ActorMatrixOutput(BaseModel):
+    """Output of ActorProcess."""
+
+    actor_matrix: Optional[ActorMatrix] = None
+    success: bool
+    error_message: Optional[str] = None
 
 
 # Resolve forward references for models that refer to ProtocolManifesto

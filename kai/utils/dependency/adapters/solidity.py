@@ -174,7 +174,7 @@ class SolidityAdapter(DomainAdapter):
         }
 
     def get_guard_patterns(self) -> List[str]:
-        """Return common guard/modifier patterns."""
+        """Return common guard/modifier patterns (both auth and non-auth)."""
         return [
             "onlyOwner",
             "onlyAdmin",
@@ -184,3 +184,65 @@ class SolidityAdapter(DomainAdapter):
             "initializer",
             "onlyProxy",
         ]
+
+    def get_non_auth_guards(self) -> List[str]:
+        """
+        Return guard patterns that are NOT access control (don't indicate a role).
+
+        These protect against reentrancy, pausing, initialization, etc.
+        but don't restrict WHO can call the function.
+        """
+        return [
+            "nonReentrant",
+            "noReentrancy",
+            "whenNotPaused",
+            "whenPaused",
+            "initializer",
+            "reinitializer",
+            "onlyInitializing",
+            "onlyProxy",
+            "onlyDelegateCall",
+            "noDelegateCall",
+        ]
+
+    def is_non_auth_guard(self, modifier_name: str) -> bool:
+        """Check if a modifier is a non-auth guard (reentrancy, pause, etc.)."""
+        non_auth = self.get_non_auth_guards()
+        return modifier_name in non_auth
+
+    def get_trust_for_modifiers(self, modifier_names: List[str]) -> str:
+        """
+        Deterministically assign trust level based on modifier patterns.
+
+        Returns: "high", "medium", "low", "none", "review_required"
+        """
+        if not modifier_names:
+            return "none"
+
+        # High trust patterns (full admin control)
+        high_trust = {"onlyOwner", "onlyAdmin", "requiresAuth", "auth"}
+        # Medium trust patterns (operational roles)
+        medium_trust = {
+            "onlyRole",
+            "onlyKeeper",
+            "onlyOperator",
+            "onlyMinter",
+            "onlyGuardian",
+        }
+        # Low trust patterns
+        low_trust = {"onlyWhitelisted", "onlyAllowed"}
+
+        for mod in modifier_names:
+            if mod in high_trust:
+                return "high"
+
+        for mod in modifier_names:
+            if mod in medium_trust:
+                return "medium"
+
+        for mod in modifier_names:
+            if mod in low_trust:
+                return "low"
+
+        # Unknown modifier pattern - needs review
+        return "review_required"

@@ -61,3 +61,19 @@ class DomainAdapter(ABC):
             scope: Optional container ID to limit search scope
         """
         pass
+
+    @abstractmethod
+    def is_non_auth_guard(self, modifier_name: str) -> bool:
+        """
+        Is this modifier a non-auth guard (e.g., reentrancy, pause)?
+        These should be filtered out when clustering by access control.
+        """
+        pass
+
+    @abstractmethod
+    def get_trust_for_modifiers(self, modifier_names: List[str]) -> str:
+        """
+        Determine trust level based on modifier patterns.
+        Returns: "high", "medium", "low", "none", or "review_required"
+        """
+        pass
