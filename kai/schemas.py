@@ -18,6 +18,24 @@ class ChatMessage(BaseModel):
     role: Role
     content: str
 
+class Language(str, Enum):
+    SOLIDITY = "solidity"
+    JAVASCRIPT = "javascript"
+
+
+class Framework(str, Enum):
+    FOUNDRY = "foundry"
+    NODE = "node"
+
+
+class AdapterSelection(BaseModel):
+    """Result of selecting adapters based on detected languages."""
+
+    languages: list[Language] = Field(default_factory=list)
+    frameworks: list[Framework] = Field(default_factory=list)
+    adapters: list[str | None] = Field(default_factory=list)
+    reason: Optional[str] = None
+
 
 class Command(BaseModel):
     command: str
@@ -621,3 +639,17 @@ class ActorMatrixOutput(BaseModel):
 
 # Resolve forward references for models that refer to ProtocolManifesto
 AgentResponse.model_rebuild()
+
+class AdapterChooserInput(BaseModel):
+    model_name: str
+    use_openai: bool = False
+    available_frameworks: Optional[list[str]] = None
+
+
+class AdapterChooserOutput(BaseModel):
+    choice: Optional[AdapterSelection]
+    raw_response: Optional[str] = None
+    estimated_cost: float = 0.0
+    total_tokens: Dict[str, int] = Field(default_factory=dict)
+    success: bool
+    error_message: Optional[str] = None
