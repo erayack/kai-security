@@ -567,11 +567,23 @@ class ActorMatrixRole(BaseModel):
     """A role in the ActorMatrix with grounded privileges and evidence."""
 
     name: str  # Role name (e.g., "Owner", "User")
-    trust: str  # "high", "medium", "low", "none", "review_required"
+    trust: str  # "high", "medium", "low", "none"
+    reasoning: str = ""  # LLM's reasoning for trust assignment
     access_signature: List[str] = Field(default_factory=list)  # Normalized modifiers
     privileges: List[Privilege] = Field(default_factory=list)
     evidence: List[RoleEvidence] = Field(default_factory=list)
     risk_score: int = 0  # Aggregate of state writes
+
+
+class RoleAssignment(BaseModel):
+    """LLM's trust assignment for a single role cluster."""
+
+    signature_key: (
+        str  # The cluster key (e.g., "Ownable.onlyOwner" or "__unprotected__")
+    )
+    name: str  # Human-readable role name
+    trust: Literal["high", "medium", "low", "none"]
+    reasoning: str  # Brief explanation of why this trust level
 
 
 class ActorMatrix(BaseModel):
@@ -593,6 +605,8 @@ class ActorMatrixInput(BaseModel):
     master_context: "MasterContext"
     dependency_graph: Any  # DependencyGraph object
     protocol_manifesto: Optional["ProtocolManifesto"] = None
+    model_name: str = "z-ai/glm-4.6"
+    use_openai: bool = False
 
 
 class ActorMatrixOutput(BaseModel):
@@ -601,6 +615,8 @@ class ActorMatrixOutput(BaseModel):
     actor_matrix: Optional[ActorMatrix] = None
     success: bool
     error_message: Optional[str] = None
+    estimated_cost: float = 0.0
+    total_tokens: Dict[str, int] = Field(default_factory=dict)
 
 
 # Resolve forward references for models that refer to ProtocolManifesto

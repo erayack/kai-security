@@ -5,15 +5,23 @@ This process generates an ActorMatrix by:
 1. Enumerating protocol entrypoints (attack surface)
 2. Collecting access evidence from graph edges (ACCEPTS), filtering non-auth guards
 3. Clustering entrypoints by access signature (using container.name tokens)
-4. Adapter assigns trust levels and role names deterministically
+4. LLM assigns trust levels based on actual privileges (state writes, critical operations)
 5. Building the final ActorMatrix with evidence anchors
 
 All privileges are grounded to node IDs, never bare names.
-No LLM is used - fully deterministic.
+LLM only interprets privilege impact - cannot hallucinate privileges.
 """
 
+import json
 from collections import defaultdict
-from typing import Any, Dict, List, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+from kai.inference import create_openai_client
+
+# Load prompt template
+PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "actor_role_assignment.txt"
+ROLE_ASSIGNMENT_PROMPT = PROMPT_PATH.read_text() if PROMPT_PATH.exists() else ""
 
 from kai.processes.base import BaseProcess
 from kai.schemas import (
@@ -22,6 +30,7 @@ from kai.schemas import (
     ActorMatrixOutput,
     ActorMatrixRole,
     Privilege,
+    ProtocolManifesto,
     RoleEvidence,
 )
 from kai.utils.dependency.adapters import DomainAdapter, get_adapter
@@ -34,13 +43,14 @@ class ActorProcess(BaseProcess[ActorMatrixInput, ActorMatrixOutput]):
     """
     Process to generate a grounded ActorMatrix from a DependencyGraph.
 
-    Fully deterministic - no LLM is used. Role names and trust levels
-    are derived from modifier patterns using the adapter.
+    Uses LLM to assign trust levels based on actual privileges (state writes).
+    All privilege data is deterministically extracted - LLM only interprets impact.
     """
 
     async def execute(self, input_data: ActorMatrixInput) -> ActorMatrixOutput:
         ctx = input_data.master_context
         graph = input_data.dependency_graph
+        manifesto = input_data.protocol_manifesto
 
         if graph is None:
             return ActorMatrixOutput(
@@ -78,12 +88,25 @@ class ActorProcess(BaseProcess[ActorMatrixInput, ActorMatrixOutput]):
                     ),
                 )
 
+            # Step 2-4: Collect evidence, build signatures, cluster
             access_data = self._collect_access_evidence(engine, entrypoints)
             signatures = self._build_signatures(access_data)
             clusters = self._cluster_by_signature(signatures)
             self.logger.info(f"Created {len(clusters)} clusters")
+
+            # Step 5: Build evidence
             evidence_map = self._build_evidence(engine, clusters, access_data)
-            role_assignments = self._assign_roles(clusters)
+
+            # Step 6: LLM assigns trust based on privileges
+            role_assignments, llm_cost, llm_tokens = await self._assign_roles_with_llm(
+                clusters=clusters,
+                access_data=access_data,
+                manifesto=manifesto,
+                model_name=input_data.model_name,
+                use_openai=input_data.use_openai,
+            )
+
+            # Step 7: Build final matrix
             actor_matrix = self._build_actor_matrix(
                 clusters=clusters,
                 role_assignments=role_assignments,
@@ -94,6 +117,8 @@ class ActorProcess(BaseProcess[ActorMatrixInput, ActorMatrixOutput]):
             return ActorMatrixOutput(
                 actor_matrix=actor_matrix,
                 success=True,
+                estimated_cost=llm_cost,
+                total_tokens=llm_tokens,
             )
 
         except Exception as e:
@@ -253,16 +278,124 @@ class ActorProcess(BaseProcess[ActorMatrixInput, ActorMatrixOutput]):
 
         return evidence_map
 
-    def _assign_roles(
+    async def _assign_roles_with_llm(
+        self,
+        clusters: Dict[Tuple[str, ...], List[str]],
+        access_data: Dict[str, Dict[str, Any]],
+        manifesto: Optional[ProtocolManifesto],
+        model_name: str,
+        use_openai: bool,
+    ) -> Tuple[Dict[str, Dict[str, Any]], float, Dict[str, int]]:
+        """
+        Use LLM to assign trust levels based on actual privileges.
+
+        The LLM receives grounded privilege data (what state each role can write)
+        and returns trust assignments with reasoning.
+
+        Returns: (assignments_dict, cost, tokens)
+        """
+        # Build the prompt with privilege summaries per cluster
+        cluster_summaries = []
+        for sig, ep_ids in clusters.items():
+            sig_key = ",".join(sig) if sig else "__unprotected__"
+
+            # Collect all state writes for this cluster
+            all_writes: set[str] = set()
+            functions: list[str] = []
+            for ep_id in ep_ids:
+                data = access_data[ep_id]
+                ref = data["ref"]
+                functions.append(
+                    f"{ref.container}.{ref.name}" if ref.container else ref.name
+                )
+                all_writes.update(data["write_targets"])
+
+            # Take representative functions (first 5)
+            func_sample = functions[:5]
+            if len(functions) > 5:
+                func_sample.append(f"... and {len(functions) - 5} more")
+
+            cluster_summaries.append(
+                {
+                    "signature_key": sig_key,
+                    "modifiers": list(sig) if sig else ["(none - unprotected)"],
+                    "function_count": len(ep_ids),
+                    "functions": func_sample,
+                    "state_writes": sorted(all_writes)
+                    if all_writes
+                    else ["(none - read-only)"],
+                }
+            )
+
+        # Build protocol context
+        protocol_context = ""
+        if manifesto:
+            protocol_context = f"""Protocol: {manifesto.name}
+Purpose: {manifesto.purpose}
+Domain: {manifesto.domain}"""
+
+        # Format the prompt template
+        prompt = ROLE_ASSIGNMENT_PROMPT.format(
+            protocol_context=protocol_context,
+            cluster_summaries=json.dumps(cluster_summaries, indent=2),
+        )
+
+        client = create_openai_client(use_openai=use_openai)
+
+        response = await client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,  # Deterministic
+        )
+
+        # Parse response
+        content = response.choices[0].message.content or ""
+
+        json_str = content
+        if "```json" in content:
+            json_str = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            json_str = content.split("```")[1].split("```")[0].strip()
+
+        try:
+            assignments_list: List[Dict[str, Any]] = json.loads(json_str)
+        except json.JSONDecodeError:
+            self.logger.warning(
+                f"Failed to parse LLM response, using fallback: {content[:200]}"
+            )
+            # Fallback to deterministic assignment
+            return self._assign_roles_fallback(clusters), 0.0, {}
+
+        # Convert to dict keyed by signature_key
+        assignments = {}
+        for item in assignments_list:
+            sig_key = item.get("signature_key", "")
+            assignments[sig_key] = {
+                "name": item.get("name", "Unknown"),
+                "trust": item.get("trust", "medium"),
+                "reasoning": item.get("reasoning", ""),
+            }
+
+        # Calculate cost
+        usage = response.usage
+        tokens = {
+            "prompt_tokens": usage.prompt_tokens if usage else 0,
+            "completion_tokens": usage.completion_tokens if usage else 0,
+        }
+        cost = 0  # TODO: fix this
+
+        return assignments, cost, tokens
+
+    def _assign_roles_fallback(
         self,
         clusters: Dict[Tuple[str, ...], List[str]],
     ) -> Dict[str, Dict[str, Any]]:
         """
-        Assign role names and trust levels deterministically using the adapter.
+        Fallback: Assign role names and trust levels deterministically using the adapter.
 
-        No LLM is used - fully deterministic based on modifier patterns.
+        Used when LLM call fails.
 
-        Returns: {signature_key: {"name": "Owner", "trust": "high"}}
+        Returns: {signature_key: {"name": "Owner", "trust": "high", "reasoning": ""}}
         """
         assignments = {}
 
@@ -293,6 +426,7 @@ class ActorProcess(BaseProcess[ActorMatrixInput, ActorMatrixOutput]):
             assignments[sig_key] = {
                 "name": name,
                 "trust": trust,
+                "reasoning": "(fallback - LLM unavailable)",
             }
 
         return assignments
@@ -361,6 +495,7 @@ class ActorProcess(BaseProcess[ActorMatrixInput, ActorMatrixOutput]):
                 ActorMatrixRole(
                     name=assignment.get("name", "Unknown"),
                     trust=assignment.get("trust", "review_required"),
+                    reasoning=assignment.get("reasoning", ""),
                     access_signature=list(sig),
                     privileges=privileges,
                     evidence=evidence_map.get(sig_key, []),

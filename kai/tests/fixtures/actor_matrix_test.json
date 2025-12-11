@@ -2,8 +2,9 @@
   "actor_matrix": {
     "roles": [
       {
-        "name": "Owner",
+        "name": "Global owner",
         "trust": "high",
+        "reasoning": "Can mint ENA, alter staking parameters, update operators, and rescue tokens, giving comprehensive authority.",
         "access_signature": [
           "ENA.onlyOwner"
         ],
@@ -194,42 +195,9 @@
         "risk_score": 6
       },
       {
-        "name": "Owner_checkAmount",
+        "name": "Mint controller",
         "trust": "high",
-        "access_signature": [
-          "ENA.onlyOwner",
-          "EthenaLPStaking.checkAmount"
-        ],
-        "privileges": [
-          {
-            "id": "unit:450",
-            "name": "rescueTokens",
-            "container": "EthenaLPStaking",
-            "signature": "rescueTokens(address,address,uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
-            "writes_state": false,
-            "write_targets": []
-          }
-        ],
-        "evidence": [
-          {
-            "function_id": "unit:450",
-            "modifiers": [
-              "onlyOwner",
-              "checkAmount"
-            ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
-            "snippet_lines": [
-              93,
-              104
-            ]
-          }
-        ],
-        "risk_score": 0
-      },
-      {
-        "name": "Role_belowMaxMintPerBlock",
-        "trust": "medium",
+        "reasoning": "This role can call the mint functions (including WETH minting), effectively creating new USDe within block limits.",
         "access_signature": [
           "AccessControl.onlyRole",
           "EthenaMinting.belowMaxMintPerBlock"
@@ -287,8 +255,9 @@
         "risk_score": 2
       },
       {
-        "name": "Role",
-        "trust": "medium",
+        "name": "Mint/Redeem admin",
+        "trust": "high",
+        "reasoning": "Can change mint/redeem limits, disable minting or redeeming, and move assets to custody, enabling sweeping protocol control.",
         "access_signature": [
           "AccessControl.onlyRole"
         ],
@@ -480,8 +449,100 @@
         "risk_score": 2
       },
       {
-        "name": "Role_belowMaxRedeemPerBlock",
+        "name": "Role administrator",
+        "trust": "high",
+        "reasoning": "Able to grant and revoke roles, controlling who holds every other privileged capability.",
+        "access_signature": [
+          "AccessControl.onlyRole",
+          "SingleAdminAccessControl.notAdmin"
+        ],
+        "privileges": [
+          {
+            "id": "unit:2557",
+            "name": "grantRole",
+            "container": "SingleAdminAccessControl",
+            "signature": "grantRole(bytes32,address) returns()",
+            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
+            "writes_state": false,
+            "write_targets": []
+          },
+          {
+            "id": "unit:2578",
+            "name": "revokeRole",
+            "container": "SingleAdminAccessControl",
+            "signature": "revokeRole(bytes32,address) returns()",
+            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
+            "writes_state": false,
+            "write_targets": []
+          }
+        ],
+        "evidence": [
+          {
+            "function_id": "unit:2557",
+            "modifiers": [
+              "notAdmin",
+              "onlyRole"
+            ],
+            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
+            "snippet_lines": [
+              41,
+              43
+            ]
+          },
+          {
+            "function_id": "unit:2578",
+            "modifiers": [
+              "notAdmin",
+              "onlyRole"
+            ],
+            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
+            "snippet_lines": [
+              50,
+              52
+            ]
+          }
+        ],
+        "risk_score": 0
+      },
+      {
+        "name": "Owner token rescuer",
+        "trust": "high",
+        "reasoning": "Combines ownership with rescue capability to extract tokens from staking contracts.",
+        "access_signature": [
+          "ENA.onlyOwner",
+          "EthenaLPStaking.checkAmount"
+        ],
+        "privileges": [
+          {
+            "id": "unit:450",
+            "name": "rescueTokens",
+            "container": "EthenaLPStaking",
+            "signature": "rescueTokens(address,address,uint256) returns()",
+            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "writes_state": false,
+            "write_targets": []
+          }
+        ],
+        "evidence": [
+          {
+            "function_id": "unit:450",
+            "modifiers": [
+              "checkAmount",
+              "onlyOwner"
+            ],
+            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "snippet_lines": [
+              93,
+              104
+            ]
+          }
+        ],
+        "risk_score": 0
+      },
+      {
+        "name": "Redeem controller",
         "trust": "medium",
+        "reasoning": "Controls redemption execution, determining when protocol assets are paid out, thus affecting users\u2019 ability to exit.",
         "access_signature": [
           "AccessControl.onlyRole",
           "EthenaMinting.belowMaxRedeemPerBlock"
@@ -516,97 +577,9 @@
         "risk_score": 1
       },
       {
-        "name": "Role_notAdmin",
+        "name": "Blacklist manager",
         "trust": "medium",
-        "access_signature": [
-          "AccessControl.onlyRole",
-          "SingleAdminAccessControl.notAdmin"
-        ],
-        "privileges": [
-          {
-            "id": "unit:2557",
-            "name": "grantRole",
-            "container": "SingleAdminAccessControl",
-            "signature": "grantRole(bytes32,address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
-            "writes_state": false,
-            "write_targets": []
-          },
-          {
-            "id": "unit:2578",
-            "name": "revokeRole",
-            "container": "SingleAdminAccessControl",
-            "signature": "revokeRole(bytes32,address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
-            "writes_state": false,
-            "write_targets": []
-          }
-        ],
-        "evidence": [
-          {
-            "function_id": "unit:2557",
-            "modifiers": [
-              "onlyRole",
-              "notAdmin"
-            ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
-            "snippet_lines": [
-              41,
-              43
-            ]
-          },
-          {
-            "function_id": "unit:2578",
-            "modifiers": [
-              "onlyRole",
-              "notAdmin"
-            ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
-            "snippet_lines": [
-              50,
-              52
-            ]
-          }
-        ],
-        "risk_score": 0
-      },
-      {
-        "name": "Role_notZero",
-        "trust": "medium",
-        "access_signature": [
-          "AccessControl.onlyRole",
-          "StakedUSDe.notZero"
-        ],
-        "privileges": [
-          {
-            "id": "unit:2834",
-            "name": "transferInRewards",
-            "container": "StakedUSDe",
-            "signature": "transferInRewards(uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDe.sol",
-            "writes_state": false,
-            "write_targets": []
-          }
-        ],
-        "evidence": [
-          {
-            "function_id": "unit:2834",
-            "modifiers": [
-              "onlyRole",
-              "notZero"
-            ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDe.sol",
-            "snippet_lines": [
-              87,
-              93
-            ]
-          }
-        ],
-        "risk_score": 0
-      },
-      {
-        "name": "Role_notOwner",
-        "trust": "medium",
+        "reasoning": "Can add addresses to the blacklist, affecting users\u2019 ability to interact with the staking token.",
         "access_signature": [
           "AccessControl.onlyRole",
           "StakedUSDe.notOwner"
@@ -626,8 +599,8 @@
           {
             "function_id": "unit:2861",
             "modifiers": [
-              "notOwner",
-              "onlyRole"
+              "onlyRole",
+              "notOwner"
             ],
             "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDe.sol",
             "snippet_lines": [
@@ -639,229 +612,9 @@
         "risk_score": 0
       },
       {
-        "name": "checkAmount",
-        "trust": "review_required",
-        "access_signature": [
-          "EthenaLPStaking.checkAmount"
-        ],
-        "privileges": [
-          {
-            "id": "unit:541",
-            "name": "stake",
-            "container": "EthenaLPStaking",
-            "signature": "stake(address,uint104) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
-            "writes_state": true,
-            "write_targets": [
-              "stakeParametersByToken",
-              "stakes"
-            ]
-          },
-          {
-            "id": "unit:625",
-            "name": "unstake",
-            "container": "EthenaLPStaking",
-            "signature": "unstake(address,uint104) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
-            "writes_state": true,
-            "write_targets": [
-              "stakeParametersByToken",
-              "stakes"
-            ]
-          },
-          {
-            "id": "unit:708",
-            "name": "withdraw",
-            "container": "EthenaLPStaking",
-            "signature": "withdraw(address,uint104) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
-            "writes_state": true,
-            "write_targets": [
-              "stakeParametersByToken",
-              "stakes"
-            ]
-          }
-        ],
-        "evidence": [
-          {
-            "function_id": "unit:541",
-            "modifiers": [
-              "checkAmount"
-            ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
-            "snippet_lines": [
-              118,
-              128
-            ]
-          },
-          {
-            "function_id": "unit:625",
-            "modifiers": [
-              "checkAmount"
-            ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
-            "snippet_lines": [
-              136,
-              147
-            ]
-          },
-          {
-            "function_id": "unit:708",
-            "modifiers": [
-              "checkAmount"
-            ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
-            "snippet_lines": [
-              154,
-              164
-            ]
-          }
-        ],
-        "risk_score": 6
-      },
-      {
-        "name": "ensureCooldownOn",
-        "trust": "review_required",
-        "access_signature": [
-          "StakedUSDeV2.ensureCooldownOn"
-        ],
-        "privileges": [
-          {
-            "id": "unit:3515",
-            "name": "cooldownAssets",
-            "container": "StakedUSDeV2",
-            "signature": "cooldownAssets(uint256) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
-            "writes_state": true,
-            "write_targets": [
-              "cooldowns"
-            ]
-          },
-          {
-            "id": "unit:3580",
-            "name": "cooldownShares",
-            "container": "StakedUSDeV2",
-            "signature": "cooldownShares(uint256) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
-            "writes_state": true,
-            "write_targets": [
-              "cooldowns"
-            ]
-          }
-        ],
-        "evidence": [
-          {
-            "function_id": "unit:3515",
-            "modifiers": [
-              "ensureCooldownOn"
-            ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
-            "snippet_lines": [
-              96,
-              105
-            ]
-          },
-          {
-            "function_id": "unit:3580",
-            "modifiers": [
-              "ensureCooldownOn"
-            ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
-            "snippet_lines": [
-              109,
-              118
-            ]
-          }
-        ],
-        "risk_score": 2
-      },
-      {
-        "name": "notAdmin",
-        "trust": "review_required",
-        "access_signature": [
-          "SingleAdminAccessControl.notAdmin"
-        ],
-        "privileges": [
-          {
-            "id": "unit:2598",
-            "name": "renounceRole",
-            "container": "SingleAdminAccessControl",
-            "signature": "renounceRole(bytes32,address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
-            "writes_state": false,
-            "write_targets": []
-          }
-        ],
-        "evidence": [
-          {
-            "function_id": "unit:2598",
-            "modifiers": [
-              "notAdmin"
-            ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
-            "snippet_lines": [
-              58,
-              60
-            ]
-          }
-        ],
-        "risk_score": 0
-      },
-      {
-        "name": "ensureCooldownOff",
-        "trust": "review_required",
-        "access_signature": [
-          "StakedUSDeV2.ensureCooldownOff"
-        ],
-        "privileges": [
-          {
-            "id": "unit:3373",
-            "name": "withdraw",
-            "container": "StakedUSDeV2",
-            "signature": "withdraw(uint256,address,address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
-            "writes_state": false,
-            "write_targets": []
-          },
-          {
-            "id": "unit:3396",
-            "name": "redeem",
-            "container": "StakedUSDeV2",
-            "signature": "redeem(uint256,address,address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
-            "writes_state": false,
-            "write_targets": []
-          }
-        ],
-        "evidence": [
-          {
-            "function_id": "unit:3373",
-            "modifiers": [
-              "ensureCooldownOff"
-            ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
-            "snippet_lines": [
-              54,
-              62
-            ]
-          },
-          {
-            "function_id": "unit:3396",
-            "modifiers": [
-              "ensureCooldownOff"
-            ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
-            "snippet_lines": [
-              67,
-              75
-            ]
-          }
-        ],
-        "risk_score": 0
-      },
-      {
-        "name": "StakingVault",
-        "trust": "review_required",
+        "name": "Staking vault",
+        "trust": "medium",
+        "reasoning": "Authorized vault can withdraw assets from the silo, directly moving protocol funds.",
         "access_signature": [
           "USDeSilo.onlyStakingVault"
         ],
@@ -892,8 +645,77 @@
         "risk_score": 0
       },
       {
-        "name": "User",
+        "name": "Role renouncer",
+        "trust": "low",
+        "reasoning": "Only allows an address to renounce its own role, which cannot harm the protocol.",
+        "access_signature": [
+          "SingleAdminAccessControl.notAdmin"
+        ],
+        "privileges": [
+          {
+            "id": "unit:2598",
+            "name": "renounceRole",
+            "container": "SingleAdminAccessControl",
+            "signature": "renounceRole(bytes32,address) returns()",
+            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
+            "writes_state": false,
+            "write_targets": []
+          }
+        ],
+        "evidence": [
+          {
+            "function_id": "unit:2598",
+            "modifiers": [
+              "notAdmin"
+            ],
+            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
+            "snippet_lines": [
+              58,
+              60
+            ]
+          }
+        ],
+        "risk_score": 0
+      },
+      {
+        "name": "Rewards depositor",
+        "trust": "low",
+        "reasoning": "Restricted to feeding rewards into the contract and does not modify protocol state beyond that action.",
+        "access_signature": [
+          "AccessControl.onlyRole",
+          "StakedUSDe.notZero"
+        ],
+        "privileges": [
+          {
+            "id": "unit:2834",
+            "name": "transferInRewards",
+            "container": "StakedUSDe",
+            "signature": "transferInRewards(uint256) returns()",
+            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDe.sol",
+            "writes_state": false,
+            "write_targets": []
+          }
+        ],
+        "evidence": [
+          {
+            "function_id": "unit:2834",
+            "modifiers": [
+              "notZero",
+              "onlyRole"
+            ],
+            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDe.sol",
+            "snippet_lines": [
+              87,
+              93
+            ]
+          }
+        ],
+        "risk_score": 0
+      },
+      {
+        "name": "Public user actions",
         "trust": "none",
+        "reasoning": "Covers ordinary token interactions like transfers, approvals, and swaps that any user can perform.",
         "access_signature": [],
         "privileges": [
           {
@@ -2521,15 +2343,212 @@
           }
         ],
         "risk_score": 10
+      },
+      {
+        "name": "LP staking user actions",
+        "trust": "none",
+        "reasoning": "Covers user-facing stake, unstake, and withdraw operations that only affect the caller\u2019s balances.",
+        "access_signature": [
+          "EthenaLPStaking.checkAmount"
+        ],
+        "privileges": [
+          {
+            "id": "unit:541",
+            "name": "stake",
+            "container": "EthenaLPStaking",
+            "signature": "stake(address,uint104) returns()",
+            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "writes_state": true,
+            "write_targets": [
+              "stakeParametersByToken",
+              "stakes"
+            ]
+          },
+          {
+            "id": "unit:625",
+            "name": "unstake",
+            "container": "EthenaLPStaking",
+            "signature": "unstake(address,uint104) returns()",
+            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "writes_state": true,
+            "write_targets": [
+              "stakeParametersByToken",
+              "stakes"
+            ]
+          },
+          {
+            "id": "unit:708",
+            "name": "withdraw",
+            "container": "EthenaLPStaking",
+            "signature": "withdraw(address,uint104) returns()",
+            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "writes_state": true,
+            "write_targets": [
+              "stakeParametersByToken",
+              "stakes"
+            ]
+          }
+        ],
+        "evidence": [
+          {
+            "function_id": "unit:541",
+            "modifiers": [
+              "checkAmount"
+            ],
+            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "snippet_lines": [
+              118,
+              128
+            ]
+          },
+          {
+            "function_id": "unit:625",
+            "modifiers": [
+              "checkAmount"
+            ],
+            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "snippet_lines": [
+              136,
+              147
+            ]
+          },
+          {
+            "function_id": "unit:708",
+            "modifiers": [
+              "checkAmount"
+            ],
+            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "snippet_lines": [
+              154,
+              164
+            ]
+          }
+        ],
+        "risk_score": 6
+      },
+      {
+        "name": "User cooldown initiation",
+        "trust": "none",
+        "reasoning": "Allows users to start cooldowns and only updates their own cooldown data.",
+        "access_signature": [
+          "StakedUSDeV2.ensureCooldownOn"
+        ],
+        "privileges": [
+          {
+            "id": "unit:3515",
+            "name": "cooldownAssets",
+            "container": "StakedUSDeV2",
+            "signature": "cooldownAssets(uint256) returns(uint256)",
+            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "writes_state": true,
+            "write_targets": [
+              "cooldowns"
+            ]
+          },
+          {
+            "id": "unit:3580",
+            "name": "cooldownShares",
+            "container": "StakedUSDeV2",
+            "signature": "cooldownShares(uint256) returns(uint256)",
+            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "writes_state": true,
+            "write_targets": [
+              "cooldowns"
+            ]
+          }
+        ],
+        "evidence": [
+          {
+            "function_id": "unit:3515",
+            "modifiers": [
+              "ensureCooldownOn"
+            ],
+            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "snippet_lines": [
+              96,
+              105
+            ]
+          },
+          {
+            "function_id": "unit:3580",
+            "modifiers": [
+              "ensureCooldownOn"
+            ],
+            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "snippet_lines": [
+              109,
+              118
+            ]
+          }
+        ],
+        "risk_score": 2
+      },
+      {
+        "name": "User withdrawals (no cooldown)",
+        "trust": "none",
+        "reasoning": "Regular user functions for withdrawing or redeeming when cooldown is disabled.",
+        "access_signature": [
+          "StakedUSDeV2.ensureCooldownOff"
+        ],
+        "privileges": [
+          {
+            "id": "unit:3373",
+            "name": "withdraw",
+            "container": "StakedUSDeV2",
+            "signature": "withdraw(uint256,address,address) returns(uint256)",
+            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "writes_state": false,
+            "write_targets": []
+          },
+          {
+            "id": "unit:3396",
+            "name": "redeem",
+            "container": "StakedUSDeV2",
+            "signature": "redeem(uint256,address,address) returns(uint256)",
+            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "writes_state": false,
+            "write_targets": []
+          }
+        ],
+        "evidence": [
+          {
+            "function_id": "unit:3373",
+            "modifiers": [
+              "ensureCooldownOff"
+            ],
+            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "snippet_lines": [
+              54,
+              62
+            ]
+          },
+          {
+            "function_id": "unit:3396",
+            "modifiers": [
+              "ensureCooldownOff"
+            ],
+            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "snippet_lines": [
+              67,
+              75
+            ]
+          }
+        ],
+        "risk_score": 0
       }
     ],
     "stats": {
       "total_entrypoints": 223,
       "unprotected_stateful": 9,
       "unprotected_readonly": 166,
-      "review_required_count": 9
+      "review_required_count": 0
     }
   },
   "success": true,
-  "error_message": null
+  "error_message": null,
+  "estimated_cost": 0.0,
+  "total_tokens": {
+    "prompt_tokens": 1725,
+    "completion_tokens": 1676
+  }
 }
