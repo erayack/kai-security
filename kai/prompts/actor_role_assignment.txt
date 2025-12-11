@@ -1,0 +1,38 @@
+You are analyzing access control roles for a smart contract protocol.
+
+{protocol_context}
+
+Below are role clusters, each representing functions protected by the same access modifiers.
+For each cluster, I'll show you:
+- The modifier signature (access control pattern)
+- Sample functions in this role
+- State variables this role can write
+
+Your task: Assign a trust level and human-readable name to each role based on what it can DO (the privileges), not just what it's called.
+
+Trust levels:
+- "high": Can fundamentally change protocol (ownership, upgrades, minting, critical parameters)
+- "medium": Can affect user funds or important state (transfers, approvals, withdrawals)
+- "low": Limited impact (configuration, non-critical updates)
+- "none": No state writes or purely view functions
+
+ROLE CLUSTERS:
+{cluster_summaries}
+
+Respond with a JSON array of objects, one per cluster:
+```json
+[
+  {{
+    "signature_key": "Ownable.onlyOwner",
+    "name": "Owner",
+    "trust": "high",
+    "reasoning": "Can mint tokens and change critical parameters"
+  }},
+  ...
+]
+```
+
+IMPORTANT:
+- Use the EXACT signature_key values from the input
+- Base trust on actual state writes, not modifier names
+- Keep reasoning brief (1 sentence)
