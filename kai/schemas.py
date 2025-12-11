@@ -18,6 +18,7 @@ class ChatMessage(BaseModel):
     role: Role
     content: str
 
+
 class Language(str, Enum):
     SOLIDITY = "solidity"
     JAVASCRIPT = "javascript"
@@ -103,42 +104,110 @@ class ExploitSeverity(str, Enum):
 
 
 # ---------------------------
-# Invariant Types (for InvariantAnalysis → Dispatcher)
+# Invariant Types (for InvariantProcess → Dispatcher)
 # ---------------------------
 
 
 class InvariantType(str, Enum):
-    """Categories of invariants for the exploit scaffold."""
+    """Categories of invariants - just labels, not constraints."""
 
-    LIVENESS = "liveness"  # Function must be callable by intended role
+    ACCESS = "access"  # Only X can call Y
     SOLVENCY = "solvency"  # totalAssets >= totalLiabilities
-    ACCESS_CONTROL = "access_control"  # Only X can call Y
-    STATE_TRANSITION = "state_transition"  # Valid state machine transitions
-    BALANCE = "balance"  # Balance/accounting invariants
+    CONSERVATION = "conservation"  # Sum invariants (balances, supply)
+    LIVENESS = "liveness"  # Function must be callable
+    FEE_BOUND = "fee_bound"  # Fee constraints
     REENTRANCY = "reentrancy"  # No reentrant state corruption
-    CUSTOM = "custom"  # LLM-generated or user-defined
+    ORDERING = "ordering"  # State transition ordering
+    OTHER = "other"  # Anything else
 
 
 class Invariant(BaseModel):
     """
-    An invariant rule used by Dispatcher to schedule missions.
+    A grounded invariant rule used by Dispatcher to schedule missions.
 
-    Output of InvariantAnalysis, consumed by Dispatcher and Workers.
+    All target fields reference node IDs from the DependencyGraph.
+    Output of InvariantProcess, consumed by Dispatcher and Workers.
     """
 
-    id: str  # e.g., "LIVENESS_addRecoveryProvider", "UNIV_SOLVENCY"
+    id: str  # e.g., "INV_SUPPLY_CONSERVATION", "INV_ADMIN_UPGRADE"
     type: InvariantType
-    rule: (
-        str  # Human-readable: "Function addRecoveryProvider must be callable by Admin"
-    )
-    target_functions: List[str] = Field(
-        default_factory=list
-    )  # Functions this applies to
-    target_files: List[str] = Field(default_factory=list)  # Files involved
-    confidence: float = Field(
-        default=1.0, ge=0.0, le=1.0
-    )  # How confident (1.0 = deterministic)
-    source: str = "static"  # "static", "llm", "observation" - what generated this
+    rule: str  # Human-readable invariant statement
+    explanation: str = ""  # LLM's reasoning for this invariant
+
+    # Grounded targets - all must be valid graph node IDs
+    target_function_ids: List[str] = Field(default_factory=list)
+    target_var_ids: List[str] = Field(default_factory=list)
+    target_file_ids: List[str] = Field(default_factory=list)
+
+    # Metadata
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    source: str = "llm"  # "llm", "pattern", "docs"
+    chunk_id: Optional[str] = None  # Which chunk this came from
+
+
+# Vocab table entries for LLM context
+class FunctionVocabEntry(BaseModel):
+    """Function entry in vocab table for LLM."""
+
+    id: str  # Node ID from graph
+    name: str
+    container: str  # Contract name
+    file: str
+    role: str = ""  # From ActorMatrix (e.g., "Admin", "User")
+    trust: str = ""  # From ActorMatrix (e.g., "high", "none")
+    reads: List[str] = Field(default_factory=list)  # Var names
+    writes: List[str] = Field(default_factory=list)  # Var names
+
+
+class VarVocabEntry(BaseModel):
+    """State variable entry in vocab table for LLM."""
+
+    id: str  # Node ID from graph
+    name: str
+    container: str  # Contract name
+    file: str
+    writers: List[str] = Field(default_factory=list)  # Function IDs that write
+    readers: List[str] = Field(default_factory=list)  # Function IDs that read
+
+
+class FileVocabEntry(BaseModel):
+    """File entry in vocab table for LLM."""
+
+    id: str  # File path
+    contracts: List[str] = Field(default_factory=list)
+
+
+class VocabChunk(BaseModel):
+    """A chunk of vocabulary for one LLM call."""
+
+    chunk_id: str
+    functions: List[FunctionVocabEntry] = Field(default_factory=list)
+    vars: List[VarVocabEntry] = Field(default_factory=list)
+    files: List[FileVocabEntry] = Field(default_factory=list)
+
+
+class InvariantProcessInput(BaseModel):
+    """Input for InvariantProcess."""
+
+    master_context: "MasterContext"
+    dependency_graph: Any  # DependencyGraph object
+    actor_matrix: "ActorMatrix"
+    protocol_manifesto: Optional["ProtocolManifesto"] = None
+    model_name: str = "openai/gpt-5.2"
+    use_openai: bool = False
+    max_chunk_functions: int = 25  # Max functions per chunk
+
+
+class InvariantProcessOutput(BaseModel):
+    """Output of InvariantProcess."""
+
+    invariants: List[Invariant] = Field(default_factory=list)
+    success: bool
+    error_message: Optional[str] = None
+    estimated_cost: float = 0.0
+    total_tokens: Dict[str, int] = Field(default_factory=dict)
+    stats: Dict[str, int] = Field(default_factory=dict)
+    # stats: {total_generated, validated, dropped, merged}
 
 
 class Observation(BaseModel):
@@ -639,6 +708,7 @@ class ActorMatrixOutput(BaseModel):
 
 # Resolve forward references for models that refer to ProtocolManifesto
 AgentResponse.model_rebuild()
+
 
 class AdapterChooserInput(BaseModel):
     model_name: str

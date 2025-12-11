@@ -37,8 +37,8 @@ class AdapterChooserProcess(BaseProcess[AdapterChooserInput, AdapterChooserOutpu
         "You are a language detector for a code repository.\n"
         "Pick ONLY from the allowed languages: {languages}.\n"
         "Return a single JSON object with keys:\n"
-        '{{\"languages\": [\"<language1>\", \"<language2>\", ...], '
-        '"reason\": \"<short reason>\"}}\n'
+        '{{"languages": ["<language1>", "<language2>", ...], '
+        '"reason": "<short reason>"}}\n'
         "Do not mention frameworks or adapters; only list languages."
     )
 
@@ -228,10 +228,7 @@ class AdapterChooserProcess(BaseProcess[AdapterChooserInput, AdapterChooserOutpu
                 detected.add(Language.SOLIDITY)
             if "package.json" in lowered_files or "yarn.lock" in lowered_files:
                 detected.add(Language.JAVASCRIPT)
-            if any(
-                f.endswith((".js", ".ts", ".cjs", ".mjs"))
-                for f in lowered_files
-            ):
+            if any(f.endswith((".js", ".ts", ".cjs", ".mjs")) for f in lowered_files):
                 detected.add(Language.JAVASCRIPT)
 
             if Language.SOLIDITY in detected and Language.JAVASCRIPT in detected:

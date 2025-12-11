@@ -43,4 +43,3 @@ async def test_adapter_chooser_selects_foundry(monkeypatch):
     assert "SolidityAdapter" in result.choice.adapters
     # Node adapter mapping intentionally None
     assert None in result.choice.adapters
-
