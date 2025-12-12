@@ -17,7 +17,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from kai.inference import create_openai_client
+from kai.inference import create_openai_client, get_model_pricing
 
 # Load prompt template
 PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "actor_role_assignment.txt"
@@ -166,7 +166,8 @@ class ActorProcess(BaseProcess[ActorMatrixInput, ActorMatrixOutput]):
                 "all_controls": all_controls,  # All modifiers (for reference)
                 "auth_controls": auth_controls,  # Only auth-related modifiers
                 "writes": writes,  # List[NodeRef] of state vars
-                "write_targets": [w.name for w in writes],
+                "write_targets": [w.name for w in writes],  # Var names (display)
+                "write_target_ids": [w.id for w in writes],  # Var node IDs (matching)
             }
 
         return access_data
@@ -382,7 +383,13 @@ Domain: {manifesto.domain}"""
             "prompt_tokens": usage.prompt_tokens if usage else 0,
             "completion_tokens": usage.completion_tokens if usage else 0,
         }
-        cost = 0  # TODO: fix this
+
+        # Get pricing and calculate cost
+        pricing = get_model_pricing(model_name, use_openai)
+        cost = (
+            tokens["prompt_tokens"] * pricing["prompt"]
+            + tokens["completion_tokens"] * pricing["completion"]
+        )
 
         return assignments, cost, tokens
 
@@ -464,6 +471,7 @@ Domain: {manifesto.domain}"""
                 ref = data["ref"]
                 writes = data["writes"]
                 write_targets = data["write_targets"]
+                write_target_ids = data["write_target_ids"]
 
                 privileges.append(
                     Privilege(
@@ -474,6 +482,7 @@ Domain: {manifesto.domain}"""
                         file=ref.file,
                         writes_state=bool(writes),
                         write_targets=write_targets,
+                        write_target_ids=write_target_ids,
                     )
                 )
 
