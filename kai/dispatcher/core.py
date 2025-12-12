@@ -347,7 +347,6 @@ class Dispatcher:
             prompt = self._build_mission_prompt(mission)
             result = await agent.chat(prompt)
 
-            # Handle result
             await self._handle_result(mission, result)
 
             mission.status = "completed"
@@ -370,8 +369,10 @@ class Dispatcher:
             # Cleanup workspace
             await self._cleanup_workspace(mission)
 
-    def _build_mission_prompt(self, mission: Mission) -> str:
+    @staticmethod
+    def _build_mission_prompt(mission: Mission) -> str:
         """Build the initial prompt for an agent based on mission details."""
+        # TODO: Feed context to prompt template instead
         lines = [f"Mission: {mission.mission_id}"]
 
         if mission.invariant:
