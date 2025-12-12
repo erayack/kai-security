@@ -212,12 +212,12 @@ class InvariantProcessOutput(BaseModel):
 
 class Observation(BaseModel):
     """
-    Intermediate finding from non-invariant workers (BlackBox, Gamified).
+    Intermediate finding from non-invariant agents (BlackBox, Gamified).
 
     Gets refined by LLM into a tentative Invariant.
     """
 
-    worker_id: str
+    agent_id: str
     mission_id: str
     description: str  # "Function X always reverts when called by any actor"
     affected_functions: List[str] = Field(default_factory=list)
@@ -228,20 +228,20 @@ class Observation(BaseModel):
 
 class ExploitCandidate(BaseModel):
     """
-    A potential exploit from invariant-dependent workers.
+    A potential exploit from invariant-dependent agents.
 
     Sent to Verifier for confirmation.
     """
 
     mission_id: str
-    worker_id: str
+    agent_id: str
     invariant_id: str  # Which invariant this claims to violate
     mechanism: str  # "reentrancy", "access_control_bypass", etc.
     poc_code: str  # The exploit contract/test code
     target_file: str
     target_function: str
     description: str
-    compiled: bool = False  # Did it compile in worker's workspace?
+    compiled: bool = False  # Did it compile in agent's workspace?
     logs: List[str] = Field(default_factory=list)
 
 
@@ -636,7 +636,10 @@ class Privilege(BaseModel):
     signature: Optional[str] = None  # Full signature
     file: Optional[str] = None  # Source file path
     writes_state: bool = False  # Does it write state variables?
-    write_targets: List[str] = Field(default_factory=list)  # State vars written
+    write_targets: List[str] = Field(default_factory=list)  # State var names (display)
+    write_target_ids: List[str] = Field(
+        default_factory=list
+    )  # State var node IDs (matching)
 
 
 class RoleEvidence(BaseModel):
@@ -723,3 +726,182 @@ class AdapterChooserOutput(BaseModel):
     total_tokens: Dict[str, int] = Field(default_factory=dict)
     success: bool
     error_message: Optional[str] = None
+
+
+# Dispatcher and Campaign Schemas
+
+
+class MissionAgentType(str, Enum):
+    """
+    Agent types for missions.
+
+    Invariant-dependent:
+    - QUANT: Break numeric invariants, equations (solvency, conservation)
+    - STATE: Break state machine invariants (call sequences, access control)
+
+    Non-dependent (exploration):
+    - BLACKBOX: Anomaly detection, surfaces observations → new invariants
+    - GAMIFIED: Game-theoretic exploitation (maximize attacker payoff)
+    """
+
+    QUANT = "quant"
+    STATE = "state"
+    BLACKBOX = "blackbox"
+    GAMIFIED = "gamified"
+
+
+class CampaignMode(str, Enum):
+    """Campaign execution mode."""
+
+    INVARIANT_BOUNDED = "invariant_bounded"  # Test specific invariants
+    EXPLORATORY = "exploratory"  # BlackBox anomaly detection
+    GAME = "game"  # Gamified payoff maximization
+
+
+class WorkspacePreset(str, Enum):
+    """Workspace provisioning presets."""
+
+    CLEAN = "clean"  # src/test COPY, lib SYMLINK
+    WRITEABLE = "writeable"  # src/lib/test COPY (writeable)
+    SANDBOX = "sandbox"  # FULL COPY + extras (world/, mocks/, actors/)
+
+
+class RewardModel(str, Enum):
+    """Reward model for gamified agents."""
+
+    NONE = "none"  # No reward model (invariant-based)
+    PROFIT = "profit"  # Maximize attacker profit
+    GRIEF = "grief"  # Maximize griefing effect
+    COVERAGE = "coverage"  # Maximize code coverage
+
+
+class EntrypointPolicy(BaseModel):
+    """Policy for filtering/ordering entrypoints."""
+
+    max_sequence_len: int = 6
+    prefer: List[str] = Field(
+        default_factory=list
+    )  # ["writes_state", "external_calls"]
+    exclude_patterns: List[str] = Field(default_factory=list)
+
+
+class EntrypointSubset(BaseModel):
+    """Filtered entrypoints with policy."""
+
+    ids: List[str] = Field(default_factory=list)
+    policy: EntrypointPolicy = Field(default_factory=EntrypointPolicy)
+
+
+class CampaignScope(BaseModel):
+    """Scope definition for a campaign."""
+
+    entrypoints_subset: EntrypointSubset = Field(default_factory=EntrypointSubset)
+    primary_var_ids: List[str] = Field(default_factory=list)
+    file_ids: List[str] = Field(default_factory=list)
+    actor_roles: List[str] = Field(default_factory=list)
+
+
+class CampaignObjectives(BaseModel):
+    """Objectives for a campaign."""
+
+    reward_model: RewardModel = RewardModel.NONE
+    notes: str = ""
+
+
+class CampaignBudget(BaseModel):
+    """Resource budget for a campaign."""
+
+    max_missions: int = 6
+    max_agents: int = 3
+    max_turns_per_agent: int = 20
+
+
+class InvariantCluster(BaseModel):
+    """
+    Intermediate grouping of related invariants.
+
+    Clustering rule: invariants sharing vars OR functions
+    in the same container/file → same cluster.
+    """
+
+    cluster_id: str
+    invariant_ids: List[str] = Field(default_factory=list)
+    primary_var_ids: List[str] = Field(default_factory=list)
+    primary_function_ids: List[str] = Field(default_factory=list)
+    primary_container: Optional[str] = None
+    dominant_type: Optional[InvariantType] = None
+
+
+class CampaignBrief(BaseModel):
+    """
+    A campaign brief with full execution context for agents.
+
+    Self-contained: agents can execute with only this + workspace.
+    """
+
+    campaign_id: str
+    mode: CampaignMode = CampaignMode.INVARIANT_BOUNDED
+    agent_types: List[MissionAgentType] = Field(default_factory=list)
+    framework: Optional[str] = None
+    workspace_preset: WorkspacePreset = WorkspacePreset.CLEAN
+    # Scope (derived from cluster + ActorMatrix + Graph)
+    scope: CampaignScope = Field(default_factory=CampaignScope)
+    # Invariants to test (full objects, not just IDs)
+    invariants: List[Invariant] = Field(default_factory=list)
+    # Objectives
+    objectives: CampaignObjectives = Field(default_factory=CampaignObjectives)
+    # Budget
+    budget: CampaignBudget = Field(default_factory=CampaignBudget)
+    # MasterContext for agent independence
+    master_context: Optional[MasterContext] = None
+    # Priority: 0=verification, 1=narrow, 2=broad
+    priority: int = 1
+
+
+class Mission(BaseModel):
+    """
+    A single mission spawned from a campaign.
+
+    What agents actually execute.
+    """
+
+    mission_id: str
+    campaign_id: str
+    # Target invariant (None for exploratory/game modes)
+    invariant_id: Optional[str] = None
+    invariant: Optional[Invariant] = None
+    # Agent assignment
+    agent_type: MissionAgentType
+    # Inherited from campaign
+    scope: CampaignScope = Field(default_factory=CampaignScope)
+    workspace_preset: WorkspacePreset = WorkspacePreset.CLEAN
+    objectives: CampaignObjectives = Field(default_factory=CampaignObjectives)
+    # Budget for this mission
+    max_turns: int = 20
+    # State
+    status: str = "pending"  # pending, in_progress, completed, failed
+
+
+class DispatcherProcessInput(BaseModel):
+    """Input for DispatcherProcess."""
+
+    master_context: "MasterContext"
+    dependency_graph: Any  # DependencyGraph object
+    actor_matrix: "ActorMatrix"
+    invariants: List[Invariant]
+    # Config
+    max_invariants_per_cluster: int = 5
+    max_campaigns: int = 10
+    default_budget: CampaignBudget = Field(default_factory=CampaignBudget)
+    include_exploration: bool = True  # Add exploratory/game campaigns
+
+
+class DispatcherProcessOutput(BaseModel):
+    """Output of DispatcherProcess."""
+
+    clusters: List[InvariantCluster] = Field(default_factory=list)
+    campaigns: List[CampaignBrief] = Field(default_factory=list)
+    missions: List[Mission] = Field(default_factory=list)
+    success: bool
+    error_message: Optional[str] = None
+    stats: Dict[str, int] = Field(default_factory=dict)
