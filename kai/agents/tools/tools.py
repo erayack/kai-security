@@ -315,7 +315,20 @@ def dependency_graph_callees(func_id: str) -> Union[List[NodeRef], Dict[str, str
         return {"error": str(e)}
 
 
-def dependency_graph_public_entrypoints() -> Union[List[NodeRef], Dict[str, str]]:
+def _sanitize_window(start: int, end: Optional[int], total: int, max_window: int = 200) -> tuple[int, int]:
+    """
+    Normalize pagination window to prevent unbounded output.
+    """
+    start = max(start, 0)
+    if end is None or end <= start:
+        end = start + 50
+    end = min(end, start + max_window, total)
+    return start, end
+
+
+def dependency_graph_public_entrypoints(
+    start: int = 0, end: Optional[int] = 50
+) -> Union[Dict[str, Any], Dict[str, str]]:
     """
     Get all public/external function entrypoints in the dependency graph.
 
@@ -324,14 +337,22 @@ def dependency_graph_public_entrypoints() -> Union[List[NodeRef], Dict[str, str]
 
     For protocol-only entrypoints (excluding libraries), use dependency_graph_protocol_entrypoints().
 
+    Pagination:
+        - Results are windowed with start/end (0-based, end exclusive).
+        - Maximum window size is capped to avoid huge token outputs.
+
     Returns:
-        List of NodeRef objects representing public entrypoint functions.
+        Dict with:
+            results: List[NodeRef]
+            total: int
+            window: [start, end]
+            truncated: bool
         Returns {"error": "..."} if the graph is unavailable.
 
     Examples:
         # Get all public entry points (including libraries)
         entrypoints = dependency_graph_public_entrypoints()
-        for ep in entrypoints:
+        for ep in entrypoints["results"]:
             print(f"{ep.container}.{ep.name} - {ep.signature}")
     """
     engine = _get_query_engine()
@@ -341,13 +362,24 @@ def dependency_graph_public_entrypoints() -> Union[List[NodeRef], Dict[str, str]
     try:
         # Get public entrypoint IDs from the graph
         entrypoint_ids = engine.graph.public_entrypoints()
+        total = len(entrypoint_ids)
+        start, end = _sanitize_window(start, end, total)
+        sliced = entrypoint_ids[start:end]
         # Convert to NodeRef using the engine's helper
-        return [engine._to_ref(engine.graph.node(nid)) for nid in entrypoint_ids]
+        results = [engine._to_ref(engine.graph.node(nid)) for nid in sliced]
+        return {
+            "results": results,
+            "total": total,
+            "window": [start, end],
+            "truncated": end < total,
+        }
     except Exception as e:
         return {"error": str(e)}
 
 
-def dependency_graph_protocol_entrypoints() -> Union[List[NodeRef], Dict[str, str]]:
+def dependency_graph_protocol_entrypoints(
+    start: int = 0, end: Optional[int] = 50
+) -> Union[Dict[str, Any], Dict[str, str]]:
     """
     Get public/external entrypoints that belong to the protocol (not libraries).
 
@@ -358,14 +390,22 @@ def dependency_graph_protocol_entrypoints() -> Union[List[NodeRef], Dict[str, st
     Use this instead of dependency_graph_public_entrypoints() when you want
     only the protocol's own functions, not inherited library functions.
 
+    Pagination:
+        - Results are windowed with start/end (0-based, end exclusive).
+        - Maximum window size is capped to avoid huge token outputs.
+
     Returns:
-        List of NodeRef objects representing protocol entrypoint functions.
+        Dict with:
+            results: List[NodeRef]
+            total: int
+            window: [start, end]
+            truncated: bool
         Returns {"error": "..."} if the graph is unavailable.
 
     Examples:
         # Get protocol attack surface
         entrypoints = dependency_graph_protocol_entrypoints()
-        for ep in entrypoints:
+        for ep in entrypoints["results"]:
             print(f"{ep.container}.{ep.name} - {ep.signature}")
             # e.g., "Vault.deposit - deposit(uint256)"
     """
@@ -374,7 +414,16 @@ def dependency_graph_protocol_entrypoints() -> Union[List[NodeRef], Dict[str, st
         return {"error": "Dependency graph is not available to the agent"}
 
     try:
-        return engine.protocol_entrypoints()
+        protocol_eps = engine.protocol_entrypoints()
+        total = len(protocol_eps)
+        start, end = _sanitize_window(start, end, total)
+        results = protocol_eps[start:end]
+        return {
+            "results": results,
+            "total": total,
+            "window": [start, end],
+            "truncated": end < total,
+        }
     except Exception as e:
         return {"error": str(e)}
 

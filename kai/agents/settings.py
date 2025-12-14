@@ -48,6 +48,7 @@ SANDBOX_TIMEOUT = 3600  # 1 hour
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 SETUP_AGENT_PROMPT_PATH = PROMPTS_DIR / "setup_agent_prompt.txt"
 PROFILER_AGENT_PROMPT_PATH = PROMPTS_DIR / "profiler_agent_prompt.txt"
+BLACKBOX_AGENT_PROMPT_PATH = PROMPTS_DIR / "blackbox_agent_prompt.txt"
 
 # Conversation defaults
 SAVE_CONVERSATION_PATH = "output/conversations/"

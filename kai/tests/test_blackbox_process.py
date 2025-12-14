@@ -1,0 +1,107 @@
+import json
+from pathlib import Path
+from time import time
+
+import pytest  # type: ignore[import-not-found]
+
+from kai.agents import settings
+from kai.processes.blackbox import BlackboxProcess
+from kai.schemas import CampaignBrief, BlackboxInput
+from logger import logging
+from logger.mongo_adapter import MongoDBHandler
+
+
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+
+@pytest.fixture(autouse=True)
+def disable_mongo_logging():
+    logger = logging.getLogger()
+    removed = []
+    for h in list(logger.handlers):
+        if isinstance(h, MongoDBHandler):
+            logger.removeHandler(h)
+            removed.append(h)
+    yield
+
+
+def _load_campaign_brief() -> CampaignBrief:
+    """
+    Load the BBP CampaignBrief fixture (v2).
+
+    Note: this fixture points at a real BBP repo checkout under testbed/.
+    """
+    fixtures_dir = Path(__file__).resolve().parent / "fixtures"
+    brief_path = fixtures_dir / "campaign_brief_bbp.json"
+    brief_data = json.loads(brief_path.read_text())
+    return CampaignBrief(**brief_data)
+
+
+@pytest.mark.anyio
+async def test_blackbox_process_saves_conversation_and_returns_findings(
+    monkeypatch, tmp_path
+):
+    brief = _load_campaign_brief()
+    repo_root = Path(brief.master_context.root_path)
+    if not repo_root.exists():
+        pytest.skip(f"MasterContext root_path not found at {repo_root}")
+
+    # Clean external campaigns output for this campaign to avoid stale harnesses.
+    project_root = Path(__file__).resolve().parents[2]
+    external_campaigns_root = (
+        project_root / "output" / "campaigns" / brief.campaign_id / repo_root.name
+    )
+    if external_campaigns_root.exists():
+        for p in external_campaigns_root.rglob("*.t.sol"):
+            try:
+                p.unlink()
+            except Exception:
+                pass
+
+    process = BlackboxProcess(brief.master_context)
+
+    convo_dir = project_root / "output" / repo_root.name
+    convo_dir.mkdir(parents=True, exist_ok=True)
+    before = {p for p in convo_dir.glob("blackbox_*.json")}
+    repo_campaigns_before = {p for p in (repo_root / "campaigns").glob("*.t.sol")} if (repo_root / "campaigns").exists() else set()
+    repo_test_before = {p for p in (repo_root / "test").glob("*.t.sol")} if (repo_root / "test").exists() else set()
+
+    result = await process.execute(
+        BlackboxInput(
+            campaign_brief=brief,
+            num_turns=brief.budget.max_turns_per_worker,
+            model_name="z-ai/glm-4.6",
+            use_openai=bool(
+                settings.OPENAI_API_KEY and not settings.OPENROUTER_API_KEY
+            ),
+        )
+    )
+
+    assert result.success is True
+    assert result.response is not None
+    assert result.response.master_context is not None
+    assert isinstance(result.observations, list)
+    assert result.observations, "Expected at least one observation for a passing blackbox run"
+    assert result.estimated_cost >= 0
+    assert "prompt_tokens" in result.total_tokens
+
+    after = {p for p in convo_dir.glob("blackbox_*.json")}
+    new_files = after - before
+    assert new_files, "Conversation file was not saved"
+    convo_files = {p for p in new_files if not str(p).endswith(".results.json")}
+    assert convo_files, "Conversation file was not saved (only results files found)"
+    convo_path = next(iter(convo_files))
+    results_path = Path(str(convo_path)[: -len(".json")] + ".results.json")
+    assert results_path.exists(), "Results JSON was not saved next to conversation file"
+    results_payload = json.loads(results_path.read_text())
+    assert "exploit_candidates" not in results_payload
+    assert "exploits" not in results_payload
+
+    # Ensure we didn't leave harness files inside the target repo.
+    repo_campaigns_after = {p for p in (repo_root / "campaigns").glob("*.t.sol")} if (repo_root / "campaigns").exists() else set()
+    repo_test_after = {p for p in (repo_root / "test").glob("*.t.sol")} if (repo_root / "test").exists() else set()
+    assert repo_campaigns_after == repo_campaigns_before
+    assert repo_test_after == repo_test_before
+

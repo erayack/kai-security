@@ -15,6 +15,7 @@ class AgentType(Enum):
     TEST_GENERATOR = "test_generator"
     SETUP = settings.SETUP_AGENT_PROMPT_PATH
     PROFILER = settings.PROFILER_AGENT_PROMPT_PATH
+    BLACKBOX = settings.BLACKBOX_AGENT_PROMPT_PATH
     FIXER = "fixer"
 
 
@@ -24,6 +25,8 @@ def agent_type_to_kind(agent_type: AgentType) -> str:
         return "setup"
     if agent_type == AgentType.PROFILER:
         return "profiler"
+    if agent_type == AgentType.BLACKBOX:
+        return "blackbox"
     return "unknown"
 
 
@@ -40,7 +43,7 @@ def load_system_prompt(
     """
     Load the system prompt from the file (SETUP and PROFILER supported).
     """
-    if agent_type not in {AgentType.SETUP, AgentType.PROFILER}:
+    if agent_type not in {AgentType.SETUP, AgentType.PROFILER, AgentType.BLACKBOX}:
         raise ValueError(f"Unsupported agent type for Kai v2 scope: {agent_type}")
 
     prompt_path = agent_type.value
@@ -48,7 +51,7 @@ def load_system_prompt(
         with open(prompt_path, "r") as f:
             system_prompt = f.read()
             system_prompt = system_prompt.replace(
-                "{{max_tool_turns}}", str(settings.MAX_TOOL_TURNS - 1)
+                "{{max_tool_turns}}", str(max_turns)
             )
 
             if is_sub_agent:
@@ -126,7 +129,6 @@ def extract_python_code(response: str) -> str:
             code = response.split("```")[1].split("```")[0]
         else:
             code = response
-
         return code
     else:
         return ""
@@ -199,13 +201,13 @@ def format_results_and_remaining_turns(
         + ", {"
         + error_msg
         + "})\\n</result>\\n<remaining_turns>\\n"
-        + str(remaining_turns - 1)
+        + str(remaining_turns)
         + "\\n</remaining_turns>"
         if error_msg
         else "<result>\\n"
         + str(results)
         + "\\n</result>\\n<remaining_turns>\\n"
-        + str(remaining_turns - 1)
+        + str(remaining_turns)
         + "\\n</remaining_turns>"
     )
 

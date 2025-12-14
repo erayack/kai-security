@@ -417,14 +417,23 @@ class BaseAgent(ABC):
 
         if response_is_empty or response_is_malformed:
             # Provide clear error feedback for malformed initial response
-            error_feedback = (
-                "ERROR: Your response was empty or had no recognizable structure.\n\n"
-                "REMINDER: Include at least one of these in your response:\n"
-                "- <think>...</think> for your reasoning\n"
-                "- <python>...</python> for code to execute\n"
-                "- <done>...</done> when finished\n\n"
-                "Please provide a valid response with at least one structured tag."
-            )
+            if self.agent_type == AgentType.BLACKBOX:
+                error_feedback = (
+                    "ERROR: Your response was empty or had no recognizable structure.\n\n"
+                    "REMINDER (BLACKBOX): Respond with:\n"
+                    "- <think>...</think>\n"
+                    "- <python>...</python>\n\n"
+                    "Do NOT emit <done>. Keep using tools until the turn budget is exhausted."
+                )
+            else:
+                error_feedback = (
+                    "ERROR: Your response was empty or had no recognizable structure.\n\n"
+                    "REMINDER: Include at least one of these in your response:\n"
+                    "- <think>...</think> for your reasoning\n"
+                    "- <python>...</python> for code to execute\n"
+                    "- <done>...</done> when finished\n\n"
+                    "Please provide a valid response with at least one structured tag."
+                )
             # Add error feedback and retry
             self._add_message(ChatMessage(role=Role.USER, content=error_feedback))
 
@@ -438,6 +447,15 @@ class BaseAgent(ABC):
             )
             self.update_budget(usage_data)
             thoughts, python_code = self.extract_response_parts(response)
+
+        is_finder_agent = self.agent_type == AgentType.FINDER
+        is_blackbox_agent = self.agent_type == AgentType.BLACKBOX
+
+        # Turn counter:
+        # - For most agents: counts executed <python> blocks (tool invocations).
+        # - For Blackbox: counts model turns (to ensure deterministic budget exhaustion
+        #   even when the model omits <python> blocks).
+        remaining_tool_turns = self.max_tool_turns
 
         # Execute the code from the agent's response
         result = ({}, "")
@@ -455,6 +473,21 @@ class BaseAgent(ABC):
             elif result[0] is None and "TimeoutError" in result[1]:
                 error_msg = f"{result[1]}\nPlease try simpler operations or break down the task."
                 result = ({}, error_msg)
+            # Inject state feedback for blackbox agents
+            if self.agent_type == AgentType.BLACKBOX:
+                state_feedback = self._generate_blackbox_state_feedback(result[0])
+                if result[1]:
+                    result = (result[0], result[1] + "\n" + state_feedback)
+                else:
+                    result = (result[0], state_feedback)
+            # Count the initial tool execution as a turn (non-blackbox semantics).
+            if not is_blackbox_agent:
+                remaining_tool_turns -= 1
+
+        # For blackbox agents, count the initial model response as a turn regardless
+        # of whether a tool was executed.
+        if is_blackbox_agent:
+            remaining_tool_turns -= 1
 
         # Add the agent's response to the conversation history
         self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
@@ -465,9 +498,6 @@ class BaseAgent(ABC):
         # Check if we should terminate immediately after first response
         if self.check_termination(response, python_code):
             return self.extract_final_result(thoughts, python_code, response)
-
-        remaining_tool_turns = self.max_tool_turns
-        is_finder_agent = self.agent_type == AgentType.FINDER
 
         # Only enter loop if there was Python code in the first response (except for finder agent)
         # Setup progress bar
@@ -489,7 +519,7 @@ class BaseAgent(ABC):
 
         # Only enter loop if there was Python code in the first response (except for finder agent)
         while remaining_tool_turns > 0 and (
-            python_code or is_finder_agent or self._pending_feedback
+            python_code or is_finder_agent or is_blackbox_agent or self._pending_feedback
         ):
             # Log current turn and agent
             current_turn = self.max_tool_turns - remaining_tool_turns + 1
@@ -524,6 +554,11 @@ class BaseAgent(ABC):
             thoughts, python_code = self.extract_response_parts(response)
             self._reset_fixer_completion_warnings(python_code, response)
 
+            # For blackbox agents, every model response consumes one turn, even if
+            # the model omits a <python> block (avoids non-deterministic early termination).
+            if is_blackbox_agent:
+                remaining_tool_turns -= 1
+
             # CRITICAL ERROR HANDLING: Check if response is empty or completely malformed
             # At minimum, need either <python>, <done>, or meaningful content
             response_is_empty = not response or not response.strip()
@@ -534,6 +569,22 @@ class BaseAgent(ABC):
             # Track consecutive malformed responses to prevent infinite loops
             if not hasattr(self, "_malformed_count"):
                 self._malformed_count = 0
+
+            # Blackbox agents should keep using tools until budget is exhausted.
+            # If they respond without a <python> block while turns remain, treat it as a format violation
+            # and nudge them to continue (without using <done>).
+            if is_blackbox_agent and remaining_tool_turns > 0 and not python_code:
+                self._malformed_count += 1
+                if self._malformed_count >= 3:
+                    logger.info(
+                        f"{agent_desc} - Completed (no more structured responses)"
+                    )
+                    break
+                self._pending_feedback = (
+                    "BLACKBOX FORMAT: Continue investigating and include a <python>...</python> block "
+                    "to use tools. Do NOT emit <done>."
+                )
+                continue
 
             if response_is_empty or response_is_malformed:
                 self._malformed_count += 1
@@ -550,11 +601,17 @@ class BaseAgent(ABC):
 
                 if last_message_was_tool_result and not is_finder_agent:
                     # Queue a follow-up prompt and keep the loop alive
-                    self._pending_feedback = (
-                        "You just received tool results. Continue with "
-                        "<think> reasoning and finish with a <done>{...}</done> "
-                        "containing the required JSON."
-                    )
+                    if is_blackbox_agent:
+                        self._pending_feedback = (
+                            "You just received tool results. Continue with <think> reasoning and a "
+                            "<python> block to use tools. Do NOT emit <done>."
+                        )
+                    else:
+                        self._pending_feedback = (
+                            "You just received tool results. Continue with "
+                            "<think> reasoning and finish with a <done>{...}</done> "
+                            "containing the required JSON."
+                        )
                     continue
 
                 # If we get too many malformed responses in a row, terminate gracefully
@@ -566,14 +623,23 @@ class BaseAgent(ABC):
 
                 # Don't add the malformed response to conversation
                 # Instead, provide clear feedback to the model about the format violation
-                error_feedback = (
-                    "ERROR: Your previous response was empty or had no recognizable structure.\n\n"
-                    "REMINDER: Include at least one of these in your response:\n"
-                    "- <think>...</think> for your reasoning\n"
-                    "- <python>...</python> for code to execute\n"
-                    "- <done>...</done> when finished\n\n"
-                    "Please provide a valid response with at least one structured tag."
-                )
+                if is_blackbox_agent:
+                    error_feedback = (
+                        "ERROR: Your previous response was empty or had no recognizable structure.\n\n"
+                        "REMINDER (BLACKBOX): Respond with:\n"
+                        "- <think>...</think>\n"
+                        "- <python>...</python>\n\n"
+                        "Do NOT emit <done>. Keep using tools until the turn budget is exhausted."
+                    )
+                else:
+                    error_feedback = (
+                        "ERROR: Your previous response was empty or had no recognizable structure.\n\n"
+                        "REMINDER: Include at least one of these in your response:\n"
+                        "- <think>...</think> for your reasoning\n"
+                        "- <python>...</python> for code to execute\n"
+                        "- <done>...</done> when finished\n\n"
+                        "Please provide a valid response with at least one structured tag."
+                    )
                 self._add_message(ChatMessage(role=Role.USER, content=error_feedback))
                 # Don't decrement remaining_tool_turns for this error case
                 # Give the model another chance to provide a valid response
@@ -613,7 +679,15 @@ class BaseAgent(ABC):
                 elif result[0] is None and "TimeoutError" in result[1]:
                     error_msg = f"{result[1]}\nPlease try simpler operations or break down the task."
                     result = ({}, error_msg)
-                remaining_tool_turns -= 1
+                # Inject state feedback for blackbox agents
+                if self.agent_type == AgentType.BLACKBOX:
+                    state_feedback = self._generate_blackbox_state_feedback(result[0])
+                    if result[1]:
+                        result = (result[0], result[1] + "\n" + state_feedback)
+                    else:
+                        result = (result[0], state_feedback)
+                if not is_blackbox_agent:
+                    remaining_tool_turns -= 1
 
                 # Small delay to allow event loop to process cleanup tasks
                 # This helps with memory management when spawning many sub-agents
@@ -624,6 +698,13 @@ class BaseAgent(ABC):
                         ChatMessage(
                             role=Role.USER,
                             content="Don't stop yet, keep searching for exploits.",
+                        )
+                    )
+                elif is_blackbox_agent:
+                    self._add_message(
+                        ChatMessage(
+                            role=Role.USER,
+                            content="Don't stop yet. Keep investigating and use tools. Do NOT emit <done>.",
                         )
                     )
                 else:
@@ -649,6 +730,29 @@ class BaseAgent(ABC):
                 pass  # Don't fail if logging fails
 
         return self.extract_final_result(thoughts, python_code, response)
+
+    def _generate_blackbox_state_feedback(self, exec_result: dict) -> str:
+        """
+        Generate state feedback for blackbox agents after tool execution.
+        """
+        if self.agent_type != AgentType.BLACKBOX:
+            return ""
+
+        observations = getattr(self, "blackbox_observations", [])
+
+        feedback_parts = []
+
+        if observations:
+            feedback_parts.append("<observations>")
+            for i, obs in enumerate(observations, 1):
+                obs_json = json.dumps(obs.model_dump(), indent=2)
+                feedback_parts.append(f"Observation #{i}:\n{obs_json}")
+            feedback_parts.append("</observations>")
+
+        if feedback_parts:
+            return "\n".join(feedback_parts)
+
+        return "<state_feedback>No observations recorded yet.</state_feedback>"
 
     def save_conversation(
         self,

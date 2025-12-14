@@ -212,18 +212,22 @@ class InvariantProcessOutput(BaseModel):
 
 class Observation(BaseModel):
     """
-    Intermediate finding from non-invariant agents (BlackBox, Gamified).
+    Intermediate finding from non-invariant workers (BlackBox, Gamified).
 
     Gets refined by LLM into a tentative Invariant.
     """
 
-    agent_id: str
+    worker_id: str
     mission_id: str
     description: str  # "Function X always reverts when called by any actor"
     affected_functions: List[str] = Field(default_factory=list)
     affected_files: List[str] = Field(default_factory=list)
     logs: List[str] = Field(default_factory=list)  # Raw output/traces
     anomaly_type: Optional[str] = None  # "always_reverts", "unexpected_state", etc.
+
+    # --- Grounded blackbox fields (optional; backwards compatible) ---
+    repro_command: Optional[str] = None
+    seed: Optional[int] = None
 
 
 class ExploitCandidate(BaseModel):
@@ -234,7 +238,7 @@ class ExploitCandidate(BaseModel):
     """
 
     mission_id: str
-    agent_id: str
+    worker_id: str
     invariant_id: str  # Which invariant this claims to violate
     mechanism: str  # "reentrancy", "access_control_bypass", etc.
     poc_code: str  # The exploit contract/test code
@@ -243,6 +247,20 @@ class ExploitCandidate(BaseModel):
     description: str
     compiled: bool = False  # Did it compile in agent's workspace?
     logs: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_legacy_shapes(cls, values: Any) -> Any:
+        """
+        Backwards compatibility:
+        - agent_id -> worker_id
+        """
+        if not isinstance(values, dict):
+            return values
+        data = dict(values)
+        if "worker_id" not in data and "agent_id" in data:
+            data["worker_id"] = data.get("agent_id")
+        return data
 
 
 class ExploitLocation(BaseModel):
@@ -905,3 +923,71 @@ class DispatcherProcessOutput(BaseModel):
     success: bool
     error_message: Optional[str] = None
     stats: Dict[str, int] = Field(default_factory=dict)
+
+
+class EntrypointsPolicy(BaseModel):
+    """Controls how entrypoints are sequenced/selected for a campaign."""
+
+    max_sequence_len: int = Field(default=4, ge=1, le=50)
+    prefer: List[str] = Field(default_factory=list)
+
+
+class EntrypointsSubset(BaseModel):
+    """Subset of allowed entrypoints for a campaign, with optional sequencing policy."""
+
+    ids: List[str] = Field(default_factory=list)
+    policy: Optional[EntrypointsPolicy] = None
+
+
+class CampaignBrief(BaseModel):
+    """
+    Full briefing for the Blackbox worker (v2).
+
+    Note: `master_context` is optional here and may be provided as `mastercontext`.
+    """
+
+    # --- Core campaign identity ---
+    campaign_id: str
+    kind: str
+
+    # --- Targeting ---
+    invariant_ids: List[str] = Field(default_factory=list)
+    primary_var_ids: List[str] = Field(default_factory=list)
+    actor_roles: List[str] = Field(default_factory=list)
+
+    entrypoints_subset: EntrypointsSubset = Field(default_factory=EntrypointsSubset)
+
+    # --- Execution controls ---
+    worker_types: List[str] = Field(default_factory=list)
+    workspace_preset: str = "writeable"
+    priority: int = 1
+
+    class Budget(BaseModel):
+        max_missions: int = Field(default=1, ge=1, le=1000)
+        max_workers: int = Field(default=1, ge=1, le=1000)
+        max_turns_per_worker: int = Field(default=32, ge=1, le=1000)
+
+    budget: Budget = Field(default_factory=Budget)
+
+    # --- Optional attached context (backwards compatible / transitional) ---
+    master_context: Optional[MasterContext] = None
+    protocol_manifesto: Optional[ProtocolManifesto] = None
+    actor_matrix: Optional[ActorMatrix] = None
+    
+
+class BlackboxInput(BaseModel):
+    campaign_brief: CampaignBrief
+    num_turns: int
+    model_name: str
+    use_openai: bool = False
+    execution_id: Optional[str] = None
+
+
+class BlackboxOutput(BaseModel):
+    response: Optional[AgentResponse]
+    observations: List[Observation] = Field(default_factory=list)
+    estimated_cost: float
+    total_tokens: Dict[str, int]
+    success: bool
+    error_message: Optional[str] = None
+    repo_path: str

@@ -69,6 +69,17 @@ class EnvironmentSetupProcess(
         try:
             self.logger.info("Starting SetupAgent chat...")
             response = await agent.chat("You must start setting up the repository now")
+
+            # If the agent terminated without emitting a MasterContext, ask it to
+            # output the MasterContext JSON in a <done> block (no more tools).
+            if response is not None and response.master_context is None:
+                prefix = "setup_retry"
+                retry_prompt = (
+                    "FORMAT REQUIREMENT: You must finish by outputting a <done>{...}</done> block.\n"
+                    "The JSON inside <done> must be a valid MasterContext.\n"
+                    "Do NOT run any more tools. Only output <think> and a final <done>.\n"
+                )
+                response = await agent.chat(retry_prompt)
         except Exception as e:
             self.logger.error(f"SetupAgent failed: {e}", exc_info=True)
             exception_occurred = True
