@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # Type alias for agent factory function
 # Factory takes (mission, workspace_path) and returns an initialized agent
-AgentFactory = Callable[[Mission, str], BaseAgent]
+AgentFactory = Callable[[Mission, str], "BaseAgent"]
 
 
 class VerifierProtocol(Protocol):
