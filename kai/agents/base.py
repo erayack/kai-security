@@ -1,6 +1,7 @@
 from kai.agents.engine import execute_sandboxed_code
 from kai.inference import (
     get_model_response,
+    get_model_response_with_tools,
     create_openai_client,
     create_vllm_client,
     get_model_pricing,
@@ -12,6 +13,7 @@ from kai.agents.utils import (
     extract_thoughts,
     AgentType,
     agent_type_to_kind,
+    generate_openai_tools,
 )
 from kai.agents.settings import (
     SAVE_CONVERSATION_PATH,
@@ -220,6 +222,124 @@ class BaseAgent(ABC):
             if msg.role == Role.ASSISTANT and "<python>" in msg.content
         )
         return self.max_tool_turns - turns_used
+
+    def _create_tool_executor(self):
+        """
+        Create a tool executor for native OpenAI tool calling.
+
+        Returns a function that takes (tool_name, args_dict) and returns the result.
+        """
+        import importlib
+
+        module = importlib.import_module(self.get_tools_module())
+
+        def executor(name: str, args: dict):
+            func = getattr(module, name, None)
+            if func is None:
+                return {"error": f"Unknown tool: {name}"}
+            try:
+                result = func(**args)
+                return result
+            except Exception as e:
+                return {"error": str(e)}
+
+        return executor
+
+    async def chat_with_tools(
+        self,
+        message: str,
+        tools: Optional[list] = None,
+        tool_executor: Optional[callable] = None,
+    ) -> AgentResponse:
+        """
+        Chat using native OpenAI tool calling (no XML parsing).
+
+        Args:
+            message: Initial user message
+            tools: Optional list of OpenAI-format tool definitions.
+                   If not provided, generates from get_tools_module().
+            tool_executor: Optional custom tool executor.
+                           If not provided, uses _create_tool_executor().
+
+        Returns:
+            AgentResponse with the final result.
+        """
+        import time
+
+        # Start timing
+        if self.start_time is None:
+            self.start_time = time.time()
+
+        # Generate tools if not provided
+        if tools is None:
+            tools = generate_openai_tools(self.get_tools_module())
+
+        # Create executor if not provided
+        if tool_executor is None:
+            tool_executor = self._create_tool_executor()
+
+        # Add user message
+        self._add_message(ChatMessage(role=Role.USER, content=message))
+
+        # Agent description for logging
+        agent_type_str = (
+            self.agent_type.name.title()
+            if hasattr(self.agent_type, "name")
+            else str(self.agent_type).title()
+        )
+        if "." in agent_type_str:
+            agent_type_str = agent_type_str.split(".")[-1].title()
+        agent_desc = f"({agent_type_str} {self.agent_id} at depth {self.depth})"
+
+        # Tool calling loop
+        remaining_turns = self.max_tool_turns
+        final_response = ""
+        tool_calls_made = []
+
+        while remaining_turns > 0:
+            current_turn = self.max_tool_turns - remaining_turns + 1
+            logger.info(f"{current_turn}/{self.max_tool_turns} - {agent_desc}")
+
+            # Call model with tools
+            response, calls_made, usage_data = await get_model_response_with_tools(
+                messages=self.messages,
+                tools=tools,
+                tool_executor=tool_executor,
+                model=self.model,
+                client=self._client,
+                use_vllm=self.use_vllm,
+                use_openai=self.use_openai,
+                max_tool_rounds=1,  # One round at a time for fine control
+            )
+
+            # Update budget
+            self.update_budget(usage_data)
+            tool_calls_made.extend(calls_made)
+
+            # Add assistant response to history
+            if response:
+                self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
+                final_response = response
+
+            # Check if model stopped calling tools (finished)
+            if not calls_made:
+                logger.info(f"{agent_desc} - Completed (no more tool calls)")
+                break
+
+            remaining_turns -= 1
+
+            # Small delay for event loop
+            await asyncio.sleep(0.01)
+
+        if remaining_turns == 0:
+            logger.info(f"{agent_desc} - Completed (max turns)")
+
+        # Update time
+        if self.start_time is not None:
+            self.time_spent = time.time() - self.start_time
+
+        # Extract final result using the standard method
+        return self.extract_final_result("", "", final_response)
 
     @abstractmethod
     def check_termination(self, response: str, python_code: str) -> bool:
@@ -519,7 +639,10 @@ class BaseAgent(ABC):
 
         # Only enter loop if there was Python code in the first response (except for finder agent)
         while remaining_tool_turns > 0 and (
-            python_code or is_finder_agent or is_blackbox_agent or self._pending_feedback
+            python_code
+            or is_finder_agent
+            or is_blackbox_agent
+            or self._pending_feedback
         ):
             # Log current turn and agent
             current_turn = self.max_tool_turns - remaining_tool_turns + 1
