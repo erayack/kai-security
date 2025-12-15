@@ -103,9 +103,13 @@ def run_forge_campaign(
     if relative and ("/" not in relative and "\\" not in relative):
         relative = relative  # bare filename under external campaigns root
 
-    external_harness_path = os.path.abspath(os.path.join(external_campaign_root, relative))
+    external_harness_path = os.path.abspath(
+        os.path.join(external_campaign_root, relative)
+    )
     if not external_harness_path.startswith(os.path.abspath(external_campaign_root)):
-        raise ValueError("Campaign test path must stay within external campaigns/ directory")
+        raise ValueError(
+            "Campaign test path must stay within external campaigns/ directory"
+        )
     if not os.path.exists(external_harness_path):
         return {
             "error": "campaign_harness_missing",
@@ -257,4 +261,3 @@ __all__ = [
     "run_forge_campaign",
     "add_observation",
 ]
-

@@ -137,9 +137,13 @@ class BlackboxProcess(BaseProcess[BlackboxInput, BlackboxOutput]):
                     pass
 
             save_folder = self._project_root() / "output" / repo_slug
-            convo_path = agent.save_conversation(save_folder=str(save_folder), prefix=prefix)
+            convo_path = agent.save_conversation(
+                save_folder=str(save_folder), prefix=prefix
+            )
 
-            observations: List[Observation] = getattr(agent, "blackbox_observations", [])
+            observations: List[Observation] = getattr(
+                agent, "blackbox_observations", []
+            )
 
             # Hardening: ensure the process always returns at least one Observation
             # describing the outcome. The model can fail to call add_observation()
@@ -230,7 +234,9 @@ class BlackboxProcess(BaseProcess[BlackboxInput, BlackboxOutput]):
         safe_name = re.sub(r"[^A-Za-z0-9._-]", "-", name)
         return safe_name
 
-    def _build_dependency_graph(self, repo_path: str, frameworks: Optional[List[str]] = None):
+    def _build_dependency_graph(
+        self, repo_path: str, frameworks: Optional[List[str]] = None
+    ):
         """
         Build a real dependency graph so GraphQueryEngine tools are usable.
         """
@@ -243,9 +249,7 @@ class BlackboxProcess(BaseProcess[BlackboxInput, BlackboxOutput]):
             # even when foundry.toml is absent (forge defaults).
             repo = Path(repo_path).resolve()
             looks_like_foundry = (
-                repo.is_dir()
-                and (repo / "lib").exists()
-                and (repo / "test").exists()
+                repo.is_dir() and (repo / "lib").exists() and (repo / "test").exists()
             )
 
             slither_kwargs: Optional[Dict[str, Any]] = None
@@ -259,4 +263,3 @@ class BlackboxProcess(BaseProcess[BlackboxInput, BlackboxOutput]):
         except Exception as e:
             # Propagate so caller can mark the run as failed
             raise RuntimeError(str(e))
-
