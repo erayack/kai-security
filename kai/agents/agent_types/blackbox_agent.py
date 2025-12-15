@@ -4,7 +4,7 @@ from kai.agents.base import BaseAgent
 from kai.agents.utils import AgentType, generate_tool_schema
 from kai.schemas import (
     AgentResponse,
-    CampaignBrief,
+    BlackboxBrief,
     Observation,
 )
 
@@ -16,7 +16,7 @@ class BlackboxAgent(BaseAgent):
 
     def __init__(
         self,
-        campaign_brief: CampaignBrief,
+        campaign_brief: BlackboxBrief,
         dependency_graph: Any = None,
         max_tool_turns: Optional[int] = None,
         repo_path: Optional[str] = None,
@@ -82,4 +82,3 @@ class BlackboxAgent(BaseAgent):
             except Exception:
                 return graph
         return graph
-

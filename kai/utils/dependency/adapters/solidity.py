@@ -129,15 +129,27 @@ class SolidityAdapter(DomainAdapter):
         if name in context_graph._nodes:
             return [name]
 
+        # If scope specified, also include inherited contracts
+        valid_parents: Optional[set] = None
+        if scope:  # Treat empty string same as None
+            valid_parents = self._get_scope_with_inheritance(context_graph, scope)
+
         # Search by name across all nodes
         for nid in context_graph._nodes:
             node = context_graph._nodes[nid]
 
+            # Special handling for "constructor" - Slither stores it with empty name
+            if name == "constructor" and node.kind == NodeKind.UNIT:
+                if node.meta.get("is_constructor"):
+                    if valid_parents is None or node.parent_id in valid_parents:
+                        candidate_ids.append(nid)
+                    continue
+
             # Match by name
             if node.name == name:
-                # If scope specified, check parent
-                if scope is not None:
-                    if node.parent_id != scope:
+                # If scope specified, check parent (including inherited)
+                if valid_parents is not None:
+                    if node.parent_id not in valid_parents:
                         continue
                 candidate_ids.append(nid)
 
@@ -145,7 +157,7 @@ class SolidityAdapter(DomainAdapter):
             if node.kind == NodeKind.UNIT:
                 sig = node.meta.get("signature", "")
                 if sig and sig.startswith(f"{name}("):
-                    if scope is None or node.parent_id == scope:
+                    if valid_parents is None or node.parent_id in valid_parents:
                         candidate_ids.append(nid)
 
         # Deduplicate while preserving order
@@ -157,6 +169,45 @@ class SolidityAdapter(DomainAdapter):
                 unique.append(cid)
 
         return unique
+
+    def _get_scope_with_inheritance(
+        self, context_graph: "DependencyGraph", scope: str
+    ) -> set:
+        """
+        Get a set containing the scope and all contracts it inherits from.
+
+        Recursively follows INHERITS edges to find all ancestor contracts.
+        """
+        from kai.utils.dependency.models import EdgeKind
+
+        # First, resolve scope name to actual node ID if it's not already one
+        scope_node_id = scope
+        if scope not in context_graph._nodes:
+            # Search for a container node with matching name
+            for nid, node in context_graph._nodes.items():
+                if node.kind == NodeKind.CONTAINER and node.name == scope:
+                    scope_node_id = nid
+                    break
+
+        valid_parents = {scope_node_id}
+        to_visit = [scope_node_id]
+
+        while to_visit:
+            current = to_visit.pop()
+            # Get contracts that 'current' inherits from (outgoing INHERITS edges)
+            try:
+                inherited = context_graph.neighbors(
+                    current, edge_kinds={EdgeKind.INHERITS}, direction="out"
+                )
+                for parent_id in inherited:
+                    if parent_id not in valid_parents:
+                        valid_parents.add(parent_id)
+                        to_visit.append(parent_id)
+            except Exception:
+                # Node doesn't exist or no edges - continue
+                pass
+
+        return valid_parents
 
     def get_entrypoint_visibility(self) -> List[str]:
         """Return visibility levels that indicate public entrypoints."""

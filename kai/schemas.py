@@ -782,6 +782,7 @@ class WorkspacePreset(str, Enum):
     CLEAN = "clean"  # src/test COPY, lib SYMLINK
     WRITEABLE = "writeable"  # src/lib/test COPY (writeable)
     SANDBOX = "sandbox"  # FULL COPY + extras (world/, mocks/, actors/)
+    LIGHTWEIGHT = "lightweight"  # Minimal forge project with remappings to parent
 
 
 class RewardModel(str, Enum):
@@ -939,7 +940,7 @@ class EntrypointsSubset(BaseModel):
     policy: Optional[EntrypointsPolicy] = None
 
 
-class CampaignBrief(BaseModel):
+class BlackboxBrief(BaseModel):
     """
     Full briefing for the Blackbox worker (v2).
 
@@ -973,7 +974,7 @@ class CampaignBrief(BaseModel):
     master_context: Optional[MasterContext] = None
     protocol_manifesto: Optional[ProtocolManifesto] = None
     actor_matrix: Optional[ActorMatrix] = None
-    
+
 
 class BlackboxInput(BaseModel):
     campaign_brief: CampaignBrief
