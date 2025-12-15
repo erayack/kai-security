@@ -8,6 +8,9 @@ import os
 class FileSourceLoader:
     """
     Minimal file-backed source loader that can return code spans by line number.
+
+    Handles path remapping for dependency graphs built on different machines
+    by trying multiple resolution strategies.
     """
 
     def __init__(self, target_path: str):
@@ -15,6 +18,60 @@ class FileSourceLoader:
         self.base_path = os.path.abspath(target_path)
 
     def _resolve_path(self, file: str) -> str:
+        """
+        Resolve a file path, handling cross-machine path remapping.
+
+        Tries:
+        1. Direct path (if exists)
+        2. Join with base_path (if relative)
+        3. Extract relative part from known patterns (contracts/, src/)
+        4. Extract filename and search in base_path tree
+        """
+        # 1. If absolute and exists, use directly
+        if os.path.isabs(file) and os.path.exists(file):
+            return file
+
+        # 2. If relative, try joining with base_path
+        if not os.path.isabs(file):
+            joined = os.path.join(self.base_path, file)
+            if os.path.exists(joined):
+                return joined
+
+        # 3. Try to extract relative path from known markers
+        # Common patterns: contracts/, src/, lib/, test/ (with or without leading /)
+        markers = ["contracts/", "src/", "lib/", "test/"] #TODO: add adapters?
+        for marker in markers:
+            # Check both with and without leading slash
+            for check_marker in [f"/{marker}", marker]:
+                if check_marker in file:
+                    # Extract from the marker onwards (excluding the marker itself)
+                    rel_part = file.split(check_marker, 1)[1]
+                    # Try just the relative part
+                    candidate = os.path.join(self.base_path, rel_part)
+                    if os.path.exists(candidate):
+                        return candidate
+                    # Try with marker included
+                    candidate_with_marker = os.path.join(
+                        self.base_path, marker, rel_part
+                    )
+                    if os.path.exists(candidate_with_marker):
+                        return candidate_with_marker
+                    # For double-nested patterns like contracts/contracts/, try stripping one level
+                    if rel_part.startswith(marker):
+                        inner_part = rel_part[len(marker) :]
+                        inner_candidate = os.path.join(
+                            self.base_path, marker, inner_part
+                        )
+                        if os.path.exists(inner_candidate):
+                            return inner_candidate
+
+        # 4. Last resort: just the filename in base_path (for flat structures)
+        basename = os.path.basename(file)
+        flat_candidate = os.path.join(self.base_path, basename)
+        if os.path.exists(flat_candidate):
+            return flat_candidate
+
+        # If nothing worked, return the joined path (will fail with FileNotFoundError later)
         if os.path.isabs(file):
             return file
         return os.path.join(self.base_path, file)
