@@ -1,6 +1,7 @@
 from openai import AsyncOpenAI
-from typing import Optional, Union, Dict, Tuple
+from typing import Optional, Union, Dict, Tuple, List, Any, Callable
 
+import json
 import requests
 
 from kai.agents.settings import (
@@ -187,3 +188,141 @@ async def get_model_response(
         else:
             # Re-raise the original exception
             raise
+
+
+async def get_model_response_with_tools(
+    messages: list[ChatMessage],
+    tools: List[Dict[str, Any]],
+    tool_executor: Callable[[str, Dict[str, Any]], Any],
+    model: str = OPENROUTER_STRONG_MODEL,
+    client: Optional[AsyncOpenAI] = None,
+    use_vllm: bool = False,
+    use_openai: bool = False,
+    max_tool_rounds: int = 1,
+) -> Tuple[str, List[Dict[str, Any]], Dict[str, int]]:
+    """
+    Get a response from a model using OpenAI's native tool calling.
+
+    Args:
+        messages: A list of ChatMessage objects.
+        tools: List of OpenAI-format tool definitions.
+        tool_executor: Function that executes tools: (name, args) -> result
+        model: The model to use.
+        client: Optional AsyncOpenAI client.
+        use_vllm: Whether to use vLLM backend.
+        use_openai: Whether to use OpenAI API directly.
+        max_tool_rounds: Maximum rounds of tool calling (default 1).
+
+    Returns:
+        Tuple of (final_response_text, tool_calls_made, usage_dict)
+    """
+    if client is None:
+        if use_vllm:
+            client = create_vllm_client()
+        else:
+            client = create_openai_client(use_openai=use_openai)
+
+    messages_payload = [_as_dict(m) for m in messages]
+    total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    tool_calls_made = []
+
+    for _ in range(max_tool_rounds):
+        try:
+            completion = await client.chat.completions.create(
+                model=model,
+                messages=messages_payload,
+                tools=tools if tools else None,
+                tool_choice="auto" if tools else None,
+            )
+        except Exception as e:
+            error_msg = str(e)
+            if any(
+                keyword in error_msg.lower()
+                for keyword in ["context length", "maximum context", "tokens"]
+            ):
+                total_chars = sum(len(str(m)) for m in messages_payload)
+                approx_tokens = total_chars // 4
+                raise Exception(
+                    f"Context length exceeded: approximately {approx_tokens} tokens.\n"
+                    f"Original error: {error_msg}"
+                )
+            raise
+
+        # Update usage
+        if completion.usage:
+            total_usage["prompt_tokens"] += completion.usage.prompt_tokens
+            total_usage["completion_tokens"] += completion.usage.completion_tokens
+            total_usage["total_tokens"] += completion.usage.total_tokens
+
+        message = completion.choices[0].message
+
+        # Check for tool calls
+        if message.tool_calls:
+            # Capture reasoning that accompanies tool calls
+            reasoning = message.content or ""
+
+            # Add assistant message with tool calls to history
+            messages_payload.append(
+                {
+                    "role": "assistant",
+                    "content": reasoning,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            },
+                        }
+                        for tc in message.tool_calls
+                    ],
+                }
+            )
+
+            # Execute each tool call
+            first_in_batch = True
+            for tool_call in message.tool_calls:
+                func_name = tool_call.function.name
+                try:
+                    func_args = json.loads(tool_call.function.arguments)
+                except json.JSONDecodeError:
+                    func_args = {}
+
+                # Record the tool call (include reasoning on first call of batch)
+                tool_entry = {
+                    "id": tool_call.id,
+                    "name": func_name,
+                    "arguments": func_args,
+                }
+                if first_in_batch and reasoning:
+                    tool_entry["reasoning"] = reasoning
+                    first_in_batch = False
+                tool_calls_made.append(tool_entry)
+
+                # Execute the tool
+                try:
+                    result = tool_executor(func_name, func_args)
+                    result_str = (
+                        json.dumps(result) if not isinstance(result, str) else result
+                    )
+                except Exception as e:
+                    result_str = json.dumps({"error": str(e)})
+
+                # Add tool result to messages
+                messages_payload.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": result_str,
+                    }
+                )
+
+            # Continue to next round to let model process results
+            continue
+
+        # No tool calls - return the final response
+        return message.content or "", tool_calls_made, total_usage
+
+    # Max rounds reached - return last response
+    return message.content or "", tool_calls_made, total_usage
