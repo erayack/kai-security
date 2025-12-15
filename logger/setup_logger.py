@@ -22,10 +22,12 @@ def setup_logger() -> Logger:
         console.setFormatter(formatter)
         logger.addHandler(hdlr=console)
 
-        mongo_handler: MongoDBHandler = MongoDBHandler(
-            uri=MONGO_URI,
-            db_name=MONGO_DB_NAME,
-        )
-        logger.addHandler(mongo_handler)
+        # Only add MongoDB handler if MONGO_URI is configured
+        if MONGO_URI:
+            mongo_handler: MongoDBHandler = MongoDBHandler(
+                uri=MONGO_URI,
+                db_name=MONGO_DB_NAME,
+            )
+            logger.addHandler(mongo_handler)
 
     return logger
