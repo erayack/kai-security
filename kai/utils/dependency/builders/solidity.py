@@ -31,6 +31,44 @@ class SolidityBuilder(BaseBuilder):
     def language(self) -> str:
         return "solidity"
 
+    def _default_foundry_toml(self, project_root: Path) -> str:
+        """
+        Generate a minimal Foundry config for projects that don't ship a root `foundry.toml`.
+
+        Crytic-compile's Foundry platform *requires* `foundry.toml` to detect the project root.
+        Some repos compile fine with `forge --root ...` and no config file; for those, we
+        synthesize a minimal config just for Slither's compilation step, then delete it.
+        """
+        # Heuristic: Foundry defaults to `src/`, but many repos use `contracts/`.
+        if (project_root / "contracts").is_dir():
+            src = "contracts"
+        elif (project_root / "src").is_dir():
+            src = "src"
+        else:
+            # Last resort: keep Foundry defaults.
+            src = "src"
+
+        libs: List[str] = []
+        if (project_root / "lib").is_dir():
+            libs.append("lib")
+
+        remappings: List[str] = []
+        # Common Foundry install for OpenZeppelin. Some repos import using NPM-style
+        # "@openzeppelin/..." but `forge config` may not emit the leading "@" remapping.
+        # Provide it explicitly so compilation works under crytic-compile.
+        if (project_root / "lib" / "openzeppelin-contracts").is_dir():
+            remappings.append("@openzeppelin/=lib/openzeppelin-contracts/")
+
+        libs_value = ", ".join(f"\"{x}\"" for x in libs)
+        remappings_value = ", ".join(f"\"{x}\"" for x in remappings)
+        return (
+            "[profile.default]\n"
+            f"src = \"{src}\"\n"
+            "out = \"out\"\n"
+            f"libs = [{libs_value}]\n"
+            f"remappings = [{remappings_value}]\n"
+        )
+
     def build(
         self,
         source: str | Path,
@@ -57,7 +95,31 @@ class SolidityBuilder(BaseBuilder):
         except ImportError:
             from slither.slither import Slither
 
-        sl = Slither(str(project_root), **(slither_kwargs or {}))
+        # Slither passes kwargs through to crytic-compile. If we force the Foundry framework,
+        # crytic-compile requires a `foundry.toml` at the project root to identify it as
+        # a Foundry project. Some targets (including our BBP fixture) don't have one.
+        # In that case, synthesize a minimal config temporarily so Slither can run.
+        tmp_foundry_toml: Optional[Path] = None
+        try:
+            try:
+                sl = Slither(str(project_root), **(slither_kwargs or {}))
+            except AssertionError:
+                fw = str((slither_kwargs or {}).get("compile_force_framework") or "").lower()
+                foundry_toml = project_root / "foundry.toml"
+                if fw == "foundry" and not foundry_toml.is_file():
+                    tmp_foundry_toml = foundry_toml
+                    tmp_foundry_toml.write_text(
+                        self._default_foundry_toml(project_root), encoding="utf-8"
+                    )
+                    sl = Slither(str(project_root), **(slither_kwargs or {}))
+                else:
+                    raise
+        finally:
+            if tmp_foundry_toml is not None:
+                try:
+                    tmp_foundry_toml.unlink()
+                except Exception:
+                    pass
 
         # Tracking maps
         self._contract_map: Dict[int, str] = {}

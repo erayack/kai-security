@@ -2,7 +2,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 from kai.agents.agent_types import BlackboxAgent
 from kai.processes.base import BaseProcess
