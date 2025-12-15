@@ -315,7 +315,9 @@ def dependency_graph_callees(func_id: str) -> Union[List[NodeRef], Dict[str, str
         return {"error": str(e)}
 
 
-def _sanitize_window(start: int, end: Optional[int], total: int, max_window: int = 200) -> tuple[int, int]:
+def _sanitize_window(
+    start: int, end: Optional[int], total: int, max_window: int = 200
+) -> tuple[int, int]:
     """
     Normalize pagination window to prevent unbounded output.
     """
