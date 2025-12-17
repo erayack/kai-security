@@ -28,7 +28,8 @@ from kai.schemas import ChatMessage, Role, AgentResponse
 import asyncio
 from logger import logger
 
-from typing import Union, Tuple, Optional, Dict
+from collections.abc import Callable
+from typing import Any, Dict, Optional, Tuple, Union
 from abc import ABC, abstractmethod
 
 import json
@@ -234,6 +235,9 @@ class BaseAgent(ABC):
         module = importlib.import_module(self.get_tools_module())
 
         def executor(name: str, args: dict):
+            # Ensure tools relying on call-stack inspection (e.g. tools._get_current_agent)
+            # can find the current agent instance.
+            _agent_instance = self  # noqa: F841
             func = getattr(module, name, None)
             if func is None:
                 return {"error": f"Unknown tool: {name}"}
@@ -249,7 +253,7 @@ class BaseAgent(ABC):
         self,
         message: str,
         tools: Optional[list] = None,
-        tool_executor: Optional[callable] = None,
+        tool_executor: Optional[Callable[[str, dict], Any]] = None,
     ) -> AgentResponse:
         """
         Chat using native OpenAI tool calling (no XML parsing).
@@ -295,13 +299,15 @@ class BaseAgent(ABC):
         remaining_turns = self.max_tool_turns
         final_response = ""
         tool_calls_made = []
+        no_observation_nudges = 0
 
         while remaining_turns > 0:
             current_turn = self.max_tool_turns - remaining_turns + 1
             logger.info(f"{current_turn}/{self.max_tool_turns} - {agent_desc}")
 
             # Call model with tools
-            response, calls_made, usage_data = await get_model_response_with_tools(
+            response, calls_made, usage_data, messages_payload = (
+                await get_model_response_with_tools(
                 messages=self.messages,
                 tools=tools,
                 tool_executor=tool_executor,
@@ -310,23 +316,101 @@ class BaseAgent(ABC):
                 use_vllm=self.use_vllm,
                 use_openai=self.use_openai,
                 max_tool_rounds=1,  # One round at a time for fine control
+                )
             )
 
             # Update budget
             self.update_budget(usage_data)
             tool_calls_made.extend(calls_made)
 
-            # Add assistant response to history
+            # Replace message history with the tool-calling payload so subsequent rounds
+            # include tool_call_id-linked tool outputs.
+            try:
+                self.messages = [ChatMessage(**m) for m in messages_payload]
+            except Exception:
+                # If tool-call metadata shape is unexpected, fall back to minimal assistant text.
+                if response:
+                    self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
+
             if response:
-                self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
                 final_response = response
+
+            # If the blackbox agent is actively using tools but has not recorded any observations yet,
+            # nudge it to write a real observation based on what it already learned.
+            if (
+                self.agent_type == AgentType.BLACKBOX
+                and calls_made
+                and not getattr(self, "blackbox_observations", [])
+                and remaining_turns > 1
+                and no_observation_nudges < 2
+            ):
+                self._add_message(
+                    ChatMessage(
+                        role=Role.USER,
+                        content=(
+                            "BLACKBOX: You have not recorded any observations yet. "
+                            "Call add_observation now to capture the most important thing you've learned so far "
+                            "(include evidence from tool outputs; negative results are OK), then continue investigating. "
+                            "Do NOT emit <done>."
+                        ),
+                    )
+                )
+                no_observation_nudges += 1
+            elif (
+                self.agent_type == AgentType.BLACKBOX
+                and calls_made
+                and len(getattr(self, "blackbox_observations", []) or []) == 1
+                and current_turn >= max(6, self.max_tool_turns // 2)
+                and remaining_turns > 1
+                and no_observation_nudges < 4
+            ):
+                self._add_message(
+                    ChatMessage(
+                        role=Role.USER,
+                        content=(
+                            "BLACKBOX: Keep recording observations as you go. "
+                            "Prefer multiple focused observations (one experiment/hypothesis each) "
+                            "instead of bundling everything into a single summary. "
+                            "Use add_observation with concrete evidence from tool outputs. "
+                            "Do NOT emit <done>."
+                        ),
+                    )
+                )
+                no_observation_nudges += 1
 
             # Check if model stopped calling tools (finished)
             if not calls_made:
+                # Blackbox must keep going until budget is exhausted.
+                if self.agent_type == AgentType.BLACKBOX and remaining_turns > 1:
+                    self._add_message(
+                        ChatMessage(
+                            role=Role.USER,
+                            content=(
+                                "BLACKBOX: Continue investigating. "
+                                "Call at least one tool. Prefer concrete exploration "
+                                "(graph queries, reading targeted code) and experiments "
+                                "(write_campaign_file + run_forge_campaign) when useful. "
+                                "Record meaningful updates (including negative results) via add_observation. "
+                                "Do NOT emit <done>."
+                            ),
+                        )
+                    )
+                    remaining_turns -= 1
+                    continue
+                if self.agent_type == AgentType.BLACKBOX and remaining_turns == 1:
+                    # We already spent the last model round; mark budget exhausted.
+                    remaining_turns = 0
+
                 logger.info(f"{agent_desc} - Completed (no more tool calls)")
                 break
 
-            remaining_turns -= 1
+            # Turn accounting:
+            # - Blackbox: count every model round as a turn (even if it didn't call tools).
+            # - Others: count only rounds where tools were called.
+            if self.agent_type == AgentType.BLACKBOX:
+                remaining_turns -= 1
+            else:
+                remaining_turns -= 1
 
             # Small delay for event loop
             await asyncio.sleep(0.01)
@@ -906,15 +990,19 @@ class BaseAgent(ABC):
         else:
             file_path = os.path.join(folder_path, f"convo_{unique_id}.json")
 
-        # Convert the execution result messages to tool role
-        messages = [
-            (
-                ChatMessage(role=Role.TOOL, content=message.content)
-                if message.content.startswith("<result>")
-                else ChatMessage(role=message.role, content=message.content)
+        # Convert legacy execution result messages to tool role, but preserve any
+        # tool-calling metadata (tool_calls / tool_call_id) already present.
+        messages = []
+        for message in self.messages:
+            role = Role.TOOL if message.content.startswith("<result>") else message.role
+            messages.append(
+                ChatMessage(
+                    role=role,
+                    content=message.content,
+                    tool_call_id=getattr(message, "tool_call_id", None),
+                    tool_calls=getattr(message, "tool_calls", None),
+                )
             )
-            for message in self.messages
-        ]
 
         # Load exploits from exploits.json if it exists (ONLY for finder agent)
         found_exploits = []
@@ -1100,8 +1188,15 @@ class BaseAgent(ABC):
         Should be called when the agent is no longer needed.
         """
         try:
-            if hasattr(self, "_client") and self._client is not None:
-                await self._client.aclose()
+            client = getattr(self, "_client", None)
+            if client is not None:
+                import inspect
+
+                aclose = getattr(client, "aclose", None)
+                if callable(aclose):
+                    result = aclose()
+                    if inspect.isawaitable(result):
+                        await result
                 self._client = None
         except Exception:
             pass  # Ignore errors during cleanup

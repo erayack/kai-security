@@ -199,7 +199,7 @@ async def get_model_response_with_tools(
     use_vllm: bool = False,
     use_openai: bool = False,
     max_tool_rounds: int = 1,
-) -> Tuple[str, List[Dict[str, Any]], Dict[str, int]]:
+) -> Tuple[str, List[Dict[str, Any]], Dict[str, int], List[Dict[str, Any]]]:
     """
     Get a response from a model using OpenAI's native tool calling.
 
@@ -214,7 +214,7 @@ async def get_model_response_with_tools(
         max_tool_rounds: Maximum rounds of tool calling (default 1).
 
     Returns:
-        Tuple of (final_response_text, tool_calls_made, usage_dict)
+        Tuple of (final_response_text, tool_calls_made, usage_dict, messages_payload)
     """
     if client is None:
         if use_vllm:
@@ -225,6 +225,50 @@ async def get_model_response_with_tools(
     messages_payload = [_as_dict(m) for m in messages]
     total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     tool_calls_made = []
+
+    def _json_default(obj: Any):
+        """
+        Best-effort conversion to JSON-serializable types.
+
+        Tool results often contain:
+        - dataclasses (e.g., NodeRef/ContextSlice/EvidencePack)
+        - Pydantic models
+        - Enums
+        which need conversion before json encoding.
+        """
+        # Enums (e.g., NodeKind)
+        try:
+            from enum import Enum as _Enum
+
+            if isinstance(obj, _Enum):
+                return obj.value
+        except Exception:
+            pass
+
+        # Dataclasses (e.g., NodeRef, ContextSlice, EvidencePack)
+        try:
+            import dataclasses
+
+            if dataclasses.is_dataclass(obj):
+                return dataclasses.asdict(obj)
+        except Exception:
+            pass
+
+        try:
+            if hasattr(obj, "model_dump") and callable(getattr(obj, "model_dump")):
+                # mode="json" coerces enums and other non-primitive values.
+                return obj.model_dump(mode="json")
+        except Exception:
+            pass
+        try:
+            if hasattr(obj, "dict") and callable(getattr(obj, "dict")):
+                return obj.dict()
+        except Exception:
+            pass
+        # Fallback: string representation (better than crashing tool calling).
+        return str(obj)
+
+    last_content: str = ""
 
     for _ in range(max_tool_rounds):
         try:
@@ -255,6 +299,7 @@ async def get_model_response_with_tools(
             total_usage["total_tokens"] += completion.usage.total_tokens
 
         message = completion.choices[0].message
+        last_content = message.content or ""
 
         # Check for tool calls
         if message.tool_calls:
@@ -304,7 +349,9 @@ async def get_model_response_with_tools(
                 try:
                     result = tool_executor(func_name, func_args)
                     result_str = (
-                        json.dumps(result) if not isinstance(result, str) else result
+                        json.dumps(result, default=_json_default)
+                        if not isinstance(result, str)
+                        else result
                     )
                 except Exception as e:
                     result_str = json.dumps({"error": str(e)})
@@ -322,7 +369,20 @@ async def get_model_response_with_tools(
             continue
 
         # No tool calls - return the final response
-        return message.content or "", tool_calls_made, total_usage
+        messages_payload.append(
+            {
+                "role": "assistant",
+                "content": last_content,
+            }
+        )
+        return last_content, tool_calls_made, total_usage, messages_payload
 
     # Max rounds reached - return last response
-    return message.content or "", tool_calls_made, total_usage
+    if last_content:
+        messages_payload.append(
+            {
+                "role": "assistant",
+                "content": last_content,
+            }
+        )
+    return last_content, tool_calls_made, total_usage, messages_payload

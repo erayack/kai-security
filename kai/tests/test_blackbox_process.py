@@ -1,10 +1,8 @@
 import json
 from pathlib import Path
-from time import time
 
 import pytest  # type: ignore[import-not-found]
 
-from kai.agents import settings
 from kai.processes.blackbox import BlackboxProcess
 from kai.schemas import CampaignBrief, BlackboxInput
 from logger import logging
@@ -44,6 +42,7 @@ async def test_blackbox_process_saves_conversation_and_returns_findings(
     monkeypatch, tmp_path
 ):
     brief = _load_campaign_brief()
+    assert brief.master_context is not None
     repo_root = Path(brief.master_context.root_path)
     if not repo_root.exists():
         pytest.skip(f"MasterContext root_path not found at {repo_root}")
@@ -71,11 +70,10 @@ async def test_blackbox_process_saves_conversation_and_returns_findings(
     result = await process.execute(
         BlackboxInput(
             campaign_brief=brief,
-            num_turns=brief.budget.max_turns_per_worker,
-            model_name="z-ai/glm-4.6",
-            use_openai=bool(
-                settings.OPENAI_API_KEY and not settings.OPENROUTER_API_KEY
-            ),
+            num_turns=brief.budget.max_turns_per_agent,
+            model_name="openai/gpt-5.2",
+            # Blackbox runs via OpenRouter (OpenAI-compatible), not OpenAI direct.
+            use_openai=False,
         )
     )
 

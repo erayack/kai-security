@@ -17,6 +17,10 @@ class Role(str, Enum):
 class ChatMessage(BaseModel):
     role: Role
     content: str
+    # Optional tool-calling metadata (for native OpenAI tool calling).
+    # These are ignored in python-block mode but allow us to persist tool call traces.
+    tool_call_id: Optional[str] = None
+    tool_calls: Optional[List[Dict[str, Any]]] = None
 
 
 class Language(str, Enum):

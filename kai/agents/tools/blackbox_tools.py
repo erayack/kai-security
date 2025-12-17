@@ -3,16 +3,14 @@ Tools for the BlackboxAgent to run campaigns, record observations, and
 record observations.
 """
 
-import json
 import os
 import re
 import shutil
-from typing import Optional, Union, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 from kai.agents.tools.tools import (
     read_file,
     list_files,
-    grep,
     dependency_graph_resolve,
     dependency_graph_loc,
     dependency_graph_snippet,
@@ -21,7 +19,7 @@ from kai.agents.tools.tools import (
     dependency_graph_protocol_entrypoints,
     dependency_graph_slice,
     dependency_graph_explain,
-    forge_test,
+    forge_test as _forge_test,
     _get_current_agent,
 )
 from kai.schemas import Observation
@@ -123,7 +121,7 @@ def run_forge_campaign(
         repo_root = os.getcwd()
 
     # First attempt: try matching by absolute path (preferred; avoids writing to repo).
-    result = forge_test(
+    result = _forge_test(
         test_script_path=external_harness_path,
         working_dir=repo_root,
         match_contract=match_contract,
@@ -180,7 +178,7 @@ def run_forge_campaign(
     try:
         shutil.copyfile(external_harness_path, tmp_path)
         rel_match = os.path.join(test_dir, os.path.basename(tmp_path))
-        result2 = forge_test(
+        result2 = _forge_test(
             test_script_path=rel_match,
             working_dir=repo_root,
             match_contract=match_contract,
@@ -248,7 +246,6 @@ def add_observation(
 __all__ = [
     "read_file",
     "list_files",
-    "grep",
     "dependency_graph_resolve",
     "dependency_graph_loc",
     "dependency_graph_snippet",

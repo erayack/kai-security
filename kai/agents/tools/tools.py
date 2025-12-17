@@ -800,155 +800,6 @@ def list_files(path: Optional[str] = None, depth: int = 2) -> str:
     except Exception as e:
         return f"Error: {e}"
 
-
-def grep(args: str):
-    """
-    Run system grep with the provided CLI-style arg string.
-    Prints output passthrough; returns grep's exit code (0/1/2).
-
-    Common build/dependency directories are always excluded for faster searches.
-    Output is limited to 100KB to prevent context overflow.
-
-    If the agent has a restricted scope, grep will only search within the allowed paths.
-
-    Args:
-        args: The arguments to pass to grep.
-    Returns:
-        A GrepResponse with exit_code, stdout, and stderr.
-    """
-    try:
-        from kai.agents.settings import SANDBOX_TIMEOUT
-        from kai.schemas import GrepResponse
-
-        # Scope validation: restrict grep to allowed paths if scope is restricted
-        search_path = "."
-        try:
-            agent = _get_current_agent()
-            if agent and hasattr(agent, "restricted_scope") and agent.restricted_scope:
-                # Use the first allowed path as the search root
-                if agent.allowed_paths:
-                    search_path = agent.allowed_paths[0]
-                    # Make path relative to current directory if possible
-                    try:
-                        search_path = os.path.relpath(search_path)
-                    except ValueError:
-                        pass  # Keep absolute path if relpath fails
-        except (NameError, TypeError):
-            # _get_current_agent not defined or returns None, skip scope validation
-            pass
-
-        # Comprehensive exclusions for build artifacts, dependencies, and caches
-        # This prevents grep from returning millions of lines from these directories
-        exclude_dirs = [
-            # Rust
-            "target",  # Rust build artifacts (includes debug/release/deps)
-            # JavaScript/TypeScript
-            "node_modules",  # Node.js dependencies
-            "bower_components",  # Bower dependencies
-            ".npm",  # npm cache
-            ".yarn",  # Yarn cache
-            ".pnp",  # Yarn PnP
-            # Python
-            "venv",  # Python virtual environment
-            ".venv",  # Python virtual environment (hidden)
-            "env",  # Python virtual environment
-            ".env",  # Python virtual environment (hidden)
-            "virtualenv",  # virtualenv directory
-            ".virtualenv",  # virtualenv directory (hidden)
-            "__pycache__",  # Python cache
-            ".pytest_cache",  # Pytest cache
-            ".mypy_cache",  # Mypy cache
-            ".tox",  # Tox test environments
-            "site-packages",  # Python packages
-            "dist-packages",  # Python packages (Debian/Ubuntu)
-            ".eggs",  # Python eggs
-            "*.egg-info",  # Python egg info
-            # Build outputs
-            "build",  # General build directory
-            "dist",  # Distribution directory
-            "out",  # Solidity/Foundry/general build artifacts
-            "bin",  # Binary directory (sometimes)
-            "obj",  # Object files (C/C++)
-            # Caches
-            "cache",  # Various caches
-            ".cache",  # Hidden caches
-            "tmp",  # Temporary files
-            ".tmp",  # Hidden temporary files
-            # Version control
-            ".git",  # Git directory
-            ".svn",  # SVN directory
-            ".hg",  # Mercurial directory
-            # IDEs and editors
-            ".idea",  # IntelliJ IDEA
-            ".vscode",  # VS Code
-            ".vs",  # Visual Studio
-            # Other
-            "vendor",  # Vendored dependencies (Go, PHP, etc.)
-            ".bundle",  # Ruby bundler
-        ]
-        exclude_flags = " ".join([f"--exclude-dir={d}" for d in exclude_dirs])
-
-        # Determine working directory for grep
-        grep_cwd = None
-        try:
-            agent = _get_current_agent()
-            if agent and hasattr(agent, "working_dir"):
-                grep_cwd = agent.working_dir
-        except (NameError, TypeError):
-            pass
-
-        if grep_cwd is None:
-            return GrepResponse(
-                exit_code=1,
-                stdout="",
-                stderr="Error: Could not determine working directory (agent context missing).",
-            )
-
-        # Run grep with timeout, locale optimization (LC_ALL=C), and optional exclusions
-        # Add search path at the end
-        cmd = f"LC_ALL=C grep {exclude_flags} {args} {search_path}".strip()
-        p = subprocess.run(
-            cmd,
-            shell=True,
-            text=True,
-            capture_output=True,
-            timeout=SANDBOX_TIMEOUT,
-            cwd=grep_cwd,
-        )
-
-        # Limit output size to prevent context overflow (100KB max)
-        # This prevents grep from returning millions of characters that crash the model
-        MAX_GREP_OUTPUT_SIZE = 100_000  # 100KB
-        stdout = p.stdout
-        stderr = p.stderr
-
-        if len(stdout) > MAX_GREP_OUTPUT_SIZE:
-            line_count = stdout.count("\n")
-            truncated_stdout = stdout[:MAX_GREP_OUTPUT_SIZE]
-            # Try to end at a line boundary
-            last_newline = truncated_stdout.rfind("\n")
-            if last_newline > 0:
-                truncated_stdout = truncated_stdout[:last_newline]
-
-            truncation_msg = f"\n\n... [TRUNCATED: Output too large. Showing first {len(truncated_stdout):,} of {len(stdout):,} characters, ~{line_count:,} total matches. Use more specific patterns or -m flag to limit results.]"
-            stdout = truncated_stdout + truncation_msg
-
-        # Return a GrepResponse object
-        return GrepResponse(exit_code=p.returncode, stdout=stdout, stderr=stderr)
-    except subprocess.TimeoutExpired:
-        from kai.schemas import GrepResponse
-
-        return GrepResponse(
-            exit_code=1,
-            stdout="",
-            stderr=f"Error: grep exceeded timeout of {SANDBOX_TIMEOUT} seconds. Try narrowing your search or using more specific patterns.",
-        )
-    except Exception as e:
-        from kai.schemas import GrepResponse
-
-        return GrepResponse(exit_code=1, stdout="", stderr=f"Error: {e}")
-
-
 def forge_test(
     test_script_path: Optional[str] = None,
     working_dir: Optional[str] = None,
@@ -994,6 +845,19 @@ def forge_test(
         )
     """
     try:
+        # Default working dir for agent-driven runs.
+        # Blackbox (native tool calling) frequently omits `working_dir` or passes "".
+        wd = (working_dir or "").strip() if isinstance(working_dir, str) else ""
+        if not wd:
+            agent = _get_current_agent()
+            if agent is not None:
+                wd = (
+                    (getattr(agent, "repo_path", None) or "")
+                    or (getattr(agent, "working_dir", None) or "")
+                )
+        if not wd:
+            wd = os.getcwd()
+
         # Build the forge test command
         cmd_parts = ["forge", "test"]
 
@@ -1017,9 +881,9 @@ def forge_test(
         cmd = " ".join(cmd_parts)
 
         # Run the command, optionally in a specific directory
-        if working_dir:
+        if wd:
             p = subprocess.run(
-                cmd, shell=True, text=True, capture_output=True, cwd=working_dir
+                cmd, shell=True, text=True, capture_output=True, cwd=wd
             )
         else:
             p = subprocess.run(cmd, shell=True, text=True, capture_output=True)

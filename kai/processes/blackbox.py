@@ -122,11 +122,12 @@ class BlackboxProcess(BaseProcess[BlackboxInput, BlackboxOutput]):
                     "Run the blackbox campaign using the provided briefing.\n"
                     "Focus on the entrypoints_subset, respect the budget, "
                     "and record observations using the provided tools.\n"
+                    "Record observations incrementally as you learn things (including negative results); do not wait until the end.\n"
                     "Do NOT emit <done>.\n"
                     f"CampaignBrief (dependency_graph omitted):\n"
                     f"{json.dumps(brief_dump, indent=2)}"
                 )
-                response = await agent.chat(user_prompt)
+                response = await agent.chat_with_tools(user_prompt)
             except Exception as e:
                 exception_msg = str(e)
                 prefix = "error_blackbox"
@@ -144,34 +145,6 @@ class BlackboxProcess(BaseProcess[BlackboxInput, BlackboxOutput]):
             observations: List[Observation] = getattr(
                 agent, "blackbox_observations", []
             )
-
-            # Hardening: ensure the process always returns at least one Observation
-            # describing the outcome. The model can fail to call add_observation()
-            # (or emit a valid <done> payload) even after consuming the full budget,
-            # which makes runs look like silent no-ops and makes the integration test flaky.
-            if response is not None and not exception_msg and not observations:
-                mission_id = getattr(agent, "execution_id", None) or agent.agent_id
-                logs: List[str] = []
-                logs.append(
-                    "No observations were recorded by tools; "
-                    "marking run outcome as a single summary observation."
-                )
-                observations.append(
-                    Observation(
-                        worker_id=agent.agent_id,
-                        mission_id=mission_id,
-                        description=(
-                            "Blackbox run completed without recorded findings. "
-                            "Either no anomalies were discovered or the agent failed to report them."
-                        ),
-                        affected_functions=[],
-                        affected_files=[],
-                        logs=logs,
-                        anomaly_type="no_findings",
-                        repro_command=None,
-                        seed=None,
-                    )
-                )
 
             success = response is not None and not exception_msg
             error_message = exception_msg or None
