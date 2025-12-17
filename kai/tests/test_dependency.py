@@ -278,6 +278,7 @@ class TestSerialization:
         container = loaded.node("container:Test")
         assert container.kind == NodeKind.CONTAINER
         assert container.name == "Test"
+        assert container.span is not None
         assert container.span.file == "Test.sol"
         assert container.span.start_line == 10
         assert container.span.end_line == 25

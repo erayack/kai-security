@@ -25,7 +25,7 @@ Usage:
     roles = get_actor_roles(graph, adapter=adapter)
 """
 
-from typing import Literal, Type
+from typing import Literal, cast
 
 from .base import DomainAdapter
 from .solidity import SolidityAdapter
@@ -34,7 +34,7 @@ from .solidity import SolidityAdapter
 AdapterType = Literal["solidity"]
 
 # Registry mapping adapter names to classes
-ADAPTER_REGISTRY: dict[AdapterType, Type[DomainAdapter]] = {
+ADAPTER_REGISTRY: dict[AdapterType, type[DomainAdapter]] = {
     "solidity": SolidityAdapter,
 }
 
@@ -56,7 +56,8 @@ def get_adapter(name: str) -> DomainAdapter:
     if name_lower not in ADAPTER_REGISTRY:
         available = list(ADAPTER_REGISTRY.keys())
         raise ValueError(f"Unknown adapter '{name}'. Available: {available}")
-    return ADAPTER_REGISTRY[name_lower]()
+    adapter_type = cast(AdapterType, name_lower)
+    return ADAPTER_REGISTRY[adapter_type]()
 
 
 __all__ = [

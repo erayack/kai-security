@@ -18,11 +18,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from kai.inference import create_openai_client, get_model_pricing
-
-# Load prompt template
-PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "actor_role_assignment.txt"
-ROLE_ASSIGNMENT_PROMPT = PROMPT_PATH.read_text() if PROMPT_PATH.exists() else ""
-
 from kai.processes.base import BaseProcess
 from kai.schemas import (
     ActorMatrix,
@@ -37,6 +32,10 @@ from kai.utils.dependency.adapters import DomainAdapter, get_adapter
 from kai.utils.dependency.analysis import FileSourceLoader, GraphQueryEngine, NodeRef
 from kai.utils.dependency.graph import DependencyGraph
 from kai.utils.dependency.models import EdgeKind
+
+# Load prompt template
+PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "actor_role_assignment.txt"
+ROLE_ASSIGNMENT_PROMPT = PROMPT_PATH.read_text() if PROMPT_PATH.exists() else ""
 
 
 class ActorProcess(BaseProcess[ActorMatrixInput, ActorMatrixOutput]):

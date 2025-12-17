@@ -4,7 +4,25 @@ from typing import Optional, List
 
 # Expose common repo inspection + file editing tools to SetupAgent.
 # The setup prompt expects these primitives for exploration and patching.
-from kai.agents.tools.tools import read_file, list_files, grep, update_file, create_file
+from kai.agents.tools.tools import read_file, list_files, update_file, create_file
+
+__all__ = [
+    "read_file",
+    "list_files",
+    "update_file",
+    "create_file",
+    "forge_install",
+    "forge_build",
+    "npm_install",
+    "cargo_install",
+    "cargo_build",
+    "cmake_configure",
+    "cmake_build",
+    "git_submodule_update",
+    "convert_ssh_to_https_in_gitmodules",
+    "create_minimal_cargo_package",
+    "run_script",
+]
 
 
 def _get_current_agent():

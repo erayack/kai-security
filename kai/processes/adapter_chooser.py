@@ -1,7 +1,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 from kai.processes.base import BaseProcess
 from kai.inference import get_model_pricing, get_model_response
@@ -247,7 +247,7 @@ class AdapterChooserProcess(BaseProcess[AdapterChooserInput, AdapterChooserOutpu
                     adapters.append(FRAMEWORK_ADAPTER_MAP.get(fw))
 
         return AdapterSelection(
-            languages=sorted(languages, key=lambda l: l.value),
+            languages=sorted(languages, key=lambda lang: lang.value),
             frameworks=frameworks,
             adapters=adapters,
         )

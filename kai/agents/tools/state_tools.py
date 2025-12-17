@@ -13,6 +13,22 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Dict, Any
 
+# Import shared tools
+from kai.agents.tools.tools import (
+    dependency_graph_loc,
+    dependency_graph_slice,
+    dependency_graph_paths,
+    dependency_graph_neighbors,
+    dependency_graph_resolve,
+    dependency_graph_snippet,
+    dependency_graph_callers,
+    dependency_graph_callees,
+    dependency_graph_explain,
+    dependency_graph_protocol_entrypoints,
+    _get_current_agent,
+    _normalize_agent_path,
+)
+
 
 def _find_forge() -> str:
     """
@@ -39,23 +55,6 @@ def _find_forge() -> str:
             return str(path)
 
     raise FileNotFoundError("forge not found - is Foundry installed?")
-
-
-# Import shared tools
-from kai.agents.tools.tools import (
-    dependency_graph_loc,
-    dependency_graph_slice,
-    dependency_graph_paths,
-    dependency_graph_neighbors,
-    dependency_graph_resolve,
-    dependency_graph_snippet,
-    dependency_graph_callers,
-    dependency_graph_callees,
-    dependency_graph_explain,
-    dependency_graph_protocol_entrypoints,
-    _get_current_agent,
-    _normalize_agent_path,
-)
 
 
 def write_and_compile(file_path: str, content: str) -> Dict[str, Any]:
