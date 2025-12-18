@@ -41,8 +41,13 @@ class FileSourceLoader:
         # Common patterns across frameworks (with or without leading /)
         # TODO: Move to DomainAdapter.get_source_markers() for proper framework support
         markers = [
-            "contracts/", "src/", "lib/", "test/",  # Solidity (Foundry/Hardhat)
-            "programs/", "tests/", "crates/",        # Rust/Anchor
+            "contracts/",
+            "src/",
+            "lib/",
+            "test/",  # Solidity (Foundry/Hardhat)
+            "programs/",
+            "tests/",
+            "crates/",  # Rust/Anchor
         ]
         for marker in markers:
             # Check both with and without leading slash

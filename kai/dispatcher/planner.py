@@ -4,6 +4,7 @@ Dispatcher mission planning.
 
 from __future__ import annotations
 
+import secrets
 from collections import Counter, defaultdict
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -26,6 +27,12 @@ from kai.schemas import (
 )
 from kai.utils.dependency.graph import DependencyGraph
 from kai.utils.dependency.models import EdgeKind, NodeKind
+
+
+def generate_mission_id() -> str:
+    """Generate a 24-character hex ID (MongoDB ObjectId compatible)."""
+    return secrets.token_hex(12)
+
 
 # Agent type mapping based on invariant semantics
 INVARIANT_TO_AGENTS: Dict[InvariantType, List[MissionAgentType]] = {
@@ -369,7 +376,7 @@ class MissionPlanner:
                 for agent_type in campaign.agent_types:
                     missions.append(
                         Mission(
-                            mission_id=f"MSN_{base_id + len(missions):03d}",
+                            mission_id=generate_mission_id(),
                             campaign_id=campaign.campaign_id,
                             invariant_id=inv.id,
                             invariant=inv,
@@ -385,7 +392,7 @@ class MissionPlanner:
             for agent_type in campaign.agent_types:
                 missions.append(
                     Mission(
-                        mission_id=f"MSN_{base_id + len(missions):03d}",
+                        mission_id=generate_mission_id(),
                         campaign_id=campaign.campaign_id,
                         invariant_id=None,
                         invariant=None,
@@ -410,7 +417,7 @@ class MissionPlanner:
         for agent_type in agent_types:
             missions.append(
                 Mission(
-                    mission_id=f"MSN_DYN_{base_id + len(missions):03d}",
+                    mission_id=generate_mission_id(),
                     campaign_id="CMP_DYNAMIC",
                     invariant_id=invariant.id,
                     invariant=invariant,

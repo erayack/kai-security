@@ -56,7 +56,9 @@ def filter_actor_context(
     for fid in target_func_ids:
         # Extract function name from ID like "Contract.funcName(args)"
         if "." in fid:
-            name_part = fid.split(".")[-1].split("(")[0] #TODO: check if works on other languages
+            name_part = fid.split(".")[-1].split("(")[
+                0
+            ]  # TODO: check if works on other languages
             target_func_names.add(name_part)
 
     relevant_roles = []
