@@ -276,7 +276,8 @@ class BaseAgent(ABC):
 
         # Generate tools if not provided
         if tools is None:
-            tools = generate_openai_tools(self.get_tools_module())
+            adapter = self.get_tool_adapter()
+            tools = generate_openai_tools(self.get_tools_module(), adapter=adapter)
 
         # Create executor if not provided
         if tool_executor is None:
@@ -306,8 +307,12 @@ class BaseAgent(ABC):
             logger.info(f"{current_turn}/{self.max_tool_turns} - {agent_desc}")
 
             # Call model with tools
-            response, calls_made, usage_data, messages_payload = (
-                await get_model_response_with_tools(
+            (
+                response,
+                calls_made,
+                usage_data,
+                messages_payload,
+            ) = await get_model_response_with_tools(
                 messages=self.messages,
                 tools=tools,
                 tool_executor=tool_executor,
@@ -316,7 +321,6 @@ class BaseAgent(ABC):
                 use_vllm=self.use_vllm,
                 use_openai=self.use_openai,
                 max_tool_rounds=1,  # One round at a time for fine control
-                )
             )
 
             # Update budget
@@ -330,7 +334,9 @@ class BaseAgent(ABC):
             except Exception:
                 # If tool-call metadata shape is unexpected, fall back to minimal assistant text.
                 if response:
-                    self._add_message(ChatMessage(role=Role.ASSISTANT, content=response))
+                    self._add_message(
+                        ChatMessage(role=Role.ASSISTANT, content=response)
+                    )
 
             if response:
                 final_response = response
@@ -448,6 +454,32 @@ class BaseAgent(ABC):
             The module name to import for tools.
         """
         pass
+
+    def get_tool_adapter(self):
+        """
+        Get the tool adapter for framework-specific tool descriptions.
+
+        Checks master_context.frameworks for a supported tool framework.
+        Note: master_context.adapter is for language/domain (solidity, rust),
+        while frameworks contains the tooling (foundry, hardhat, anchor, cargo).
+
+        Returns:
+            ToolAdapter instance
+        """
+        from kai.utils.tool_adapters import get_tool_adapter, get_supported_frameworks
+
+        master_context = getattr(self, "master_context", None)
+        if master_context:
+            # Check frameworks list for a supported tool framework
+            frameworks = getattr(master_context, "frameworks", None) or []
+            supported = set(get_supported_frameworks())
+            for fw in frameworks:
+                fw_lower = fw.lower()
+                if fw_lower in supported:
+                    return get_tool_adapter(fw_lower)
+
+        # Default to foundry if no recognized framework found
+        return get_tool_adapter("foundry")
 
     @abstractmethod
     def extract_final_result(

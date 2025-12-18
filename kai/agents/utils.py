@@ -125,7 +125,7 @@ def generate_tool_schema(tools_module: str) -> str:
     return "\n".join(lines)
 
 
-def generate_openai_tools(tools_module: str) -> list[dict]:
+def generate_openai_tools(tools_module: str, adapter=None) -> list[dict]:
     """
     Generate OpenAI-style tool definitions from a Python module.
 
@@ -134,12 +134,16 @@ def generate_openai_tools(tools_module: str) -> list[dict]:
 
     Args:
         tools_module: Fully qualified module name (e.g., "kai.agents.tools.state_tools")
+        adapter: Optional ToolAdapter for framework-specific tool descriptions.
+                 If provided, tools in ADAPTER_DESCRIBED_TOOLS will use
+                 adapter.get_tool_description() instead of docstrings.
 
     Returns:
         List of tool definitions in OpenAI format.
     """
     import typing
     from typing import get_type_hints, get_origin, get_args, Union
+    from kai.agents.tools.tools import get_tool_description, ADAPTER_DESCRIBED_TOOLS
 
     try:
         module = importlib.import_module(tools_module)
@@ -261,9 +265,16 @@ def generate_openai_tools(tools_module: str) -> list[dict]:
         except Exception:
             hints = {}
 
-        # Parse docstring
-        docstring = inspect.getdoc(obj) or ""
-        description, param_descs = parse_docstring(docstring)
+        # Get description - use adapter if available for adapter-described tools
+        if adapter is not None and name in ADAPTER_DESCRIBED_TOOLS:
+            description = get_tool_description(obj, adapter)
+            # Parse docstring just for parameter descriptions
+            docstring = inspect.getdoc(obj) or ""
+            _, param_descs = parse_docstring(docstring)
+        else:
+            # Parse docstring for both description and param descriptions
+            docstring = inspect.getdoc(obj) or ""
+            description, param_descs = parse_docstring(docstring)
 
         # Build parameters schema
         properties = {}

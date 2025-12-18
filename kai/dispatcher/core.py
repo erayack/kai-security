@@ -23,6 +23,7 @@ from kai.utils.dependency.graph import DependencyGraph
 
 from kai.dispatcher.planner import MissionPlanner
 from kai.dispatcher.workspace import WorkspaceManager
+from kai.dispatcher.agent_factories import AGENT_FACTORIES as DEFAULT_AGENT_FACTORIES
 
 if TYPE_CHECKING:
     from kai.agents.base import BaseAgent
@@ -30,8 +31,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Type alias for agent factory function
-# Factory takes (mission, workspace_path) and returns an initialized agent
-AgentFactory = Callable[[Mission, str], "BaseAgent"]
+# Extended signature: (mission, workspace_path, master_context, dependency_graph, actor_matrix, model, use_openai, execution_id)
+AgentFactory = Callable[..., "BaseAgent"]
 
 
 class VerifierProtocol(Protocol):
@@ -54,6 +55,9 @@ class DispatcherConfig:
     include_exploration: bool = True
     default_budget: CampaignBudget = field(default_factory=CampaignBudget)
     workspace_dir: str = "./kai_workspaces"
+    # Model settings for agents
+    model: str = "openai/gpt-4.1"
+    use_openai: bool = False
 
 
 class Dispatcher:
@@ -77,11 +81,12 @@ class Dispatcher:
 
     def __init__(
         self,
-        agent_factories: Dict[MissionAgentType, AgentFactory],
+        agent_factories: Optional[Dict[MissionAgentType, AgentFactory]] = None,
         verifier: Optional[VerifierProtocol] = None,
         config: Optional[DispatcherConfig] = None,
     ):
-        self.agent_factories = agent_factories
+        # Use default factories if none provided
+        self.agent_factories = agent_factories or dict(DEFAULT_AGENT_FACTORIES)
         self.verifier = verifier
         self.config = config or DispatcherConfig()
 
@@ -336,18 +341,45 @@ class Dispatcher:
             # Provision workspace
             workspace_path = await self._provision_workspace(mission)
 
-            # Create agent instance via factory
-            agent = factory(mission, workspace_path)
+            # Create agent instance via factory with full context
+            agent = factory(
+                mission=mission,
+                workspace_path=workspace_path,
+                master_context=self.master_context,
+                dependency_graph=self.dependency_graph,
+                actor_matrix=self.actor_matrix,
+                model=self.config.model,
+                use_openai=self.config.use_openai,
+                execution_id=mission.mission_id,
+            )
 
-            # Execute via agent.chat()
             self.logger.info(
                 f"Executing {mission.mission_id} with {mission.agent_type.value}"
             )
-            # Build mission prompt from invariant and scope
-            prompt = self._build_mission_prompt(mission)
-            result = await agent.chat(prompt)
 
-            await self._handle_result(mission, result)
+            # Agent-type specific execution
+            if mission.agent_type == MissionAgentType.STATE:
+                # StateAgent uses chat_with_tools() - prompt is already set by factory
+                await agent.chat_with_tools("Begin.")
+                # Extract exploit candidates from StateAgent
+                await self._handle_state_agent_result(mission, agent)
+
+            elif mission.agent_type == MissionAgentType.QUANT:
+                # QuantAgent (when implemented) will use similar pattern
+                await agent.chat_with_tools("Begin.")
+                await self._handle_state_agent_result(mission, agent)
+
+            elif mission.agent_type == MissionAgentType.BLACKBOX:
+                # BlackboxAgent returns observations
+                prompt = self._build_mission_prompt(mission)
+                await agent.chat(prompt)
+                await self._handle_blackbox_agent_result(mission, agent)
+
+            else:
+                # Generic fallback
+                prompt = self._build_mission_prompt(mission)
+                result = await agent.chat(prompt)
+                await self._handle_result(mission, result)
 
             mission.status = "completed"
 
@@ -422,6 +454,70 @@ class Dispatcher:
                 self.logger.info(f"New invariant discovered: {new_inv.id}")
                 self.invariants[new_inv.id] = new_inv
                 # Schedule new missions for this invariant
+                self._schedule_missions_for_invariant(new_inv)
+
+    async def _handle_state_agent_result(self, mission: Mission, agent: Any) -> None:
+        """
+        Extract and handle results from StateAgent.
+
+        StateAgent stores exploit candidates in _registered_exploits via register_exploit tool.
+        """
+        # Get exploit candidates from agent
+        candidates = []
+        if hasattr(agent, "get_exploit_candidates"):
+            candidates = agent.get_exploit_candidates()
+        elif hasattr(agent, "_registered_exploits"):
+            candidates = agent._registered_exploits
+
+        if not candidates:
+            self.logger.info(f"No exploit candidates from {mission.mission_id}")
+            return
+
+        self.logger.info(
+            f"StateAgent {mission.mission_id} found {len(candidates)} exploit candidate(s)"
+        )
+
+        for candidate in candidates:
+            # Tag candidate with mission context
+            if hasattr(candidate, "mission_id") and not candidate.mission_id:
+                candidate.mission_id = mission.mission_id
+            if (
+                hasattr(candidate, "invariant_id")
+                and not candidate.invariant_id
+                and mission.invariant
+            ):
+                candidate.invariant_id = mission.invariant.id
+
+            # Verify if compiled and verifier available
+            if candidate.compiled and self.verifier and self.master_context:
+                await self.verifier.verify(candidate, self.master_context)
+
+            self.exploit_candidates.append(candidate)
+
+    async def _handle_blackbox_agent_result(self, mission: Mission, agent: Any) -> None:
+        """
+        Extract and handle results from BlackboxAgent.
+
+        BlackboxAgent stores observations in blackbox_observations via add_observation tool.
+        """
+        observations = []
+        if hasattr(agent, "blackbox_observations"):
+            observations = agent.blackbox_observations
+
+        if not observations:
+            self.logger.info(f"No observations from {mission.mission_id}")
+            return
+
+        self.logger.info(
+            f"BlackboxAgent {mission.mission_id} recorded {len(observations)} observation(s)"
+        )
+
+        for obs in observations:
+            # Synthesize invariant from observation
+            new_inv = await self._synthesize_invariant(obs)
+            if new_inv and new_inv.id not in self.invariants:
+                self.logger.info(f"New invariant discovered: {new_inv.id}")
+                self.invariants[new_inv.id] = new_inv
                 self._schedule_missions_for_invariant(new_inv)
 
     async def _synthesize_invariant(

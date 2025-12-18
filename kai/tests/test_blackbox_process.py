@@ -64,8 +64,16 @@ async def test_blackbox_process_saves_conversation_and_returns_findings(
     convo_dir = project_root / "output" / repo_root.name
     convo_dir.mkdir(parents=True, exist_ok=True)
     before = {p for p in convo_dir.glob("blackbox_*.json")}
-    repo_campaigns_before = {p for p in (repo_root / "campaigns").glob("*.t.sol")} if (repo_root / "campaigns").exists() else set()
-    repo_test_before = {p for p in (repo_root / "test").glob("*.t.sol")} if (repo_root / "test").exists() else set()
+    repo_campaigns_before = (
+        {p for p in (repo_root / "campaigns").glob("*.t.sol")}
+        if (repo_root / "campaigns").exists()
+        else set()
+    )
+    repo_test_before = (
+        {p for p in (repo_root / "test").glob("*.t.sol")}
+        if (repo_root / "test").exists()
+        else set()
+    )
 
     result = await process.execute(
         BlackboxInput(
@@ -81,7 +89,9 @@ async def test_blackbox_process_saves_conversation_and_returns_findings(
     assert result.response is not None
     assert result.response.master_context is not None
     assert isinstance(result.observations, list)
-    assert result.observations, "Expected at least one observation for a passing blackbox run"
+    assert result.observations, (
+        "Expected at least one observation for a passing blackbox run"
+    )
     assert result.estimated_cost >= 0
     assert "prompt_tokens" in result.total_tokens
 
@@ -98,8 +108,15 @@ async def test_blackbox_process_saves_conversation_and_returns_findings(
     assert "exploits" not in results_payload
 
     # Ensure we didn't leave harness files inside the target repo.
-    repo_campaigns_after = {p for p in (repo_root / "campaigns").glob("*.t.sol")} if (repo_root / "campaigns").exists() else set()
-    repo_test_after = {p for p in (repo_root / "test").glob("*.t.sol")} if (repo_root / "test").exists() else set()
+    repo_campaigns_after = (
+        {p for p in (repo_root / "campaigns").glob("*.t.sol")}
+        if (repo_root / "campaigns").exists()
+        else set()
+    )
+    repo_test_after = (
+        {p for p in (repo_root / "test").glob("*.t.sol")}
+        if (repo_root / "test").exists()
+        else set()
+    )
     assert repo_campaigns_after == repo_campaigns_before
     assert repo_test_after == repo_test_before
-

@@ -4,12 +4,10 @@ Tools for StateAgent - finding state/ordering vulnerabilities.
 Provides:
 - Graph tools for understanding code (reused from shared tools)
 - write_and_compile: Write file + immediate compilation feedback
-- forge_test: Run tests with parsed output
+- run_test: Run tests with parsed output (framework-agnostic)
 """
 
 import os
-import shutil
-import subprocess
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -28,33 +26,46 @@ from kai.agents.tools.tools import (
     _get_current_agent,
     _normalize_agent_path,
 )
+from kai.utils.tool_adapters import get_tool_adapter, ToolAdapter
 
 
-def _find_forge() -> str:
+def _get_agent_framework() -> str:
     """
-    Find the forge binary, checking common installation paths.
+    Get the tool framework from the current agent context.
 
-    Returns the path to forge or raises FileNotFoundError.
+    Checks master_context.frameworks for supported tool frameworks (foundry, hardhat, etc.),
+    then falls back to agent.framework attribute if set.
+
+    Returns:
+        Framework name (defaults to "foundry" if not available)
     """
-    # First try shutil.which (uses PATH)
-    forge_path = shutil.which("forge")
-    if forge_path:
-        return forge_path
+    from kai.utils.tool_adapters import get_supported_frameworks
 
-    # Common Foundry installation paths
-    home = Path.home()
-    common_paths = [
-        home / ".foundry" / "bin" / "forge",
-        home / ".cargo" / "bin" / "forge",
-        Path("/usr/local/bin/forge"),
-        Path("/opt/homebrew/bin/forge"),
-    ]
+    agent = _get_current_agent()
+    if agent is None:
+        return "foundry"
 
-    for path in common_paths:
-        if path.exists() and path.is_file():
-            return str(path)
+    # Check master_context.frameworks for supported tool framework
+    master_context = getattr(agent, "master_context", None)
+    if master_context:
+        frameworks = getattr(master_context, "frameworks", None) or []
+        supported = set(get_supported_frameworks())
+        for fw in frameworks:
+            fw_lower = fw.lower()
+            if fw_lower in supported:
+                return fw_lower
 
-    raise FileNotFoundError("forge not found - is Foundry installed?")
+    # Try framework attribute directly on agent
+    framework = getattr(agent, "framework", None)
+    if framework:
+        return framework.lower()
+
+    return "foundry"
+
+
+def _get_adapter() -> ToolAdapter:
+    """Get the tool adapter for the current agent's framework."""
+    return get_tool_adapter(_get_agent_framework())
 
 
 def write_and_compile(file_path: str, content: str) -> Dict[str, Any]:
@@ -66,7 +77,7 @@ def write_and_compile(file_path: str, content: str) -> Dict[str, Any]:
 
     Args:
         file_path: Test file name (e.g., "MyExploit.t.sol")
-        content: The Solidity test file content
+        content: The test file content
 
     Returns:
         {
@@ -112,119 +123,61 @@ def write_and_compile(file_path: str, content: str) -> Dict[str, Any]:
 
     workspace = Path(workspace_path)
 
-    # Normalize file_path.
-    #
-    # Users/agents often provide paths like:
-    # - "INV_X.t.sol"
-    # - "poc/INV_X.t.sol"
-    # - "test/poc/INV_X.t.sol"
-    #
-    # We always write under the provisioned workspace's `test/` directory, while
-    # preserving any subdirectories under `test/` (e.g. `test/poc/...`).
-    p = Path(file_path)
-    if p.is_absolute():
-        p = Path(p.name)
-    # If caller already included leading "test/", strip it (we add it below).
-    if p.parts and p.parts[0] == "test":
-        p = Path(*p.parts[1:]) if len(p.parts) > 1 else Path(p.name)
-    # Ensure suffix
-    if not p.name.endswith(".sol"):
-        # If they didn't specify extension, default to Foundry-style test suffix.
-        p = p.with_name(p.name + ".t.sol")
-    abs_path = workspace / "test" / p
+    # Get the adapter for framework-specific operations
+    adapter = _get_adapter()
 
-    # Create parent directories
+    # Normalize the test path using the adapter
+    abs_path = adapter.normalize_test_path(file_path, workspace)
+    rel_path = abs_path.relative_to(workspace)
+
+    # Create parent directories and write file
     try:
         abs_path.parent.mkdir(parents=True, exist_ok=True)
         abs_path.write_text(content)
     except Exception as e:
         return {"written": False, "error": f"Failed to write file: {e}"}
 
-    # Run forge build in the workspace to check compilation
-    rel_test_path = f".kai_workspace/test/{p.as_posix()}"
-    try:
-        forge_bin = _find_forge()
-        result = subprocess.run(
-            [forge_bin, "build"],
-            cwd=str(workspace),  # Run in workspace, not main repo
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
+    # Compile using the adapter
+    rel_test_path = f".kai_workspace/{rel_path.as_posix()}"
+    compile_result = adapter.compile(workspace)
 
-        compiled = result.returncode == 0
-        raw_output = result.stdout + result.stderr
+    # Track compilation attempts
+    if not hasattr(agent, "_compile_attempts"):
+        agent._compile_attempts = 0
+    agent._compile_attempts += 1
 
-        # Parse errors
-        errors = []
-        if not compiled:
-            for line in raw_output.split("\n"):
-                line_lower = line.lower()
-                if "error" in line_lower or "Error" in line:
-                    errors.append(line.strip())
-            # Limit to most relevant errors
-            errors = errors[:10]
-
-        # Track compilation attempts
-        if not hasattr(agent, "_compile_attempts"):
-            agent._compile_attempts = 0
-        agent._compile_attempts += 1
-
-        return {
-            "written": True,
-            "path": rel_test_path,
-            "workspace": str(workspace),
-            "compiled": compiled,
-            "errors": errors,
-            "raw_output": raw_output[:3000] if len(raw_output) > 3000 else raw_output,
-            "attempt": agent._compile_attempts,
-        }
-
-    except subprocess.TimeoutExpired:
-        return {
-            "written": True,
-            "path": rel_test_path,
-            "workspace": str(workspace),
-            "compiled": False,
-            "errors": ["Compilation timed out after 120 seconds"],
-            "raw_output": "",
-        }
-    except FileNotFoundError:
-        return {
-            "written": True,
-            "path": file_path,
-            "compiled": False,
-            "errors": ["forge not found - is Foundry installed?"],
-            "raw_output": "",
-        }
-    except Exception as e:
-        return {
-            "written": True,
-            "path": file_path,
-            "compiled": False,
-            "errors": [str(e)],
-            "raw_output": "",
-        }
+    return {
+        "written": True,
+        "path": rel_test_path,
+        "workspace": str(workspace),
+        "compiled": compile_result.success,
+        "errors": compile_result.errors,
+        "raw_output": compile_result.raw_output,
+        "attempt": agent._compile_attempts,
+    }
 
 
-def forge_test(
+def run_test(
     match_contract: Optional[str] = None,
     match_test: Optional[str] = None,
     verbosity: int = 3,
-    gas_report: bool = False,
+    additional_args: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Run Foundry tests with parsed results.
+    Run tests with parsed results (framework-agnostic).
+
+    Uses the appropriate test runner based on the project framework
+    (Foundry, Hardhat, Anchor, etc.).
 
     Args:
-        match_contract: Filter by contract name pattern
+        match_contract: Filter by contract/module name pattern
         match_test: Filter by test function name pattern
-        verbosity: -v level (0-5), default 3 for traces on failure
-        gas_report: Include gas report
+        verbosity: Verbosity level (0-5), default 3 for traces on failure
+        additional_args: Additional CLI arguments for the test runner
 
     Returns:
         {
-            "success": bool,          # forge command succeeded
+            "success": bool,          # Test command succeeded
             "tests_passed": int,
             "tests_failed": int,
             "assertion_failures": List[str],  # Test names that had assertion failures
@@ -234,7 +187,7 @@ def forge_test(
         }
 
     Example:
-        result = forge_test(match_contract="ExploitTest", match_test="test_drain")
+        result = run_test(match_contract="ExploitTest", match_test="test_drain")
 
         if result["tests_passed"] > 0 and result["assertion_failures"]:
             # Assertion failed = we proved the invariant can be broken
@@ -252,107 +205,30 @@ def forge_test(
             "error": "No workspace provisioned. Set agent.workspace_path first.",
         }
 
-    # Build command
-    try:
-        forge_bin = _find_forge()
-    except FileNotFoundError:
-        return {"success": False, "error": "forge not found - is Foundry installed?"}
+    workspace = Path(workspace_path)
 
-    cmd = [forge_bin, "test"]
+    # Get the adapter for framework-specific operations
+    adapter = _get_adapter()
 
-    if match_contract:
-        cmd.extend(["--match-contract", match_contract])
-    if match_test:
-        cmd.extend(["--match-test", match_test])
+    # Run tests using the adapter
+    test_result = adapter.run_test(
+        workspace_path=workspace,
+        match_contract=match_contract,
+        match_test=match_test,
+        verbosity=verbosity,
+        additional_args=additional_args,
+    )
 
-    # Add verbosity
-    if verbosity > 0:
-        cmd.append("-" + "v" * verbosity)
+    # Track test attempts
+    if not hasattr(agent, "_test_attempts"):
+        agent._test_attempts = 0
+    agent._test_attempts += 1
 
-    if gas_report:
-        cmd.append("--gas-report")
+    # Convert TestResult to dict and add attempt number
+    result_dict = test_result.to_dict()
+    result_dict["attempt"] = agent._test_attempts
 
-    # Run tests in workspace
-    try:
-        result = subprocess.run(
-            cmd,
-            cwd=workspace_path,  # Run in provisioned workspace
-            capture_output=True,
-            text=True,
-            timeout=300,  # 5 min timeout for tests
-        )
-
-        output = result.stdout + result.stderr
-        success = result.returncode == 0
-
-        # Parse results
-        tests_passed = 0
-        tests_failed = 0
-        assertion_failures = []
-        reverts = []
-        parsed_results = {}
-
-        # Count passes and failures
-        for line in output.split("\n"):
-            # [PASS] test_name()
-            if "[PASS]" in line:
-                tests_passed += 1
-                # Extract test name
-                if "test_" in line:
-                    test_name = (
-                        line.split("test_")[1].split("(")[0] if "test_" in line else ""
-                    )
-                    if test_name:
-                        parsed_results[f"test_{test_name}"] = "pass"
-
-            # [FAIL] test_name()
-            elif "[FAIL]" in line:
-                tests_failed += 1
-                if "test_" in line:
-                    test_name = (
-                        line.split("test_")[1].split("(")[0] if "test_" in line else ""
-                    )
-                    full_name = f"test_{test_name}" if test_name else "unknown"
-
-                    # Check if it's an assertion failure or revert
-                    if "assertion" in line.lower() or "assert" in output.lower():
-                        assertion_failures.append(full_name)
-                        parsed_results[full_name] = "assertion_fail"
-                    else:
-                        reverts.append(full_name)
-                        parsed_results[full_name] = "revert"
-
-        # Track test attempts
-        if not hasattr(agent, "_test_attempts"):
-            agent._test_attempts = 0
-        agent._test_attempts += 1
-
-        return {
-            "success": success,
-            "tests_passed": tests_passed,
-            "tests_failed": tests_failed,
-            "assertion_failures": assertion_failures,
-            "reverts": reverts,
-            "parsed_results": parsed_results,
-            "raw_output": output[:5000] if len(output) > 5000 else output,
-            "attempt": agent._test_attempts,
-        }
-
-    except subprocess.TimeoutExpired:
-        return {
-            "success": False,
-            "tests_passed": 0,
-            "tests_failed": 0,
-            "assertion_failures": [],
-            "reverts": [],
-            "parsed_results": {},
-            "raw_output": "Test execution timed out after 300 seconds",
-            "error": "timeout",
-        }
-    except FileNotFoundError:
-        return {"success": False, "error": "forge not found - is Foundry installed?"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    return result_dict
 
 
 def patch_file(file_path: str, old_content: str, new_content: str) -> Dict[str, Any]:
@@ -360,22 +236,15 @@ def patch_file(file_path: str, old_content: str, new_content: str) -> Dict[str, 
     Patch a file by replacing old_content with new_content, then recompile.
 
     Useful for fixing compilation errors without rewriting the entire file.
+    Can only patch files in allowed test directories (framework-specific).
 
     Args:
-        file_path: Path to file (must be in test/poc/)
+        file_path: Path to file (must be in allowed test directory)
         old_content: Exact string to find and replace
         new_content: Replacement string
 
     Returns:
         Same as write_and_compile: {written, path, compiled, errors, ...}
-
-    Example:
-        # Fix an import error
-        result = patch_file(
-            "test/poc/Exploit.t.sol",
-            'import "../src/Token.sol";',
-            'import "src/Token.sol";'
-        )
     """
     agent = _get_current_agent()
     if agent is None:
@@ -385,12 +254,17 @@ def patch_file(file_path: str, old_content: str, new_content: str) -> Dict[str, 
     if abs_path is None:
         return {"written": False, "error": f"Invalid path: {file_path}"}
 
-    # Safety check
+    # Safety check - use adapter's allowed directories
     rel_path = (
         os.path.relpath(abs_path, agent.repo_path) if agent.repo_path else file_path
     )
-    if not rel_path.startswith("test/poc") and not rel_path.startswith("test\\poc"):
-        return {"written": False, "error": "Can only patch files in test/poc/"}
+    adapter = _get_adapter()
+    allowed_dirs = adapter.get_allowed_patch_directories()
+    if not any(rel_path.startswith(d) for d in allowed_dirs):
+        return {
+            "written": False,
+            "error": f"Can only patch files in: {', '.join(allowed_dirs)}",
+        }
 
     # Read current content
     try:
@@ -487,7 +361,7 @@ __all__ = [
     "dependency_graph_explain",
     "dependency_graph_protocol_entrypoints",
     "write_and_compile",
-    "forge_test",
+    "run_test",
     "patch_file",
     "register_exploit",
 ]

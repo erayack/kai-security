@@ -59,12 +59,12 @@ class SolidityBuilder(BaseBuilder):
         if (project_root / "lib" / "openzeppelin-contracts").is_dir():
             remappings.append("@openzeppelin/=lib/openzeppelin-contracts/")
 
-        libs_value = ", ".join(f"\"{x}\"" for x in libs)
-        remappings_value = ", ".join(f"\"{x}\"" for x in remappings)
+        libs_value = ", ".join(f'"{x}"' for x in libs)
+        remappings_value = ", ".join(f'"{x}"' for x in remappings)
         return (
             "[profile.default]\n"
-            f"src = \"{src}\"\n"
-            "out = \"out\"\n"
+            f'src = "{src}"\n'
+            'out = "out"\n'
             f"libs = [{libs_value}]\n"
             f"remappings = [{remappings_value}]\n"
         )
@@ -104,7 +104,9 @@ class SolidityBuilder(BaseBuilder):
             try:
                 sl = Slither(str(project_root), **(slither_kwargs or {}))
             except AssertionError:
-                fw = str((slither_kwargs or {}).get("compile_force_framework") or "").lower()
+                fw = str(
+                    (slither_kwargs or {}).get("compile_force_framework") or ""
+                ).lower()
                 foundry_toml = project_root / "foundry.toml"
                 if fw == "foundry" and not foundry_toml.is_file():
                     tmp_foundry_toml = foundry_toml

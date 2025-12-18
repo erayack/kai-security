@@ -800,6 +800,7 @@ def list_files(path: Optional[str] = None, depth: int = 2) -> str:
     except Exception as e:
         return f"Error: {e}"
 
+
 def forge_test(
     test_script_path: Optional[str] = None,
     working_dir: Optional[str] = None,
@@ -851,9 +852,8 @@ def forge_test(
         if not wd:
             agent = _get_current_agent()
             if agent is not None:
-                wd = (
-                    (getattr(agent, "repo_path", None) or "")
-                    or (getattr(agent, "working_dir", None) or "")
+                wd = (getattr(agent, "repo_path", None) or "") or (
+                    getattr(agent, "working_dir", None) or ""
                 )
         if not wd:
             wd = os.getcwd()
@@ -882,9 +882,7 @@ def forge_test(
 
         # Run the command, optionally in a specific directory
         if wd:
-            p = subprocess.run(
-                cmd, shell=True, text=True, capture_output=True, cwd=wd
-            )
+            p = subprocess.run(cmd, shell=True, text=True, capture_output=True, cwd=wd)
         else:
             p = subprocess.run(cmd, shell=True, text=True, capture_output=True)
 
@@ -1354,3 +1352,35 @@ def create_file(file_path: str, content: str = "") -> bool:
             except Exception as e:
                 raise Exception(f"Error removing temp file {temp_file_path}: {e}")
         raise Exception(f"Error creating file {file_path}: {e}")
+
+
+# =============================================================================
+# Tool Schema Helpers
+# =============================================================================
+
+# Tools that need framework-specific descriptions from adapters
+ADAPTER_DESCRIBED_TOOLS = {
+    "write_and_compile",
+    "run_test",
+    "patch_file",
+    "register_exploit",
+}
+
+
+def get_tool_description(tool_fn, adapter=None) -> str:
+    """
+    Get the description for a tool, using adapter if needed.
+
+    For tools in ADAPTER_DESCRIBED_TOOLS, uses adapter.get_tool_description()
+    to get framework-specific descriptions. Otherwise uses the tool's docstring.
+    """
+    tool_name = tool_fn.__name__
+
+    # Get description from adapter if available and tool needs it
+    if adapter is not None and tool_name in ADAPTER_DESCRIBED_TOOLS:
+        desc = adapter.get_tool_description(tool_name)
+        if desc is not None:
+            return desc.strip()
+
+    # Fall back to docstring
+    return (tool_fn.__doc__ or f"Tool: {tool_name}").strip()
