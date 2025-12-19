@@ -231,12 +231,14 @@ class BaseAgent(ABC):
         Returns a function that takes (tool_name, args_dict) and returns the result.
         """
         import importlib
+        from kai.agents.tools.tools import set_current_agent
 
         module = importlib.import_module(self.get_tools_module())
 
         def executor(name: str, args: dict):
-            # Ensure tools relying on call-stack inspection (e.g. tools._get_current_agent)
-            # can find the current agent instance.
+            # Set current agent via contextvars (async-safe and reliable)
+            set_current_agent(self)
+            # Also keep stack variable for backwards compatibility
             _agent_instance = self  # noqa: F841
             func = getattr(module, name, None)
             if func is None:

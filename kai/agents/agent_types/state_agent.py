@@ -180,16 +180,46 @@ class StateAgent(BaseAgent):
 
         Reads findings from _registered_exploits populated by register_exploit tool.
         """
+        import json
+        from datetime import datetime
+
         # Get findings from register_exploit tool calls
         registered = getattr(self, "_registered_exploits", [])
+        mission_id = self.mission.mission_id if self.mission else "unknown"
 
         # Store result for later retrieval
         self.state_result = StateAgentResult(
-            mission_id=self.mission.mission_id if self.mission else "",
+            mission_id=mission_id,
             findings=registered,
             test_attempts=getattr(self, "_test_attempts", 0),
             compile_attempts=getattr(self, "_compile_attempts", 0),
         )
+
+        # Save findings to JSON
+        if registered:
+            output_dir = (
+                Path(self.repo_path).parent if self.repo_path else Path("output")
+            )
+            output_dir = output_dir / "findings"
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_file = output_dir / f"{mission_id}_{timestamp}.json"
+
+            output_data = {
+                "mission_id": mission_id,
+                "invariant_id": self.mission.invariant_id if self.mission else None,
+                "invariant_rule": self.mission.invariant.rule
+                if self.mission and self.mission.invariant
+                else None,
+                "timestamp": timestamp,
+                "test_attempts": getattr(self, "_test_attempts", 0),
+                "compile_attempts": getattr(self, "_compile_attempts", 0),
+                "findings": registered,
+            }
+
+            with open(output_file, "w") as f:
+                json.dump(output_data, f, indent=2, default=str)
 
         return AgentResponse(
             thoughts=thoughts,

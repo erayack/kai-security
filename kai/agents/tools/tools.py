@@ -5,6 +5,7 @@ This module contains utility functions that are used by multiple agents
 to avoid code duplication and ensure consistency.
 """
 
+import contextvars
 import os
 import json
 import subprocess
@@ -21,14 +22,29 @@ from kai.utils.dependency.analysis import (
     EvidencePack,
 )
 
+# Context variable for current agent (async-safe)
+_current_agent_var: contextvars.ContextVar = contextvars.ContextVar(
+    "current_agent", default=None
+)
+
+
+def set_current_agent(agent):
+    """Set the current agent for tools to access (async-safe)."""
+    _current_agent_var.set(agent)
+
 
 def _get_current_agent():
     """
-    Get the current agent instance from the global registry.
-    This is set during sandboxed code execution.
+    Get the current agent instance.
+    First checks contextvars (preferred), then falls back to stack inspection.
     """
+    # Try contextvars first (async-safe and reliable)
+    agent = _current_agent_var.get()
+    if agent is not None:
+        return agent
+
+    # Fall back to stack inspection for backwards compatibility
     try:
-        # Try to get from local scope first (passed via execute_sandboxed_code)
         import inspect
 
         frame = inspect.currentframe()
