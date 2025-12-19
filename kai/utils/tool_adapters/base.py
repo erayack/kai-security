@@ -122,6 +122,7 @@ class ToolAdapter(ABC):
         verbosity: int = 3,
         timeout: int = 300,
         additional_args: Optional[str] = None,
+        framework_kwargs: Optional[Dict[str, Any]] = None,
     ) -> TestResult:
         """
         Run tests in the given workspace.
@@ -133,6 +134,8 @@ class ToolAdapter(ABC):
             verbosity: Verbosity level (framework-specific interpretation)
             timeout: Timeout in seconds
             additional_args: Additional CLI arguments
+            framework_kwargs: Framework-specific knobs as a dict (best-effort).
+                Adapters should ignore unknown keys and interpret known ones.
 
         Returns:
             TestResult with parsed test outcomes

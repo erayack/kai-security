@@ -79,7 +79,7 @@ async def test_blackbox_process_saves_conversation_and_returns_findings(
         BlackboxInput(
             campaign_brief=brief,
             num_turns=brief.budget.max_turns_per_agent,
-            model_name="openai/gpt-5.2",
+            model_name="z-ai/glm-4.6",
             # Blackbox runs via OpenRouter (OpenAI-compatible), not OpenAI direct.
             use_openai=False,
         )

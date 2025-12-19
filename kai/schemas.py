@@ -996,3 +996,29 @@ class BlackboxOutput(BaseModel):
     success: bool
     error_message: Optional[str] = None
     repo_path: str
+
+
+class ObservationConverterInput(BaseModel):
+    observations: List[Observation]
+    master_context: MasterContext
+    dependency_graph: Any
+    protocol_manifesto: Optional[ProtocolManifesto] = None
+    model_name: str = "openai/gpt-5.2"
+    use_openai: bool = False
+    max_turns_per_observation: int = 8
+
+
+class ObservationConverterOutput(BaseModel):
+    invariants: List[Invariant] = Field(default_factory=list)
+    success: bool
+    error_message: Optional[str] = None
+    estimated_cost: float = 0.0
+    total_tokens: Dict[str, int] = Field(default_factory=dict)
+    stats: Dict[str, int] = Field(
+        default_factory=lambda: {
+            "seen": 0,
+            "converted": 0,
+            "dropped_unresolved": 0,
+            "llm_failed": 0,
+        }
+    )

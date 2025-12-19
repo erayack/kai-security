@@ -162,6 +162,7 @@ def run_test(
     match_test: Optional[str] = None,
     verbosity: int = 3,
     additional_args: Optional[str] = None,
+    framework_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Run tests with parsed results (framework-agnostic).
@@ -217,6 +218,7 @@ def run_test(
         match_test=match_test,
         verbosity=verbosity,
         additional_args=additional_args,
+        framework_kwargs=framework_kwargs,
     )
 
     # Track test attempts

@@ -38,7 +38,7 @@ class ToolAdapter(ABC):
 
     def find_binary(self) -> str: ...         # Find compiler/test runner
     def compile(workspace_path, timeout) -> CompileResult: ...
-    def run_test(workspace_path, match_contract, match_test, ...) -> TestResult: ...
+    def run_test(workspace_path, match_contract, match_test, ..., framework_kwargs=None) -> TestResult: ...
 
     def get_test_file_extension(self) -> str: ...    # ".t.sol", "_test.rs"
     def get_source_file_extension(self) -> str: ...  # ".sol", ".rs"
@@ -148,6 +148,11 @@ _ADAPTERS: Dict[str, Type[ToolAdapter]] = {
 4. **Timeout Handling**: Compilation can hang. Always use timeouts.
 
 5. **Output Parsing**: Test output formats vary wildly. Parse conservatively and include `raw_output` for debugging.
+
+6. **Framework-specific test runner flags**: Don’t keep expanding the base adapter API for every new CLI flag.
+   Pass framework-specific knobs via `framework_kwargs` (a dict) and interpret keys inside the adapter.
+   - Example (Foundry): `{"match_path": "test/poc/Exploit.t.sol", "fuzz_seed": 123}` maps to `forge test --match-path ... --fuzz-seed ...`.
+   - Unknown keys should be ignored (best-effort), not treated as hard errors.
 
 ---
 

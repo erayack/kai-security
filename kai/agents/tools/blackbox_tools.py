@@ -1,26 +1,25 @@
-"""
-Tools for the BlackboxAgent to run campaigns, record observations, and
-record observations.
+"""Tools for the BlackboxAgent.
+
+Key property: **per-run isolation**.
+
+The original forge-overlay approach reused a single overlay directory and accumulated
+broken harnesses across runs, which caused cross-run compilation failures.
+
+These tools provision a fresh adapter workspace per harness run to ensure failures
+in one experiment never poison the next.
 """
 
-import os
-import re
-import shutil
+from __future__ import annotations
+
+import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from kai.agents.tools.tools import (
-    read_file,
-    list_files,
-    dependency_graph_resolve,
-    dependency_graph_loc,
-    dependency_graph_snippet,
-    dependency_graph_neighbors,
-    dependency_graph_public_entrypoints,
-    dependency_graph_protocol_entrypoints,
-    dependency_graph_slice,
-    dependency_graph_explain,
-    forge_test as _forge_test,
     _get_current_agent,
+    dependency_graph_protocol_entrypoints,
+    dependency_graph_public_entrypoints,
+    list_files,
 )
 from kai.schemas import Observation
 
@@ -32,167 +31,151 @@ def _ensure_agent():
     return agent
 
 
-def write_campaign_file(file_path: str, content: str) -> str:
-    """
-    Write a campaign artifact under the agent's external campaign directory.
+def _get_agent_framework() -> str:
+    """Get tool framework from current agent context."""
 
-    The file is placed inside <campaigns_dir>/campaigns/ to avoid mutating the target repo.
-    """
+    from kai.utils.tool_adapters import get_supported_frameworks
+
     agent = _ensure_agent()
-    base_dir = getattr(agent, "campaigns_dir", None)
-    if not base_dir:
-        raise RuntimeError(
-            "Blackbox agent campaigns_dir is not set. This should be attached by BlackboxProcess."
-        )
-    campaign_root = os.path.join(base_dir, "campaigns")
-    os.makedirs(campaign_root, exist_ok=True)
 
-    # Normalize path to stay under campaign_root
-    relative = file_path.lstrip("/\\")
-    # Be forgiving: the prompt historically told agents to include "campaigns/".
-    # If the agent provides it, strip it to avoid campaigns/campaigns nesting.
-    if relative == "campaigns":
-        relative = ""
-    else:
-        relative = re.sub(r"^campaigns[\\/]+", "", relative)
-    abs_path = os.path.abspath(os.path.join(campaign_root, relative))
+    master_context = getattr(agent, "master_context", None)
+    if master_context:
+        frameworks = getattr(master_context, "frameworks", None) or []
+        supported = set(get_supported_frameworks())
+        for fw in frameworks:
+            fw_lower = str(fw).lower()
+            if fw_lower in supported:
+                return fw_lower
 
-    if not abs_path.startswith(os.path.abspath(campaign_root)):
-        raise ValueError("Campaign file path must stay within campaigns/")
+    framework = getattr(agent, "framework", None)
 
-    with open(abs_path, "w") as f:
-        f.write(content)
+    if framework:
+        return str(framework).lower()
 
-    return abs_path
+    raise ValueError("No framework found for agent.")
 
 
-def run_forge_campaign(
-    test_file: str,
-    seed: Optional[int] = None,
-    match_contract: Optional[str] = None,
-    match_test: Optional[str] = None,
-    additional_args: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Run a forge test focused on a campaign harness.
+def _get_tool_adapter():
+    from kai.utils.tool_adapters import get_tool_adapter
 
-    Adds --fuzz-seed when provided and runs inside the agent's working dir.
-    """
+    return get_tool_adapter(_get_agent_framework())
+
+
+def _get_workspace_adapter():
+    from kai.utils.workspace import get_workspace_adapter
+
+    return get_workspace_adapter(_get_agent_framework())
+
+
+def _provision_fresh_workspace(run_id: Optional[str] = None) -> Path:
+    """Provision a fresh per-run workspace under the blackbox campaigns_dir."""
+
     agent = _ensure_agent()
-    extra = additional_args or ""
-    if seed is not None:
-        seed_flag = f"--fuzz-seed {seed}"
-        extra = f"{extra} {seed_flag}".strip()
 
-    # Campaign harnesses are written to an external campaigns_dir.
     campaigns_dir = getattr(agent, "campaigns_dir", None)
     if not campaigns_dir:
         raise RuntimeError(
             "Blackbox agent campaigns_dir is not set. This should be attached by BlackboxProcess."
         )
-    external_campaign_root = os.path.join(campaigns_dir, "campaigns")
 
-    # Resolve the harness path under external_campaign_root.
-    relative = test_file.lstrip("/\\")
-    if relative == "campaigns":
-        relative = ""
-    else:
-        relative = re.sub(r"^campaigns[\\/]+", "", relative)
-    if relative and ("/" not in relative and "\\" not in relative):
-        relative = relative  # bare filename under external campaigns root
+    mc = getattr(agent, "master_context", None)
+    if mc is None or not getattr(mc, "root_path", None):
+        raise RuntimeError("Blackbox agent master_context.root_path is required.")
 
-    external_harness_path = os.path.abspath(
-        os.path.join(external_campaign_root, relative)
+    run_id = (run_id or "").strip() or uuid.uuid4().hex
+    runs_root = Path(campaigns_dir) / "runs" / run_id
+    workspace = runs_root / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    master = Path(mc.root_path)
+    ws_adapter = _get_workspace_adapter()
+    ws_adapter.provision_lightweight(workspace, master, mc, logger=None)
+
+    # Expose the last provisioned workspace so subsequent tool calls can reuse it.
+    setattr(agent, "_last_blackbox_workspace", str(workspace))
+    setattr(agent, "workspace_path", str(workspace))  # compatibility with other tooling
+
+    return workspace
+
+
+def write_and_compile(file_path: str, content: str) -> Dict[str, Any]:
+    """Write a test harness into a fresh isolated workspace and compile it."""
+
+    agent = _ensure_agent()
+    tool_adapter = _get_tool_adapter()
+
+    workspace = _provision_fresh_workspace()
+
+    abs_path = tool_adapter.normalize_test_path(file_path, workspace)
+    abs_path.parent.mkdir(parents=True, exist_ok=True)
+    abs_path.write_text(content)
+
+    # Store default match_path for run_test so the model can omit it.
+    rel_match_path = abs_path.relative_to(workspace).as_posix()
+    setattr(agent, "_last_blackbox_match_path", rel_match_path)
+
+    compile_result = tool_adapter.compile(workspace)
+
+    return {
+        "written": True,
+        "path": str(abs_path),
+        "workspace": str(workspace),
+        "match_path": rel_match_path,
+        "compiled": compile_result.success,
+        "errors": compile_result.errors,
+        "warnings": compile_result.warnings,
+        "raw_output": compile_result.raw_output,
+    }
+
+
+def run_test(
+    match_contract: Optional[str] = None,
+    match_test: Optional[str] = None,
+    verbosity: int = 3,
+    additional_args: Optional[str] = None,
+    framework_kwargs: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Run tests in the most recently provisioned blackbox workspace."""
+
+    agent = _ensure_agent()
+    tool_adapter = _get_tool_adapter()
+
+    workspace_path = getattr(agent, "_last_blackbox_workspace", None) or getattr(
+        agent, "workspace_path", None
     )
-    if not external_harness_path.startswith(os.path.abspath(external_campaign_root)):
-        raise ValueError(
-            "Campaign test path must stay within external campaigns/ directory"
-        )
-    if not os.path.exists(external_harness_path):
-        return {
-            "error": "campaign_harness_missing",
-            "path": external_harness_path,
-            "returncode": -1,
-        }
+    if not workspace_path:
+        # If the model calls run_test without calling write_and_compile first, still
+        # create a clean workspace (so failures don’t come from some stale workspace).
+        workspace = _provision_fresh_workspace()
+        workspace_path = str(workspace)
 
-    # Run forge from the target repo (workspace), never from external campaigns dir.
-    repo_root = getattr(agent, "repo_path", None) or getattr(agent, "working_dir", None)
-    if not repo_root:
-        repo_root = os.getcwd()
+    workspace = Path(workspace_path)
 
-    # First attempt: try matching by absolute path (preferred; avoids writing to repo).
-    result = _forge_test(
-        test_script_path=external_harness_path,
-        working_dir=repo_root,
+    fw = dict(framework_kwargs or {})
+    if "match_path" not in fw:
+        last_match = getattr(agent, "_last_blackbox_match_path", None)
+        if last_match:
+            fw["match_path"] = last_match
+
+    test_result = tool_adapter.run_test(
+        workspace_path=workspace,
         match_contract=match_contract,
         match_test=match_test,
-        additional_args=extra or None,
-        output_json=True,
+        verbosity=verbosity,
+        additional_args=additional_args,
+        framework_kwargs=fw or None,
     )
 
-    # If forge can't discover/compile a test from an external absolute path, fallback:
-    # temporarily copy the harness into the repo's Foundry test directory and run there, then clean up.
-    try:
-        returncode = int(result.get("returncode", 0)) if isinstance(result, dict) else 0
-    except Exception:
-        returncode = 0
-    if returncode == 0:
-        return result
+    if not hasattr(agent, "_blackbox_test_attempts"):
+        agent._blackbox_test_attempts = 0
+    agent._blackbox_test_attempts += 1
 
-    def _detect_foundry_test_dir(repo_root_path: str) -> str:
-        """
-        Best-effort parse of foundry.toml to find the configured test directory.
-
-        Defaults to 'test' if not found.
-        """
-        try:
-            toml_path = os.path.join(repo_root_path, "foundry.toml")
-            if not os.path.exists(toml_path):
-                return "test"
-            content = ""
-            with open(toml_path, "r") as f:
-                content = f.read()
-            # naive parse: look for a line like: test = "campaigns" or test = 'test/foundry'
-            m = re.search(
-                r"^\s*test\s*=\s*['\"](.*?)['\"]\s*$",
-                content,
-                flags=re.MULTILINE,
-            )
-            if not m:
-                return "test"
-            val = (m.group(1) or "").strip()
-            if not val:
-                return "test"
-            # normalize to a relative directory name
-            val = val.strip("/\\")
-            if os.path.isabs(val) or ".." in val.split("/"):
-                return "test"
-            return val
-        except Exception:
-            return "test"
-
-    test_dir = _detect_foundry_test_dir(repo_root)
-    repo_test_dir = os.path.join(repo_root, test_dir)
-    os.makedirs(repo_test_dir, exist_ok=True)
-    tmp_path = os.path.join(repo_test_dir, os.path.basename(external_harness_path))
-    try:
-        shutil.copyfile(external_harness_path, tmp_path)
-        rel_match = os.path.join(test_dir, os.path.basename(tmp_path))
-        result2 = _forge_test(
-            test_script_path=rel_match,
-            working_dir=repo_root,
-            match_contract=match_contract,
-            match_test=match_test,
-            additional_args=extra or None,
-            output_json=True,
-        )
-        return result2
-    finally:
-        try:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-        except Exception:
-            pass
+    payload = test_result.to_dict()
+    payload["attempt"] = agent._blackbox_test_attempts
+    payload["workspace"] = str(workspace)
+    payload["framework"] = _get_agent_framework()
+    payload["framework_kwargs"] = fw
+    return payload
 
 
 def add_observation(
@@ -204,16 +187,8 @@ def add_observation(
     repro_command: Optional[str] = None,
     seed: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """
-    Record an observation of anomalous behavior.
+    """Record an observation of anomalous behavior."""
 
-    Args:
-        description: What you observed.
-        affected_functions: Function names or IDs involved.
-        affected_files: File paths involved.
-        logs: Evidence such as test output or error messages.
-        anomaly_type: Optional category, e.g., "always_reverts".
-    """
     agent = _ensure_agent()
 
     mission_id = getattr(agent, "execution_id", None) or agent.agent_id
@@ -244,17 +219,10 @@ def add_observation(
 
 
 __all__ = [
-    "read_file",
     "list_files",
-    "dependency_graph_resolve",
-    "dependency_graph_loc",
-    "dependency_graph_snippet",
-    "dependency_graph_neighbors",
     "dependency_graph_public_entrypoints",
     "dependency_graph_protocol_entrypoints",
-    "dependency_graph_slice",
-    "dependency_graph_explain",
-    "write_campaign_file",
-    "run_forge_campaign",
+    "write_and_compile",
+    "run_test",
     "add_observation",
 ]

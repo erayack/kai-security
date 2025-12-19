@@ -9,6 +9,7 @@ import contextvars
 import os
 import json
 import subprocess
+import shlex
 import uuid
 from typing import Optional, Union, Dict, Any, List, Literal
 
@@ -859,7 +860,7 @@ def forge_test(
             wd = os.getcwd()
 
         # Build the forge test command
-        cmd_parts = ["forge", "test"]
+        cmd_parts: List[str] = ["forge", "test"]
 
         # Add match patterns
         if test_script_path:
@@ -875,35 +876,52 @@ def forge_test(
 
         # Add any additional arguments
         if additional_args:
-            cmd_parts.append(additional_args)
+            # Use shlex.split to preserve quoted args.
+            cmd_parts.extend(shlex.split(additional_args))
 
-        # Join command parts
-        cmd = " ".join(cmd_parts)
+        # Run the command
+        p = subprocess.run(cmd_parts, text=True, capture_output=True, cwd=wd)
 
-        # Run the command, optionally in a specific directory
-        if wd:
-            p = subprocess.run(cmd, shell=True, text=True, capture_output=True, cwd=wd)
-        else:
-            p = subprocess.run(cmd, shell=True, text=True, capture_output=True)
+        # Always include metadata so callers can reason about failures.
+        # Keep the payload lightweight (truncate large outputs).
+        stdout = p.stdout or ""
+        stderr = p.stderr or ""
+        meta: Dict[str, Any] = {
+            "returncode": p.returncode,
+            "stdout": stdout[:8000] if len(stdout) > 8000 else stdout,
+            "stderr": stderr[:8000] if len(stderr) > 8000 else stderr,
+            "cwd": wd,
+            "command": cmd_parts,
+        }
 
         # Try to parse JSON output if requested
         if output_json:
             try:
-                return json.loads(p.stdout)
+                parsed = json.loads(stdout)
+                # Preserve the original JSON structure for agents, but also provide
+                # returncode/stdout/stderr for reliability and debugging.
+                if isinstance(parsed, dict):
+                    parsed.update(meta)
+                    parsed["json_parsed"] = True
+                    return parsed
+                return {
+                    "parsed_json": parsed,
+                    "json_parsed": True,
+                    **meta,
+                }
             except json.JSONDecodeError:
                 # If JSON parsing fails, return raw output
                 return {
-                    "stdout": p.stdout,
-                    "stderr": p.stderr,
-                    "returncode": p.returncode,
                     "error": "Failed to parse JSON output",
+                    "json_parsed": False,
+                    **meta,
                 }
         else:
             # Return raw output for non-JSON mode
-            return {"stdout": p.stdout, "stderr": p.stderr, "returncode": p.returncode}
+            return meta
 
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "stdout": "", "stderr": "", "returncode": -1}
 
 
 def cargo_test(

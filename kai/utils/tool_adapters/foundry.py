@@ -10,8 +10,9 @@ Provides Foundry/Forge-specific implementations for:
 
 import shutil
 import subprocess
+import shlex
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Any, Dict
 
 from kai.utils.tool_adapters.base import (
     ToolAdapter,
@@ -136,6 +137,7 @@ class FoundryToolAdapter(ToolAdapter):
         verbosity: int = 3,
         timeout: int = 300,
         additional_args: Optional[str] = None,
+        framework_kwargs: Optional[Dict[str, Any]] = None,
     ) -> TestResult:
         """
         Run Foundry tests using forge test.
@@ -163,13 +165,28 @@ class FoundryToolAdapter(ToolAdapter):
         if match_test:
             cmd.extend(["--match-test", match_test])
 
+        # Framework-specific knobs (best-effort)
+        fw = framework_kwargs or {}
+        match_path = fw.get("match_path")
+        if isinstance(match_path, str) and match_path.strip():
+            cmd.extend(["--match-path", match_path.strip()])
+
+        fuzz_seed = fw.get("fuzz_seed", fw.get("seed"))
+        if fuzz_seed is not None:
+            try:
+                cmd.extend(["--fuzz-seed", str(int(fuzz_seed))])
+            except Exception:
+                # Ignore unparseable seeds rather than crashing the run
+                pass
+
         # Add verbosity
         if verbosity > 0:
             cmd.append("-" + "v" * verbosity)
 
         # Add additional args
         if additional_args:
-            cmd.extend(additional_args.split())
+            # Preserve quoted args.
+            cmd.extend(shlex.split(additional_args))
 
         try:
             result = subprocess.run(
@@ -353,6 +370,8 @@ Args:
     match_test: Filter by test function pattern (e.g., "test_exploit")
     verbosity: Verbosity level 0-5, default 3 shows traces on failure
     additional_args: Extra forge arguments (e.g., "--gas-report")
+    framework_kwargs: Optional dict for Foundry-specific knobs, e.g.:
+        {"match_path": "test/poc/Exploit.t.sol", "fuzz_seed": 123}
 
 Returns:
     {

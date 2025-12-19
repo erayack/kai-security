@@ -343,8 +343,9 @@ class BaseAgent(ABC):
             if response:
                 final_response = response
 
-            # If the blackbox agent is actively using tools but has not recorded any observations yet,
-            # nudge it to write a real observation based on what it already learned.
+            # If the blackbox agent is actively using tools but has not recorded any observations yet:
+            # - early on: don't force an observation (it can stall exploration)
+            # - later: ensure at least one observation gets recorded with evidence
             if (
                 self.agent_type == AgentType.BLACKBOX
                 and calls_made
@@ -356,9 +357,9 @@ class BaseAgent(ABC):
                     ChatMessage(
                         role=Role.USER,
                         content=(
-                            "BLACKBOX: You have not recorded any observations yet. "
-                            "Call add_observation now to capture the most important thing you've learned so far "
-                            "(include evidence from tool outputs; negative results are OK), then continue investigating. "
+                            "BLACKBOX: Continue investigating. "
+                            "Make your next step a concrete tool call based on the latest tool output "
+                            "(e.g., read targeted files/symbols, query the graph, or run an experiment). "
                             "Do NOT emit <done>."
                         ),
                     )
@@ -379,7 +380,7 @@ class BaseAgent(ABC):
                             "BLACKBOX: Keep recording observations as you go. "
                             "Prefer multiple focused observations (one experiment/hypothesis each) "
                             "instead of bundling everything into a single summary. "
-                            "Use add_observation with concrete evidence from tool outputs. "
+                            "Include concrete evidence from tool outputs (negative results are OK). "
                             "Do NOT emit <done>."
                         ),
                     )
@@ -398,7 +399,6 @@ class BaseAgent(ABC):
                                 "Call at least one tool. Prefer concrete exploration "
                                 "(graph queries, reading targeted code) and experiments "
                                 "(write_campaign_file + run_forge_campaign) when useful. "
-                                "Record meaningful updates (including negative results) via add_observation. "
                                 "Do NOT emit <done>."
                             ),
                         )
