@@ -18,7 +18,6 @@ class SetupAgent(BaseAgent):
         use_openai: bool = False,
         execution_id: Optional[str] = None,
     ):
-        tools_schema = generate_tool_schema("kai.agents.tools.setup_tools")
         super().__init__(
             max_tool_turns=max_tool_turns,
             repo_path=repo_path,
@@ -26,7 +25,6 @@ class SetupAgent(BaseAgent):
             model=model,
             agent_type=AgentType.SETUP,
             use_openai=use_openai,
-            system_prompt_tools_schema=tools_schema,
         )
 
         if execution_id:
@@ -69,7 +67,13 @@ class SetupAgent(BaseAgent):
         """
         Extract the final result for setup agent, including MasterContext if present.
         """
-        master_context = self._extract_master_context(response)
+        # Prefer registered context from tool call
+        master_context = getattr(self, "_registered_master_context", None)
+
+        # Fallback to parsing <done> block for backward compatibility
+        if master_context is None:
+            master_context = self._extract_master_context(response)
+
         return AgentResponse(
             thoughts=thoughts,
             python_block=python_code,

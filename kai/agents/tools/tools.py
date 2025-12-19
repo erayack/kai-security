@@ -1280,14 +1280,29 @@ def update_file(file_path: str, old_content: str, new_content: str) -> Union[boo
     result = update_file("user.md", old, new)
     """
     try:
+        # Resolve relative paths relative to agent's working_dir
+        normalized = _normalize_agent_path(file_path)
+        if normalized is None:
+            return f"Error: Invalid path resolution for {file_path}"
+        file_path = normalized
+
+        # Now convert to absolute path for scope validation
+        abs_path = os.path.abspath(file_path)
+
+        # Scope validation
+        agent = _get_current_agent()
+        if agent and hasattr(agent, "restricted_scope") and agent.restricted_scope:
+            if not any(abs_path.startswith(allowed) for allowed in agent.allowed_paths):
+                return f"Error: Access denied. File '{file_path}' is outside assigned scope."
+
         # Read the current file content
-        if not os.path.exists(file_path):
+        if not os.path.exists(abs_path):
             return f"Error: File '{file_path}' does not exist"
 
-        if not os.path.isfile(file_path):
+        if not os.path.isfile(abs_path):
             return f"Error: '{file_path}' is not a file"
 
-        with open(file_path, "r") as f:
+        with open(abs_path, "r") as f:
             current_content = f.read()
 
         # Check if old_content exists in the file
@@ -1309,7 +1324,7 @@ def update_file(file_path: str, old_content: str, new_content: str) -> Union[boo
             return "Error: No changes were made to the file"
 
         # Write the updated content back
-        with open(file_path, "w") as f:
+        with open(abs_path, "w") as f:
             f.write(updated_content)
 
         return True
@@ -1335,28 +1350,37 @@ def create_file(file_path: str, content: str = "") -> bool:
     temp_file_path = None
     try:
         # Resolve relative paths relative to agent's working_dir
-        try:
-            agent = _get_current_agent()
-            if agent and not os.path.isabs(file_path):
-                file_path = os.path.join(agent.working_dir, file_path)
-        except (NameError, TypeError):
-            pass
+        normalized = _normalize_agent_path(file_path)
+        if normalized is None:
+            raise Exception(f"Error: Invalid path resolution for {file_path}")
+        file_path = normalized
+
+        # Now convert to absolute path for scope validation
+        abs_path = os.path.abspath(file_path)
+
+        # Scope validation
+        agent = _get_current_agent()
+        if agent and hasattr(agent, "restricted_scope") and agent.restricted_scope:
+            if not any(abs_path.startswith(allowed) for allowed in agent.allowed_paths):
+                raise Exception(
+                    f"Error: Access denied. File '{file_path}' is outside assigned scope."
+                )
 
         # Create parent directories if they don't exist
-        parent_dir = os.path.dirname(file_path)
+        parent_dir = os.path.dirname(abs_path)
         if parent_dir and not os.path.exists(parent_dir):
             os.makedirs(parent_dir, exist_ok=True)
 
         # Create a unique temporary file name in the same directory as the target file
         # This ensures the temp file is within the sandbox's allowed path
-        target_dir = os.path.dirname(os.path.abspath(file_path)) or "."
+        target_dir = os.path.dirname(abs_path) or "."
         temp_file_path = os.path.join(target_dir, f"temp_{uuid.uuid4().hex[:8]}.txt")
 
         with open(temp_file_path, "w") as f:
             f.write(content)
 
         # Move the content to the final destination
-        with open(file_path, "w") as f:
+        with open(abs_path, "w") as f:
             f.write(content)
         os.remove(temp_file_path)
         return True
@@ -1365,8 +1389,8 @@ def create_file(file_path: str, content: str = "") -> bool:
         if temp_file_path and os.path.exists(temp_file_path):
             try:
                 os.remove(temp_file_path)
-            except Exception as e:
-                raise Exception(f"Error removing temp file {temp_file_path}: {e}")
+            except Exception:
+                pass
         raise Exception(f"Error creating file {file_path}: {e}")
 
 

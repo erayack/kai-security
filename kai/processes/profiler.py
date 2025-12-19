@@ -63,7 +63,16 @@ class ProfilerProcess(BaseProcess[ProfilerInput, ProfilerOutput]):
                 "Use the provided MasterContext as authoritative repo info:\n"
                 f"{ctx.model_dump_json(indent=2)}"
             )
-            response = await agent.chat(user_prompt)
+            response = await agent.chat_with_tools(user_prompt)
+
+            # If the agent terminated without registering a manifesto, nudge it.
+            if response is not None and response.protocol_manifesto is None:
+                prefix = "profiler_retry"
+                retry_prompt = (
+                    "FORMAT REQUIREMENT: You must call register_protocol_manifesto({...}) "
+                    "with your findings. Call it now to finish."
+                )
+                response = await agent.chat_with_tools(retry_prompt)
         except Exception as e:
             exception_msg = str(e)
             prefix = "error_profiler"

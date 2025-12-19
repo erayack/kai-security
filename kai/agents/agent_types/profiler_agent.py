@@ -22,7 +22,6 @@ class ProfilerAgent(BaseAgent):
         use_openai: bool = False,
         execution_id: Optional[str] = None,
     ):
-        tools_schema = generate_tool_schema("kai.agents.tools.profiler_tools")
         super().__init__(
             max_tool_turns=max_tool_turns,
             repo_path=repo_path,
@@ -30,7 +29,6 @@ class ProfilerAgent(BaseAgent):
             model=model,
             agent_type=AgentType.PROFILER,
             use_openai=use_openai,
-            system_prompt_tools_schema=tools_schema,
         )
 
         # Expose master context and dependency graph for tools and prompt grounding
@@ -77,7 +75,13 @@ class ProfilerAgent(BaseAgent):
         """
         Extract the final result for profiler agent, including ProtocolManifesto if present.
         """
-        manifesto = self._extract_manifesto(response)
+        # Prefer registered manifesto from tool call
+        manifesto = getattr(self, "_registered_protocol_manifesto", None)
+
+        # Fallback to parsing <done> block for backward compatibility
+        if manifesto is None:
+            manifesto = self._extract_manifesto(response)
+
         return AgentResponse(
             thoughts=thoughts,
             python_block=python_code,

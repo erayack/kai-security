@@ -48,3 +48,6 @@ repos/
 
 # testbed
 testbed/
+
+# .cursor
+.cursor/

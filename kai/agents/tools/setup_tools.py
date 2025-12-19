@@ -1,10 +1,17 @@
 import os
 import subprocess
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 # Expose common repo inspection + file editing tools to SetupAgent.
 # The setup prompt expects these primitives for exploration and patching.
-from kai.agents.tools.tools import read_file, list_files, update_file, create_file
+from kai.agents.tools.tools import (
+    read_file,
+    list_files,
+    update_file,
+    create_file,
+    _get_current_agent as _get_agent,
+)
+from kai.schemas import MasterContext
 
 __all__ = [
     "read_file",
@@ -22,14 +29,20 @@ __all__ = [
     "convert_ssh_to_https_in_gitmodules",
     "create_minimal_cargo_package",
     "run_script",
+    "register_master_context",
 ]
 
 
 def _get_current_agent():
     """
     Get the current agent instance from the global registry.
-    This is set during sandboxed code execution.
+    First checks contextvars (via _get_agent), then falls back to stack inspection.
     """
+    # Try the preferred contextvar method first
+    agent = _get_agent()
+    if agent is not None:
+        return agent
+
     try:
         # Try to get from local scope first (passed via execute_sandboxed_code)
         import inspect
@@ -828,3 +841,48 @@ def run_script(
             "returncode": -1,
             "success": False,
         }
+
+
+def register_master_context(master_context: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Register the final MasterContext for the repository.
+    Call this tool once you have successfully built and analyzed the repository.
+
+    The master_context dict must follow the MasterContext schema:
+    - root_path (str): Absolute path to the repository root.
+    - compile_success (bool): Whether the project compiled successfully.
+    - frameworks (List[str], optional): List of detected frameworks (e.g., ["foundry"]).
+    - artifacts_path (str, optional): Path to build artifacts.
+    - src_path (str, optional): Path to source contracts.
+    - lib_path (str, optional): Path to libraries/dependencies.
+    - test_path (str, optional): Path to tests.
+    - build_commands (List[dict], optional): List of commands to build the project.
+      Each command dict: {"command": str, "order_of_execution": int}
+    - test_commands (List[dict], optional): List of commands to run tests.
+      Each command dict: {"command": str, "order_of_execution": int}
+    - adapter (str, optional): Domain adapter, default "solidity".
+
+    Example:
+        register_master_context({
+            "root_path": "/path/to/repo",
+            "compile_success": True,
+            "frameworks": ["foundry"],
+            "src_path": "src",
+            "test_path": "test"
+        })
+    """
+    agent = _get_current_agent()
+    if agent is None:
+        return {"registered": False, "error": "No active agent context found."}
+
+    try:
+        # Validate using Pydantic model
+        mc = MasterContext(**master_context)
+        # Store on agent instance
+        agent._registered_master_context = mc
+        return {
+            "registered": True,
+            "message": "MasterContext registered successfully. You may now stop.",
+        }
+    except Exception as e:
+        return {"registered": False, "error": f"Validation failed: {str(e)}"}
