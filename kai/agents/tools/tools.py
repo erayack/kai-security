@@ -35,28 +35,12 @@ def set_current_agent(agent):
 
 def _get_current_agent():
     """
-    Get the current agent instance.
-    First checks contextvars (preferred), then falls back to stack inspection.
+    Get the current agent instance from contextvars.
+
+    All agents using tools must call set_current_agent() before tool execution.
+    This is handled automatically by BaseAgent._create_tool_executor().
     """
-    # Try contextvars first (async-safe and reliable)
-    agent = _current_agent_var.get()
-    if agent is not None:
-        return agent
-
-    # Fall back to stack inspection for backwards compatibility
-    try:
-        import inspect
-
-        frame = inspect.currentframe()
-        while frame:
-            if "_agent_instance" in frame.f_locals:
-                return frame.f_locals["_agent_instance"]
-            if "_agent_instance" in frame.f_globals:
-                return frame.f_globals["_agent_instance"]
-            frame = frame.f_back
-    except Exception:
-        pass
-    return None
+    return _current_agent_var.get()
 
 
 def _normalize_agent_path(path: Optional[str]) -> Optional[str]:

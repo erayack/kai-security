@@ -359,20 +359,15 @@ class Dispatcher:
 
             # Agent-type specific execution
             if mission.agent_type == MissionAgentType.STATE:
-                # StateAgent uses chat_with_tools() - prompt is already set by factory
                 await agent.chat_with_tools("Begin.")
-                # Extract exploit candidates from StateAgent
                 await self._handle_state_agent_result(mission, agent)
 
             elif mission.agent_type == MissionAgentType.QUANT:
-                # QuantAgent (when implemented) will use similar pattern
                 await agent.chat_with_tools("Begin.")
                 await self._handle_state_agent_result(mission, agent)
 
             elif mission.agent_type == MissionAgentType.BLACKBOX:
-                # BlackboxAgent returns observations
-                prompt = self._build_mission_prompt(mission)
-                await agent.chat(prompt)
+                await agent.chat_with_tools("Begin.")
                 await self._handle_blackbox_agent_result(mission, agent)
 
             else:

@@ -17,6 +17,7 @@ class AgentType(Enum):
     PROFILER = settings.PROFILER_AGENT_PROMPT_PATH
     BLACKBOX = settings.BLACKBOX_AGENT_PROMPT_PATH
     STATE = settings.STATE_AGENT_PROMPT_PATH
+    QUANT = settings.QUANT_AGENT_PROMPT_PATH
     FIXER = "fixer"
 
 
@@ -30,6 +31,8 @@ def agent_type_to_kind(agent_type: AgentType) -> str:
         return "blackbox"
     if agent_type == AgentType.STATE:
         return "state"
+    if agent_type == AgentType.QUANT:
+        return "quant"
     return "unknown"
 
 
@@ -51,6 +54,7 @@ def load_system_prompt(
         AgentType.PROFILER,
         AgentType.BLACKBOX,
         AgentType.STATE,
+        AgentType.QUANT,
     }:
         raise ValueError(f"Unsupported agent type for Kai v2 scope: {agent_type}")
 
