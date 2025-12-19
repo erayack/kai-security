@@ -35,11 +35,14 @@ def generate_mission_id() -> str:
 
 
 # Agent type mapping based on invariant semantics
+# NOTE: Only invariant-dependent agents (STATE, QUANT) are mapped here.
+# BLACKBOX and GAMIFIED are non-invariant-dependent - they explore freely
+# and generate Observations that may become new invariants.
 INVARIANT_TO_AGENTS: Dict[InvariantType, List[MissionAgentType]] = {
     InvariantType.ACCESS: [MissionAgentType.STATE],
     InvariantType.SOLVENCY: [MissionAgentType.QUANT, MissionAgentType.STATE],
     InvariantType.CONSERVATION: [MissionAgentType.QUANT, MissionAgentType.STATE],
-    InvariantType.LIVENESS: [MissionAgentType.STATE, MissionAgentType.BLACKBOX],
+    InvariantType.LIVENESS: [MissionAgentType.STATE],
     InvariantType.FEE_BOUND: [MissionAgentType.QUANT],
     InvariantType.REENTRANCY: [MissionAgentType.STATE],
     InvariantType.ORDERING: [MissionAgentType.STATE],

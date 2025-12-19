@@ -126,12 +126,6 @@ def create_state_agent(
 ):
     """
     Factory function to create a properly configured StateAgent.
-
-    Sets up:
-    - workspace_path for tool operations
-    - toolcalling prompt with invariant and actor context
-    - dependency graph reference
-
     Args:
         mission: The mission to execute
         workspace_path: Path to the provisioned workspace
@@ -185,11 +179,45 @@ def create_quant_agent(
 ):
     """
     Factory function to create a properly configured QuantAgent.
+    Args:
+        mission: The mission to execute
+        workspace_path: Path to the provisioned workspace
+        master_context: MasterContext from preprocessing
+        dependency_graph: Optional DependencyGraph for code analysis tools
+        actor_matrix: Optional ActorMatrix for actor context filtering
+        model: Model to use for inference
+        use_openai: Whether to use OpenAI API directly
+        execution_id: Optional execution ID for logging
 
-    Placeholder for QuantAgent implementation.
+    Returns:
+        Configured QuantAgent ready for chat_with_tools()
     """
-    # TODO: Implement when QuantAgent is created
-    raise NotImplementedError("QuantAgent not yet implemented")
+    from kai.agents.agent_types.quant_agent import QuantAgent
+
+    # Create agent
+    agent = QuantAgent(
+        mission=mission,
+        master_context=master_context,
+        dependency_graph=dependency_graph,
+        max_tool_turns=mission.max_turns,
+        repo_path=workspace_path,
+        model=model,
+        use_openai=use_openai,
+        execution_id=execution_id,
+    )
+
+    # Set workspace path for tools
+    agent.workspace_path = workspace_path
+
+    # Set up toolcalling prompt with invariant context
+    if mission.invariant:
+        actor_context = filter_actor_context(actor_matrix, mission.invariant)
+        agent.set_toolcalling_prompt(
+            invariant=mission.invariant,
+            actor_context=actor_context,
+        )
+
+    return agent
 
 
 def create_blackbox_agent(
