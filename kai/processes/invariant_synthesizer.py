@@ -4,36 +4,36 @@ import re
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Set
 
-from kai.agents.agent_types.observation_converter_agent import ObservationConverterAgent
+from kai.agents.agent_types.invariant_synthesizer_agent import InvariantSynthesizerAgent
 from kai.processes.base import BaseProcess
 from kai.schemas import (
     Invariant,
     InvariantType,
     Observation,
-    ObservationConverterInput,
-    ObservationConverterOutput,
+    InvariantSynthesizerInput,
+    InvariantSynthesizerOutput,
 )
 from kai.utils.dependency.adapters import DomainAdapter, get_adapter
 from kai.utils.dependency.analysis import FileSourceLoader, GraphQueryEngine
 from kai.utils.dependency.models import EdgeKind, NodeKind
 
 
-class ObservationConverterProcess(
-    BaseProcess[ObservationConverterInput, ObservationConverterOutput]
+class InvariantSynthesizerProcess(
+    BaseProcess[InvariantSynthesizerInput, InvariantSynthesizerOutput]
 ):
     """
-    Process to convert Blackbox Observations into grounded Invariants.
+    Process to synthesize grounded Invariants from Blackbox Observations.
     """
 
     async def execute(
-        self, input_data: ObservationConverterInput
-    ) -> ObservationConverterOutput:
+        self, input_data: InvariantSynthesizerInput
+    ) -> InvariantSynthesizerOutput:
         ctx = input_data.master_context
         graph = input_data.dependency_graph
         manifesto = input_data.protocol_manifesto
 
         if graph is None:
-            return ObservationConverterOutput(
+            return InvariantSynthesizerOutput(
                 success=False,
                 error_message="No dependency graph provided",
             )
@@ -42,7 +42,7 @@ class ObservationConverterProcess(
         try:
             adapter: DomainAdapter = get_adapter(ctx.adapter)
         except ValueError as e:
-            return ObservationConverterOutput(
+            return InvariantSynthesizerOutput(
                 success=False,
                 error_message=str(e),
             )
@@ -66,20 +66,22 @@ class ObservationConverterProcess(
 
         for obs in input_data.observations:
             stats["seen"] += 1
-            self.logger.info(f"Converting observation: {obs.description[:100]}...")
+            self.logger.info(
+                f"Synthesizing invariant from observation: {obs.description[:100]}..."
+            )
 
             # 1. Grounding Step (Required)
             target_ids = self._ground_observation(obs, engine)
             if not target_ids:
                 self.logger.warning(
-                    f"Observation dropped: could not resolve any target functions for '{obs.description[:50]}'"
+                    f"Observation could not resolve any target functions for '{obs.description[:50]}'"
                 )
                 # Do NOT drop: still run the agent on real observations.
                 # Target IDs may remain empty; we will still persist the conversation + result.
                 stats["unresolved_targets"] += 1
 
             # 2. LLM Step (Lightweight)
-            agent = ObservationConverterAgent(
+            agent = InvariantSynthesizerAgent(
                 protocol_manifesto=manifesto,
                 max_tool_turns=input_data.max_turns_per_observation,
                 repo_path=ctx.root_path,
@@ -91,7 +93,7 @@ class ObservationConverterProcess(
                 # Prepare prompt
                 obs_dump = obs.model_dump()
                 manifesto_summary = self._summarize_manifesto(manifesto)
-                
+
                 user_prompt = (
                     f"Convert the following Blackbox Observation into a tentative invariant rule.\n\n"
                     f"OBSERVATION:\n{json.dumps(obs_dump, indent=2)}\n\n"
@@ -106,7 +108,7 @@ class ObservationConverterProcess(
                 invariant: Optional[Invariant] = None
                 if agent._finalized_invariant_draft:
                     draft = agent._finalized_invariant_draft
-                    
+
                     # Create grounded invariant
                     inv_id = self._generate_id(obs, target_ids)
                     target_function_ids = sorted(list(target_ids))
@@ -116,7 +118,7 @@ class ObservationConverterProcess(
                     target_file_ids = self._derive_target_file_ids(
                         obs, target_function_ids, graph
                     )
-                    
+
                     try:
                         inv_type = InvariantType(draft.get("type", "other").lower())
                     except ValueError:
@@ -152,12 +154,14 @@ class ObservationConverterProcess(
                 # Accrue usage
                 total_cost += agent.estimated_cost
                 total_tokens["prompt_tokens"] += agent.total_tokens.get("prompt_tokens", 0)
-                total_tokens["completion_tokens"] += agent.total_tokens.get("completion_tokens", 0)
+                total_tokens["completion_tokens"] += agent.total_tokens.get(
+                    "completion_tokens", 0
+                )
 
                 # Save conversation
                 save_folder = self._project_root() / "output" / self._repo_slug(ctx.root_path)
                 convo_path = agent.save_conversation(
-                    save_folder=str(save_folder), prefix="obs_converter"
+                    save_folder=str(save_folder), prefix="invariant_synthesizer"
                 )
 
                 # Save a "sister" result file next to the conversation file.
@@ -171,12 +175,12 @@ class ObservationConverterProcess(
                 )
 
             except Exception as e:
-                self.logger.error(f"Agent conversion failed for observation: {e}")
+                self.logger.error(f"Agent synthesis failed for observation: {e}")
                 stats["llm_failed"] += 1
             finally:
                 await agent.close()
 
-        return ObservationConverterOutput(
+        return InvariantSynthesizerOutput(
             invariants=final_invariants,
             success=True,
             estimated_cost=total_cost,
@@ -203,16 +207,16 @@ class ObservationConverterProcess(
                 except Exception:
                     continue
             return out
-        
+
         for func_ref in obs.affected_functions:
             scope = None
             ref = func_ref
-            
+
             if "." in func_ref:
                 parts = func_ref.split(".")
                 scope = parts[0]
                 ref = parts[1]
-            
+
             # 1) Resolve via engine (scope-aware when provided)
             try:
                 results = engine.resolve(ref, scope=scope)
@@ -238,7 +242,11 @@ class ObservationConverterProcess(
                             if n.kind == NodeKind.UNIT and n.meta.get("is_constructor"):
                                 cands.add(uid)
                         else:
-                            sig = (n.meta.get("signature") or "") if n.kind == NodeKind.UNIT else ""
+                            sig = (
+                                (n.meta.get("signature") or "")
+                                if n.kind == NodeKind.UNIT
+                                else ""
+                            )
                             if n.name == ref or (sig and sig.startswith(f"{ref}(")):
                                 cands.add(uid)
 
@@ -352,8 +360,8 @@ class ObservationConverterProcess(
         Write a sibling JSON file next to the saved conversation.
 
         Example:
-          - convo:  obs_converter_<uuid>.json
-          - sister: obs_converter_<uuid>.result.json
+          - convo:  invariant_synthesizer_<uuid>.json
+          - sister: invariant_synthesizer_<uuid>.result.json
         """
         try:
             if not convo_path:
@@ -393,7 +401,7 @@ class ObservationConverterProcess(
         """Minimal summary for LLM context."""
         if not manifesto:
             return "No protocol manifesto available."
-        
+
         lines = []
         if getattr(manifesto, "name", None):
             lines.append(f"Name: {manifesto.name}")
@@ -401,7 +409,7 @@ class ObservationConverterProcess(
             lines.append(f"Purpose: {manifesto.purpose}")
         if getattr(manifesto, "domain", None):
             lines.append(f"Domain: {manifesto.domain}")
-        
+
         return "\n".join(lines)
 
     def _project_root(self) -> Path:
@@ -411,3 +419,5 @@ class ObservationConverterProcess(
         name = Path(repo_path).name or "repo"
         safe_name = re.sub(r"[^A-Za-z0-9._-]", "-", name)
         return safe_name
+
+

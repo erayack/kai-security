@@ -100,13 +100,59 @@ class SolidityBuilder(BaseBuilder):
 
             # Last resort: remove and recreate (build outputs are safe to blow away).
             try:
-                shutil.rmtree(path, ignore_errors=True)
+                self._force_rmtree(path)
                 path.mkdir(parents=True, exist_ok=True)
                 probe.write_text("ok", encoding="utf-8")
                 probe.unlink()
             except Exception:
                 return
         except Exception:
+            return
+
+    def _force_rmtree(self, path: Path) -> None:
+        """
+        Force-remove a directory tree even if some nested dirs/files are read-only.
+
+        Foundry fixture repos can ship with read-only artifacts under `out/`, which makes
+        `forge build` fail when it tries to overwrite them. We chmod on failure and retry.
+        """
+
+        def _onerror(func, p, _exc_info):  # type: ignore[no-untyped-def]
+            try:
+                pp = Path(p)
+
+                # Ensure parent dir is writable (often the real blocker for unlink).
+                try:
+                    parent = pp.parent
+                    if parent.exists():
+                        os.chmod(
+                            parent,
+                            parent.stat().st_mode
+                            | stat.S_IWUSR
+                            | stat.S_IXUSR
+                            | stat.S_IRUSR,
+                        )
+                except Exception:
+                    pass
+
+                try:
+                    if pp.is_dir():
+                        os.chmod(pp, 0o700)
+                    else:
+                        os.chmod(pp, 0o600)
+                except Exception:
+                    pass
+
+                func(p)
+            except Exception:
+                # Best-effort only; rmtree will keep going where it can.
+                return
+
+        try:
+            if path.exists():
+                shutil.rmtree(path, onerror=_onerror)
+        except Exception:
+            # If removal fails, keep going (caller will handle probe failures).
             return
 
     def _prepare_foundry_compile_dirs(self, project_root: Path) -> None:
@@ -133,7 +179,7 @@ class SolidityBuilder(BaseBuilder):
         # Since these are build outputs, it is safe to wipe them.
         try:
             if out_dir.exists():
-                shutil.rmtree(out_dir, ignore_errors=True)
+                self._force_rmtree(out_dir)
         except Exception:
             pass
 

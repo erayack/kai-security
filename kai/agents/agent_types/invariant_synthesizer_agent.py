@@ -5,9 +5,9 @@ from kai.agents.utils import AgentType
 from kai.schemas import AgentResponse, ProtocolManifesto
 
 
-class ObservationConverterAgent(BaseAgent):
+class InvariantSynthesizerAgent(BaseAgent):
     """
-    Agent that converts a Blackbox Observation into a Tentative Invariant.
+    Agent that synthesizes a Tentative Invariant from a Blackbox Observation.
     """
 
     def __init__(
@@ -25,7 +25,7 @@ class ObservationConverterAgent(BaseAgent):
             repo_path=repo_path,
             use_vllm=use_vllm,
             model=model,
-            agent_type=AgentType.OBSERVATION_CONVERTER,
+            agent_type=AgentType.INVARIANT_SYNTHESIZER,
             use_openai=use_openai,
         )
 
@@ -38,24 +38,26 @@ class ObservationConverterAgent(BaseAgent):
 
     def check_termination(self, response: str, python_code: str) -> bool:
         """
-        ObservationConverterAgent terminates when it stops calling tools.
+        InvariantSynthesizerAgent terminates when it stops calling tools.
         The caller (process) will check if a finalize tool was called.
         """
         return False
 
     def get_tools_module(self) -> str:
         """
-        Get the tools module for observation converter agent.
+        Get the tools module for invariant synthesizer agent.
         """
-        return "kai.agents.tools.observation_converter_tools"
+        return "kai.agents.tools.invariant_synthesizer_tools"
 
     def extract_final_result(
         self, thoughts: str, python_code: str, response: str
     ) -> AgentResponse:
         """
-        Extract the final result for observation converter agent.
+        Extract the final result for invariant synthesizer agent.
         """
         return AgentResponse(
             thoughts=thoughts,
             python_block=python_code,
         )
+
+

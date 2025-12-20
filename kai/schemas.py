@@ -998,7 +998,7 @@ class BlackboxOutput(BaseModel):
     repo_path: str
 
 
-class ObservationConverterInput(BaseModel):
+class InvariantSynthesizerInput(BaseModel):
     observations: List[Observation]
     master_context: MasterContext
     dependency_graph: Any
@@ -1008,7 +1008,7 @@ class ObservationConverterInput(BaseModel):
     max_turns_per_observation: int = 8
 
 
-class ObservationConverterOutput(BaseModel):
+class InvariantSynthesizerOutput(BaseModel):
     invariants: List[Invariant] = Field(default_factory=list)
     success: bool
     error_message: Optional[str] = None
@@ -1018,7 +1018,8 @@ class ObservationConverterOutput(BaseModel):
         default_factory=lambda: {
             "seen": 0,
             "converted": 0,
-            "dropped_unresolved": 0,
+            "no_invariant": 0,
+            "unresolved_targets": 0,
             "llm_failed": 0,
         }
     )

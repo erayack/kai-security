@@ -526,11 +526,11 @@ class Dispatcher:
         if not self.master_context or not self.dependency_graph:
             return None
 
-        from kai.processes.observation_converter import ObservationConverterProcess
-        from kai.schemas import ObservationConverterInput
+        from kai.processes.invariant_synthesizer import InvariantSynthesizerProcess
+        from kai.schemas import InvariantSynthesizerInput
 
-        process = ObservationConverterProcess(context=self.master_context)
-        input_data = ObservationConverterInput(
+        process = InvariantSynthesizerProcess(context=self.master_context)
+        input_data = InvariantSynthesizerInput(
             observations=[observation],
             master_context=self.master_context,
             dependency_graph=self.dependency_graph,

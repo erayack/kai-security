@@ -1,8 +1,9 @@
 """
-Tools for the ObservationConverterAgent to finalize invariant drafts.
+Tools for the InvariantSynthesizerAgent to finalize invariant drafts.
 """
 
 from typing import Any, Dict
+
 from kai.agents.tools.tools import _get_current_agent
 
 
@@ -85,3 +86,5 @@ def finalize_no_invariant(reason: str) -> Dict[str, Any]:
 
 
 __all__ = ["finalize_invariant", "finalize_no_invariant"]
+
+

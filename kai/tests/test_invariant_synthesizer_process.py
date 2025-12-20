@@ -4,11 +4,11 @@ from typing import List
 
 import pytest
 
-from kai.processes.observation_converter import ObservationConverterProcess
+from kai.processes.invariant_synthesizer import InvariantSynthesizerProcess
 from kai.schemas import (
     CampaignBrief,
     Observation,
-    ObservationConverterInput,
+    InvariantSynthesizerInput,
 )
 from kai.utils.dependency.builders import SolidityBuilder
 from kai.agents import settings
@@ -34,9 +34,9 @@ def _load_observations() -> List[Observation]:
 
 
 @pytest.mark.anyio
-async def test_observation_converter_process_real_run():
+async def test_invariant_synthesizer_process_real_run():
     """
-    Real test for ObservationConverterProcess.
+    Real test for InvariantSynthesizerProcess.
     Builds a real graph and runs the real agent (requires API keys in env).
     """
     api_key = settings.OPENROUTER_API_KEY or settings.OPENAI_API_KEY
@@ -46,7 +46,7 @@ async def test_observation_converter_process_real_run():
     brief = _load_campaign_brief()
     assert brief.master_context is not None
     repo_root = Path(brief.master_context.root_path)
-    
+
     if not repo_root.exists():
         pytest.skip(f"MasterContext root_path not found at {repo_root}")
 
@@ -55,17 +55,17 @@ async def test_observation_converter_process_real_run():
     slither_kwargs = {"compile_force_framework": "foundry"}
     builder = SolidityBuilder()
     graph = builder.build(str(repo_root), slither_kwargs=slither_kwargs)
-    
+
     observations = _load_observations()
-    process = ObservationConverterProcess(context=brief.master_context)
-    
+    process = InvariantSynthesizerProcess(context=brief.master_context)
+
     # Only test with a subset of observations to save tokens/time in test
-    input_data = ObservationConverterInput(
-        observations=observations[:2], 
+    input_data = InvariantSynthesizerInput(
+        observations=observations[:2],
         master_context=brief.master_context,
         dependency_graph=graph,
         protocol_manifesto=None,
-        model_name="z-ai/glm-4.6", # Fast/cheap model
+        model_name="z-ai/glm-4.6",  # Fast/cheap model
         use_openai=False,
     )
 
@@ -74,16 +74,16 @@ async def test_observation_converter_process_real_run():
     repo_slug = Path(brief.master_context.root_path).name
     output_dir = Path(__file__).resolve().parents[2] / "output" / repo_slug
     output_dir.mkdir(parents=True, exist_ok=True)
-    before_files = {p for p in output_dir.glob("obs_converter_*.json")}
+    before_files = {p for p in output_dir.glob("invariant_synthesizer_*.json")}
 
     output = await process.execute(input_data)
 
     # 3. Assertions
     assert output.success is True
     assert output.stats["seen"] == 2
-    
+
     # Verify conversation files were saved
-    after_files = {p for p in output_dir.glob("obs_converter_*.json")}
+    after_files = {p for p in output_dir.glob("invariant_synthesizer_*.json")}
     new_files = after_files - before_files
     assert len(new_files) > 0, "Conversation files should have been saved"
 
@@ -93,11 +93,11 @@ async def test_observation_converter_process_real_run():
     for p in result_files:
         payload = json.loads(p.read_text())
         assert payload.get("kind") in {"invariant", "no_invariant"}
-    
+
     print(f"Process stats: {output.stats}")
-    
+
     assert len(output.invariants) == output.stats["converted"]
-    
+
     # Only run these if we actually got invariants
     if output.invariants:
         for inv in output.invariants:
@@ -105,3 +105,5 @@ async def test_observation_converter_process_real_run():
             assert inv.rule
             assert inv.type
             assert inv.id.startswith("INV_OBS_")
+
+

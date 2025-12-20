@@ -16,7 +16,7 @@ class AgentType(Enum):
     SETUP = settings.SETUP_AGENT_PROMPT_PATH
     PROFILER = settings.PROFILER_AGENT_PROMPT_PATH
     BLACKBOX = settings.BLACKBOX_AGENT_PROMPT_PATH
-    OBSERVATION_CONVERTER = settings.OBSERVATION_CONVERTER_AGENT_PROMPT_PATH
+    INVARIANT_SYNTHESIZER = settings.INVARIANT_SYNTHESIZER_AGENT_PROMPT_PATH
     STATE = settings.STATE_AGENT_PROMPT_PATH
     QUANT = settings.QUANT_AGENT_PROMPT_PATH
     FIXER = "fixer"
@@ -30,8 +30,8 @@ def agent_type_to_kind(agent_type: AgentType) -> str:
         return "profiler"
     if agent_type == AgentType.BLACKBOX:
         return "blackbox"
-    if agent_type == AgentType.OBSERVATION_CONVERTER:
-        return "observation_converter"
+    if agent_type == AgentType.INVARIANT_SYNTHESIZER:
+        return "invariant_synthesizer"
     if agent_type == AgentType.STATE:
         return "state"
     if agent_type == AgentType.QUANT:
@@ -56,7 +56,7 @@ def load_system_prompt(
         AgentType.SETUP,
         AgentType.PROFILER,
         AgentType.BLACKBOX,
-        AgentType.OBSERVATION_CONVERTER,
+        AgentType.INVARIANT_SYNTHESIZER,
         AgentType.STATE,
         AgentType.QUANT,
     }:
