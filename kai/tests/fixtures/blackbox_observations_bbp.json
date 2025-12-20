@@ -1,0 +1,108 @@
+[
+  {
+    "worker_id": "69456a1197186144616c2465",
+    "mission_id": "69456a1197186144616c2465",
+    "description": "Contract constructor parameter analysis reveals mismatched expectations. USDe expects 1 parameter, ENA and TestnetERC20 expect 3 parameters, and EthenaMinting expects 7 parameters. This suggests complex initialization requirements that could be a source of vulnerabilities if not properly validated.\"",
+    "affected_functions": [
+      "constructor",
+      "constructor",
+      "constructor",
+      "constructor"
+    ],
+    "affected_files": [
+      "contracts/USDe.sol",
+      "contracts/ENA.sol",
+      "contracts/TestnetERC20.sol",
+      "contracts/EthenaMinting.sol"
+    ],
+    "logs": [
+      "USDe constructor expects 1 parameter",
+      "ENA constructor expects 3 parameters",
+      "TestnetERC20 constructor expects 3 parameters",
+      "EthenaMinting constructor expects 7 parameters"
+    ],
+    "anomaly_type": "parameter_validation\"",
+    "repro_command": null,
+    "seed": null
+  },
+  {
+    "worker_id": "69456a1197186144616c2465",
+    "mission_id": "69456a1197186144616c2465",
+    "description": "TestnetERC20 constructor parameter analysis reveals it expects 3 parameters but the parameter types are mismatched. The first parameter appears to expect an address, second expects a string, but third expects an address (not a string as commonly expected). This unusual parameter signature could indicate potential constructor-related vulnerabilities.\"",
+    "affected_functions": [
+      "constructor"
+    ],
+    "affected_files": [
+      "contracts/TestnetERC20.sol"
+    ],
+    "logs": [
+      "TestnetERC20 constructor expects 3 parameters",
+      "Parameter 1: address (correct)",
+      "Parameter 2: string (correct)",
+      "Parameter 3: address (unexpected - should be string for symbol)",
+      "Error: Invalid implicit conversion from literal_string \"REWARD\" to address requested"
+    ],
+    "anomaly_type": "constructor_signature_anomaly\"",
+    "repro_command": null,
+    "seed": null
+  },
+  {
+    "worker_id": "69456a1197186144616c2465",
+    "mission_id": "69456a1197186144616c2465",
+    "description": "StakingRewardsDistributor constructor analysis reveals it expects 6 parameters, which is unusually high for a rewards distribution contract. This complex constructor could be a source of initialization vulnerabilities if parameters are not properly validated or if there are logical dependencies between them.\"",
+    "affected_functions": [
+      "constructor"
+    ],
+    "affected_files": [
+      "contracts/StakingRewardsDistributor.sol"
+    ],
+    "logs": [
+      "StakingRewardsDistributor constructor expects 6 parameters",
+      "High parameter count increases attack surface for initialization vulnerabilities"
+    ],
+    "anomaly_type": "constructor_complexity\"",
+    "repro_command": null,
+    "seed": null
+  },
+  {
+    "worker_id": "69456a1197186144616c2465",
+    "mission_id": "69456a1197186144616c2465",
+    "description": "EthenaMinting function signature analysis reveals inconsistent parameter structures between mint/redeem functions. mint() and mintWETH() both take (Order, Route, Signature) parameters, while redeem() only takes (Order, Signature) - missing Route parameter. This inconsistency could indicate validation gaps or potential for parameter manipulation attacks.\"",
+    "affected_functions": [
+      "mint",
+      "mintWETH",
+      "redeem"
+    ],
+    "affected_files": [
+      "contracts/EthenaMinting.sol"
+    ],
+    "logs": [
+      "mint(Order, Route, Signature) - 3 parameters",
+      "mintWETH(Order, Route, Signature) - 3 parameters",
+      "redeem(Order, Signature) - 2 parameters (missing Route)",
+      "Inconsistent parameter structures could create validation vulnerabilities"
+    ],
+    "anomaly_type": "function_signature_inconsistency\"",
+    "repro_command": null,
+    "seed": null
+  },
+  {
+    "worker_id": "69456a1197186144616c2465",
+    "mission_id": "69456a1197186144616c2465",
+    "description": "SingleAdminAccessControl is an abstract contract and cannot be directly instantiated. This indicates it's designed to be inherited by other contracts, which could create inheritance-based vulnerabilities if child contracts don't properly implement or override access control mechanisms.\"",
+    "affected_functions": [
+      "constructor"
+    ],
+    "affected_files": [
+      "contracts/SingleAdminAccessControl.sol"
+    ],
+    "logs": [
+      "SingleAdminAccessControl is abstract",
+      "Cannot instantiate abstract contract",
+      "Designed for inheritance - potential inheritance vulnerabilities"
+    ],
+    "anomaly_type": "abstract_contract\"",
+    "repro_command": null,
+    "seed": null
+  }
+]

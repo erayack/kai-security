@@ -5,6 +5,9 @@ Solidity builder - constructs DependencyGraph from Slither analysis.
 from __future__ import annotations
 
 import re
+import os
+import stat
+import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -30,6 +33,119 @@ class SolidityBuilder(BaseBuilder):
     @property
     def language(self) -> str:
         return "solidity"
+
+    def _ensure_writable_path(self, path: Path) -> None:
+        """
+        Best-effort: ensure a file/dir under the target project is writable.
+
+        Some fixture repos may ship with read-only cached artifacts (e.g., crytic-compile's
+        `forge-cache/solidity-files-cache.json`). That breaks Slither compilation with:
+          Permission denied (os error 13)
+        """
+        try:
+            if not path.exists():
+                return
+
+            # If it's writable already, nothing to do.
+            if os.access(path, os.W_OK):
+                return
+
+            if path.is_file():
+                # Prefer deleting stale cache files (safer than chmod across platforms).
+                try:
+                    path.unlink()
+                    return
+                except Exception:
+                    # Fall back to chmod.
+                    try:
+                        path.chmod(0o600)
+                        return
+                    except Exception:
+                        return
+
+            if path.is_dir():
+                try:
+                    mode = path.stat().st_mode
+                    path.chmod(mode | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRUSR)
+                except Exception:
+                    return
+        except Exception:
+            return
+
+    def _ensure_writable_dir(self, path: Path) -> None:
+        """
+        Ensure `path` is a writable directory.
+
+        If a fixture shipped with read-only build artifacts (or even a file at that location),
+        we remove them and recreate the directory to allow Foundry/Crytic-compile to run.
+        """
+        try:
+            if path.exists() and not path.is_dir():
+                try:
+                    path.unlink()
+                except Exception:
+                    return
+
+            path.mkdir(parents=True, exist_ok=True)
+            self._ensure_writable_path(path)
+
+            # Verify we can actually write inside.
+            probe = path / ".kai_write_probe"
+            try:
+                probe.write_text("ok", encoding="utf-8")
+                probe.unlink()
+                return
+            except Exception:
+                pass
+
+            # Last resort: remove and recreate (build outputs are safe to blow away).
+            try:
+                shutil.rmtree(path, ignore_errors=True)
+                path.mkdir(parents=True, exist_ok=True)
+                probe.write_text("ok", encoding="utf-8")
+                probe.unlink()
+            except Exception:
+                return
+        except Exception:
+            return
+
+    def _prepare_foundry_compile_dirs(self, project_root: Path) -> None:
+        """
+        Ensure Foundry/Crytic-compile working dirs exist and are writable.
+
+        This is intentionally conservative and local to the project root.
+        """
+        # Some fixtures are checked out with a read-only project root (0555), which makes
+        # Foundry unable to create/update `cache/` and to rotate `out/` artifacts.
+        # If we own the directory, best-effort add owner write permission.
+        try:
+            self._ensure_writable_path(project_root)
+        except Exception:
+            pass
+
+        # Common output/cache locations used by foundry & crytic-compile.
+        out_dir = project_root / "out"
+        cache_dir = project_root / "cache"
+        forge_cache_dir = project_root / "forge-cache"
+
+        # If the repo shipped with read-only artifacts under out/, Foundry may fail even
+        # though the directory itself is writable (because it tries to overwrite them).
+        # Since these are build outputs, it is safe to wipe them.
+        try:
+            if out_dir.exists():
+                shutil.rmtree(out_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+        # Ensure directories are writable (and recreate if needed).
+        for d in [out_dir, cache_dir, forge_cache_dir]:
+            self._ensure_writable_dir(d)
+
+        # Force build-info to be writable specifically (crytic-compile parses it).
+        self._ensure_writable_dir(out_dir / "build-info")
+
+        # Known problematic cache file in our fixture runs.
+        self._ensure_writable_path(project_root / "forge-cache" / "solidity-files-cache.json")
 
     def _default_foundry_toml(self, project_root: Path) -> str:
         """
@@ -101,12 +217,13 @@ class SolidityBuilder(BaseBuilder):
         # In that case, synthesize a minimal config temporarily so Slither can run.
         tmp_foundry_toml: Optional[Path] = None
         try:
+            fw = str((slither_kwargs or {}).get("compile_force_framework") or "").lower()
+            if fw == "foundry":
+                self._prepare_foundry_compile_dirs(project_root)
+
             try:
                 sl = Slither(str(project_root), **(slither_kwargs or {}))
             except AssertionError:
-                fw = str(
-                    (slither_kwargs or {}).get("compile_force_framework") or ""
-                ).lower()
                 foundry_toml = project_root / "foundry.toml"
                 if fw == "foundry" and not foundry_toml.is_file():
                     tmp_foundry_toml = foundry_toml

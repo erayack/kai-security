@@ -523,8 +523,29 @@ class Dispatcher:
 
         Uses LLM to convert unstructured logs into a rule.
         """
-        # TODO: Implement LLM-based invariant synthesis
-        self.logger.debug(f"Synthesize invariant from: {observation.description}")
+        if not self.master_context or not self.dependency_graph:
+            return None
+
+        from kai.processes.observation_converter import ObservationConverterProcess
+        from kai.schemas import ObservationConverterInput
+
+        process = ObservationConverterProcess(context=self.master_context)
+        input_data = ObservationConverterInput(
+            observations=[observation],
+            master_context=self.master_context,
+            dependency_graph=self.dependency_graph,
+            protocol_manifesto=self.protocol_manifesto,
+            model_name=self.config.model,
+            use_openai=self.config.use_openai,
+        )
+
+        try:
+            output = await process.run(input_data)
+            if output.success and output.invariants:
+                return output.invariants[0]
+        except Exception as e:
+            self.logger.error(f"Failed to synthesize invariant: {e}")
+
         return None
 
     def _schedule_missions_for_invariant(self, invariant: Invariant) -> None:
