@@ -31,7 +31,7 @@
   "budget": {
     "max_missions": 4,
     "max_workers": 2,
-    "max_turns_per_worker": 24
+    "max_turns_per_worker": 32
   },
   "master_context": {
     "root_path": "/Users/atakantekparmak/Desktop/work/exploit-agent/testbed/bbp-public-assets-f3e56d5f/master/contracts",

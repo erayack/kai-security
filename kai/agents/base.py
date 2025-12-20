@@ -307,6 +307,16 @@ class BaseAgent(ABC):
         while remaining_turns > 0:
             current_turn = self.max_tool_turns - remaining_turns + 1
             logger.info(f"{current_turn}/{self.max_tool_turns} - {agent_desc}")
+            # Lightweight per-round budget visibility for the model (informational only).
+            # Keep this as a short USER "meta" line to minimize interference with tool calling.
+            self._add_message(
+                ChatMessage(
+                    role=Role.USER,
+                    content=(
+                        f"<meta>Remaining turns: {remaining_turns}/{self.max_tool_turns}</meta>"
+                    ),
+                )
+            )
 
             # Call model with tools
             (
