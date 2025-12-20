@@ -5,7 +5,7 @@ Dispatcher: Mission control for Kai v2.
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Protocol, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from kai.schemas import (
     ActorMatrix,
@@ -13,11 +13,15 @@ from kai.schemas import (
     CampaignBudget,
     ExploitCandidate,
     Invariant,
+    InvariantType,
     MasterContext,
     Mission,
     MissionAgentType,
     Observation,
     ProtocolManifesto,
+    Verdict,
+    VerdictSeverity,
+    VerifierProcessInput,
 )
 from kai.utils.dependency.graph import DependencyGraph
 
@@ -31,18 +35,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Type alias for agent factory function
-# Extended signature: (mission, workspace_path, master_context, dependency_graph, actor_matrix, model, use_openai, execution_id)
 AgentFactory = Callable[..., "BaseAgent"]
-
-
-class VerifierProtocol(Protocol):
-    """Protocol for verifier implementation."""
-
-    async def verify(
-        self, candidate: ExploitCandidate, master_context: MasterContext
-    ) -> Any:
-        """Verify an exploit candidate."""
-        ...
 
 
 @dataclass
@@ -56,7 +49,7 @@ class DispatcherConfig:
     default_budget: CampaignBudget = field(default_factory=CampaignBudget)
     workspace_dir: str = "./kai_workspaces"
     # Model settings for agents
-    model: str = "openai/gpt-4.1"
+    model: str = "openai/gpt-5.2"
     use_openai: bool = False
 
 
@@ -82,12 +75,10 @@ class Dispatcher:
     def __init__(
         self,
         agent_factories: Optional[Dict[MissionAgentType, AgentFactory]] = None,
-        verifier: Optional[VerifierProtocol] = None,
         config: Optional[DispatcherConfig] = None,
     ):
         # Use default factories if none provided
         self.agent_factories = agent_factories or dict(DEFAULT_AGENT_FACTORIES)
-        self.verifier = verifier
         self.config = config or DispatcherConfig()
 
         self.logger = logger.getChild("Dispatcher")
@@ -108,6 +99,7 @@ class Dispatcher:
         self.campaigns: List[CampaignBrief] = []
         self.completed_missions: List[Mission] = []
         self.exploit_candidates: List[ExploitCandidate] = []
+        self.verdicts: List[Verdict] = []
 
         self._workspace_manager = WorkspaceManager(
             workspace_dir=self.config.workspace_dir, logger=self.logger
@@ -313,6 +305,8 @@ class Dispatcher:
                 and not self.mission_queue.empty()
             ):
                 _, _, mission = await self.mission_queue.get()
+                # Track immediately to prevent over-spawning
+                self.active_missions[mission.mission_id] = mission
                 asyncio.create_task(self._execute_mission(mission))
 
             # Brief pause to allow task switching
@@ -326,7 +320,7 @@ class Dispatcher:
     async def _execute_mission(self, mission: Mission) -> None:
         """Execute a single mission with an agent."""
         mission.status = "in_progress"
-        self.active_missions[mission.mission_id] = mission
+        # Note: mission already added to active_missions in run_loop
 
         factory = self.agent_factories.get(mission.agent_type)
         if not factory:
@@ -339,7 +333,7 @@ class Dispatcher:
         agent = None
         try:
             # Provision workspace
-            workspace_path = await self._provision_workspace(mission)
+            workspace_path = self._provision_workspace(mission)
 
             # Create agent instance via factory with full context
             agent = factory(
@@ -394,7 +388,7 @@ class Dispatcher:
             self.active_missions.pop(mission.mission_id, None)
             self.completed_missions.append(mission)
             # Cleanup workspace
-            await self._cleanup_workspace(mission)
+            self._cleanup_workspace(mission)
 
     @staticmethod
     def _build_mission_prompt(mission: Mission) -> str:
@@ -437,8 +431,8 @@ class Dispatcher:
         """Handle agent result: ExploitCandidate or Observation."""
         if isinstance(result, ExploitCandidate):
             self.logger.info(f"ExploitCandidate from {mission.mission_id}")
-            if result.compiled and self.verifier and self.master_context:
-                await self.verifier.verify(result, self.master_context)
+            if result.compiled and self.master_context:
+                await self._verify_candidate(result)
             self.exploit_candidates.append(result)
 
         elif isinstance(result, Observation):
@@ -483,11 +477,80 @@ class Dispatcher:
             ):
                 candidate.invariant_id = mission.invariant.id
 
-            # Verify if compiled and verifier available
-            if candidate.compiled and self.verifier and self.master_context:
-                await self.verifier.verify(candidate, self.master_context)
+            # Verify compiled candidates
+            if candidate.compiled and self.master_context:
+                await self._verify_candidate(candidate)
 
             self.exploit_candidates.append(candidate)
+
+    async def _verify_candidate(self, candidate: ExploitCandidate) -> Optional[Verdict]:
+        """
+        Verify an exploit candidate using VerifierProcess.
+
+        Args:
+            candidate: The exploit candidate to verify
+
+        Returns:
+            Verdict if verification completed, None if failed
+        """
+        if not self.master_context:
+            return None
+
+        from kai.processes.verifier import VerifierProcess
+
+        # Get the invariant for this candidate
+        invariant = self.invariants.get(candidate.invariant_id)
+        if not invariant:
+            self.logger.warning(
+                f"No invariant found for {candidate.invariant_id}, creating placeholder"
+            )
+            invariant = Invariant(
+                id=candidate.invariant_id,
+                type=InvariantType.OTHER,
+                rule=f"Unknown invariant: {candidate.invariant_id}",
+            )
+
+        self.logger.info(f"Verifying exploit candidate: {candidate.mission_id}")
+
+        try:
+            process = VerifierProcess(context=self.master_context)
+            process_input = VerifierProcessInput(
+                exploit_candidate=candidate,
+                invariant=invariant,
+                master_context=self.master_context,
+                dependency_graph=self.dependency_graph,
+                model_name=self.config.model,
+                use_openai=self.config.use_openai,
+                max_turns=16,
+            )
+
+            output = await process.run(process_input)
+
+            if output.success and output.verdict:
+                verdict = output.verdict
+                self.verdicts.append(verdict)
+
+                if verdict.is_valid:
+                    self.logger.info(
+                        f"VERIFIED: {candidate.mission_id} - "
+                        f"{verdict.severity.value.upper()} - {verdict.vulnerability_class}"
+                    )
+                else:
+                    self.logger.info(
+                        f"REJECTED: {candidate.mission_id} - {verdict.rejection_reason}"
+                    )
+
+                return verdict
+            else:
+                self.logger.warning(
+                    f"Verifier did not submit verdict for {candidate.mission_id}: "
+                    f"{output.error_message}"
+                )
+                return None
+
+        except Exception as e:
+            self.logger.error(f"Verification failed for {candidate.mission_id}: {e}")
+            return None
 
     async def _handle_blackbox_agent_result(self, mission: Mission, agent: Any) -> None:
         """
@@ -560,10 +623,51 @@ class Dispatcher:
         for mission in missions:
             self.mission_queue.put_nowait((1, mission.mission_id, mission))
 
-    async def _provision_workspace(self, mission: Mission) -> str:
+    def _provision_workspace(self, mission: Mission) -> str:
         if not self.master_context:
             raise RuntimeError("MasterContext not initialized")
-        return await self._workspace_manager.provision(mission, self.master_context)
+        return self._workspace_manager.provision_for_mission(
+            mission, self.master_context
+        )
 
-    async def _cleanup_workspace(self, mission: Mission) -> None:
-        await self._workspace_manager.cleanup(mission)
+    def _cleanup_workspace(self, mission: Mission) -> None:
+        self._workspace_manager.cleanup_for_mission(mission)
+
+    def get_verified_exploits(
+        self, min_severity: VerdictSeverity = VerdictSeverity.LOW
+    ) -> List[Verdict]:
+        """Get verified exploits at or above a minimum severity."""
+        severity_order = [
+            VerdictSeverity.INFORMATIONAL,
+            VerdictSeverity.LOW,
+            VerdictSeverity.MEDIUM,
+            VerdictSeverity.HIGH,
+            VerdictSeverity.CRITICAL,
+        ]
+        min_idx = severity_order.index(min_severity)
+
+        return [
+            v
+            for v in self.verdicts
+            if v.is_valid and severity_order.index(v.severity) >= min_idx
+        ]
+
+    def get_verification_stats(self) -> Dict[str, Any]:
+        """Get verification statistics."""
+        verified = [v for v in self.verdicts if v.is_valid]
+        rejected = [v for v in self.verdicts if not v.is_valid]
+
+        severity_counts: Dict[str, int] = {}
+        for verdict in verified:
+            sev = verdict.severity.value
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+
+        return {
+            "total_candidates": len(self.exploit_candidates),
+            "verified_count": len(verified),
+            "rejected_count": len(rejected),
+            "by_severity": severity_counts,
+            "rejection_reasons": [
+                v.rejection_reason for v in rejected if v.rejection_reason
+            ],
+        }

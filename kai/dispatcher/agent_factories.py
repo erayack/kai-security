@@ -173,7 +173,7 @@ def create_quant_agent(
     master_context: MasterContext,
     dependency_graph: Optional[DependencyGraph] = None,
     actor_matrix: Optional[ActorMatrix] = None,
-    model: str = "openai/gpt-4.1",
+    model: str = "openai/gpt-5.2",
     use_openai: bool = False,
     execution_id: Optional[str] = None,
 ):
@@ -226,7 +226,7 @@ def create_blackbox_agent(
     master_context: MasterContext,
     dependency_graph: Optional[DependencyGraph] = None,
     actor_matrix: Optional[ActorMatrix] = None,
-    model: str = "openai/gpt-4.1",
+    model: str = "openai/gpt-5.2",
     use_openai: bool = False,
     execution_id: Optional[str] = None,
 ):

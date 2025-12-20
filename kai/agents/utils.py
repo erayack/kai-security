@@ -19,6 +19,7 @@ class AgentType(Enum):
     INVARIANT_SYNTHESIZER = settings.INVARIANT_SYNTHESIZER_AGENT_PROMPT_PATH
     STATE = settings.STATE_AGENT_PROMPT_PATH
     QUANT = settings.QUANT_AGENT_PROMPT_PATH
+    VERIFIER = settings.VERIFIER_AGENT_PROMPT_PATH
     FIXER = "fixer"
 
 
@@ -36,6 +37,8 @@ def agent_type_to_kind(agent_type: AgentType) -> str:
         return "state"
     if agent_type == AgentType.QUANT:
         return "quant"
+    if agent_type == AgentType.VERIFIER:
+        return "verifier"
     return "unknown"
 
 

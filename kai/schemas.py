@@ -267,6 +267,55 @@ class ExploitCandidate(BaseModel):
         return data
 
 
+class VerdictSeverity(str, Enum):
+    """Severity levels for verified exploits."""
+
+    CRITICAL = "critical"  # Direct fund loss, no user action required
+    HIGH = "high"  # Fund loss possible with some conditions
+    MEDIUM = "medium"  # Limited impact or requires specific circumstances
+    LOW = "low"  # Minimal impact, edge cases only
+    INFORMATIONAL = "informational"  # Known limitation, not a bug
+
+
+class Verdict(BaseModel):
+    """
+    Verifier's judgment on an ExploitCandidate.
+
+    Determines if the finding is valid, its severity, and economic feasibility.
+    """
+
+    # Reference to original finding
+    mission_id: str
+    invariant_id: str
+    worker_id: str
+
+    # Core verdict
+    is_valid: bool  # Is this a real, exploitable vulnerability?
+    severity: VerdictSeverity
+
+    # Analysis flags
+    uses_mock_contracts: bool = False  # Did PoC use fake/hostile contracts?
+    is_economically_feasible: bool = True  # Is attack profitable or at least cheap?
+    is_known_limitation: bool = False  # Known design tradeoff vs actual bug?
+    targets_real_implementation: bool = True  # Tests actual code, not just interface?
+
+    # Economic analysis
+    attack_cost_estimate: Optional[str] = None  # e.g., "$1M donation to grief $1"
+    attacker_profit_estimate: Optional[str] = None  # e.g., "Can extract $X"
+    cost_benefit_ratio: Optional[str] = None  # e.g., "1000:1 loss ratio"
+
+    # Classification
+    vulnerability_class: str = ""  # "reentrancy", "donation_attack", "access_control"
+
+    # Reasoning
+    reasoning: str  # Full analysis and justification
+    rejection_reason: Optional[str] = None  # If invalid, specific reason
+
+    # Original PoC reference
+    poc_path: Optional[str] = None
+    test_passed: bool = False  # Did the PoC test pass?
+
+
 class ExploitLocation(BaseModel):
     file_path: str
     line_start: int
@@ -1023,3 +1072,25 @@ class InvariantSynthesizerOutput(BaseModel):
             "llm_failed": 0,
         }
     )
+
+
+class VerifierProcessInput(BaseModel):
+    """Input for VerifierProcess."""
+
+    exploit_candidate: "ExploitCandidate"
+    invariant: "Invariant"
+    master_context: "MasterContext"
+    dependency_graph: Any = None  # DependencyGraph object
+    model_name: str = "openai/gpt-5.2"
+    use_openai: bool = False
+    max_turns: int = 16
+
+
+class VerifierProcessOutput(BaseModel):
+    """Output of VerifierProcess."""
+
+    verdict: Optional["Verdict"] = None
+    success: bool
+    error_message: Optional[str] = None
+    estimated_cost: float = 0.0
+    total_tokens: Dict[str, int] = Field(default_factory=dict)

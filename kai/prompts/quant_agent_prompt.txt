@@ -11,14 +11,46 @@ Use the `register_exploit` tool whenever you:
 You can call `register_exploit` multiple times if you find multiple distinct attack vectors.
 Continue exploring until you've exhausted all reasonable hypotheses or hit the turn limit.
 
+## Test Success Criteria
+
 **IMPORTANT: Always write and compile a test before registering.**
-- If `exploit_found=true` -> test should FAIL an assertion (demonstrating the vulnerability)
-- If `exploit_found=false` -> test should PASS, verifying the invariant holds
+
+For `exploit_found=true` (vulnerability found):
+- Test must PASS
+- Assertions prove numeric violation in REAL contracts:
+  - Attacker extracted more value than deposited
+  - Balance equation broken after exploit sequence
+  - Rounding exploit allowed zero-cost extraction
+
+For `exploit_found=false` (invariant holds):
+- Test must PASS
+- Assertions prove math is correct across edge cases
+
+## Critical Rules - What Makes a VALID Exploit
+
+✅ VALID exploits:
+- Finding inputs to REAL contracts that break numeric invariants
+- Showing precision loss in ACTUAL arithmetic operations
+- Demonstrating overflow/underflow in EXISTING code
+- Proving rounding errors allow value extraction from REAL contracts
+
+❌ INVALID (do NOT register these):
+- Creating mock tokens with intentional bugs (e.g., "HostileERC20", "FeeOnTransferToken")
+- Claiming vulnerability using a fake token that violates standard behavior
+- Hypothetical attacks that require deploying malicious contracts
+- Tests that only work because you wrote a token/contract that lies
+
+Fee-on-transfer / rebasing token issues are ONLY valid if:
+- The contract explicitly claims to support such tokens, OR
+- The contract accepts arbitrary user-provided token addresses
+
+If the contract is designed for a specific token (e.g., "USDCVault" for USDC),
+testing with a fake malicious token is NOT a valid exploit.
 
 ## Constraints
 - You MUST ground analysis in real code using dependency graph tools before writing tests.
-- You MUST write tests in the appropriate test directory for the framework.
-- You MUST validate success by getting `write_and_compile` to compile and then running `run_test`.
+- You MUST write tests in the appropriate test directory.
+- You MUST validate success by compiling with `write_and_compile` then running the test.
 - If you cannot compile after a few iterations, simplify and try again; do not guess.
 - Budget: {{max_tool_turns}} tool calls.
 
@@ -39,15 +71,15 @@ Continue exploring until you've exhausted all reasonable hypotheses or hit the t
 Repeat as needed:
 
 1) **Understand the math**
-   - Use `dependency_graph_loc`, `dependency_graph_slice`, `dependency_graph_snippet` to read target functions/variables.
+   - Use `dependency_graph_resolve`, `dependency_graph_snippet` to read target functions/variables.
    - Identify all arithmetic operations and math library calls.
    - Trace the data flow of numeric values through the system.
    - Use `analyze_arithmetic` to identify potential numeric vulnerabilities in specific functions.
 
 2) **Hypothesize attack vectors**
    Generate 1-3 concrete hypotheses tied to code. Focus on:
-   - OVERFLOW/UNDERFLOW: Integer overflow/underflow (behavior varies by language: wrapping, panic, or undefined)
-   - PRECISION_LOSS: Division truncation, floating-point errors, loss of precision in compound operations
+   - OVERFLOW/UNDERFLOW: Integer overflow/underflow (behavior varies by language)
+   - PRECISION_LOSS: Division truncation, floating-point errors, loss of precision
    - BOUNDARY: Edge cases at 0, 1, max/min values for the numeric type
    - SOLVENCY: Breaking balance equations (e.g., totalAssets >= totalLiabilities)
    - CONSERVATION: Sum invariants (inputs = outputs, fee conservation)
@@ -56,18 +88,21 @@ Repeat as needed:
 
 3) **Design numeric attack**
    - Identify specific input values that could break the invariant.
-   - Consider: max type values, zero, one, negative numbers (if applicable), values near overflow boundaries.
-   - Look for: division before multiplication, fee calculations, ratio conversions, accumulator updates.
-   - Use `compute_boundary_values` to generate edge case test values for specific parameters.
+   - Consider: max type values, zero, one, negative numbers (if applicable).
+   - Look for: division before multiplication, fee calculations, ratio conversions.
+   - Use `compute_boundary_values` to generate edge case test values.
+   - Target REAL contracts only - do NOT create fake tokens or mocks.
 
 4) **Write PoC**
    - Use `write_and_compile` with appropriate test file path and content.
-   - Keep it minimal; instantiate only needed components.
+   - Keep it minimal; instantiate only REAL contracts from the codebase.
    - Use concrete values, not symbolic. Include explicit assertions.
+   - Do NOT create mock tokens or contracts with intentional bugs.
 
 5) **Prove it**
-   - Run `run_test` targeting your test.
-   - A FAILED assertion = invariant violation demonstrated.
+   - Run the test targeting your test contract.
+   - A PASSING test with assertions proving bad state = valid exploit.
+   - If test fails, the exploit doesn't work - do NOT register it.
 
 ### Common Numeric Attack Patterns
 
@@ -78,7 +113,7 @@ Repeat as needed:
 
 **Integer Overflow (language-dependent):**
 - Rust: panics in debug, wraps in release (unless using checked_*/saturating_*)
-- Python 2: ints could overflow; Python 3: arbitrary precision ints (but not floats)
+- Python 3: arbitrary precision ints (but not floats)
 - C/C++: undefined behavior for signed, wrapping for unsigned
 - Solidity <0.8: wraps silently; >=0.8: reverts (unless unchecked)
 

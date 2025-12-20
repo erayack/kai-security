@@ -191,7 +191,9 @@ class SolidityBuilder(BaseBuilder):
         self._ensure_writable_dir(out_dir / "build-info")
 
         # Known problematic cache file in our fixture runs.
-        self._ensure_writable_path(project_root / "forge-cache" / "solidity-files-cache.json")
+        self._ensure_writable_path(
+            project_root / "forge-cache" / "solidity-files-cache.json"
+        )
 
     def _default_foundry_toml(self, project_root: Path) -> str:
         """
@@ -263,7 +265,9 @@ class SolidityBuilder(BaseBuilder):
         # In that case, synthesize a minimal config temporarily so Slither can run.
         tmp_foundry_toml: Optional[Path] = None
         try:
-            fw = str((slither_kwargs or {}).get("compile_force_framework") or "").lower()
+            fw = str(
+                (slither_kwargs or {}).get("compile_force_framework") or ""
+            ).lower()
             if fw == "foundry":
                 self._prepare_foundry_compile_dirs(project_root)
 

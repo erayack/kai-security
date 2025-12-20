@@ -153,13 +153,17 @@ class InvariantSynthesizerProcess(
 
                 # Accrue usage
                 total_cost += agent.estimated_cost
-                total_tokens["prompt_tokens"] += agent.total_tokens.get("prompt_tokens", 0)
+                total_tokens["prompt_tokens"] += agent.total_tokens.get(
+                    "prompt_tokens", 0
+                )
                 total_tokens["completion_tokens"] += agent.total_tokens.get(
                     "completion_tokens", 0
                 )
 
                 # Save conversation
-                save_folder = self._project_root() / "output" / self._repo_slug(ctx.root_path)
+                save_folder = (
+                    self._project_root() / "output" / self._repo_slug(ctx.root_path)
+                )
                 convo_path = agent.save_conversation(
                     save_folder=str(save_folder), prefix="invariant_synthesizer"
                 )
@@ -171,7 +175,9 @@ class InvariantSynthesizerProcess(
                     observation=obs,
                     invariant=invariant,
                     draft=getattr(agent, "_finalized_invariant_draft", None),
-                    no_invariant_reason=getattr(agent, "_finalized_no_invariant_reason", None),
+                    no_invariant_reason=getattr(
+                        agent, "_finalized_no_invariant_reason", None
+                    ),
                 )
 
             except Exception as e:
@@ -188,7 +194,9 @@ class InvariantSynthesizerProcess(
             stats=stats,
         )
 
-    def _ground_observation(self, obs: Observation, engine: GraphQueryEngine) -> Set[str]:
+    def _ground_observation(
+        self, obs: Observation, engine: GraphQueryEngine
+    ) -> Set[str]:
         """
         Resolve Observation.affected_functions to DependencyGraph node IDs.
         """
@@ -258,7 +266,9 @@ class InvariantSynthesizerProcess(
                             ranked = sorted(
                                 cands,
                                 key=lambda uid: (
-                                    0 if adapter.is_public_entrypoint(g.node(uid)) else 1,
+                                    0
+                                    if adapter.is_public_entrypoint(g.node(uid))
+                                    else 1,
                                     g.node(uid).name,
                                     uid,
                                 ),
@@ -335,7 +345,11 @@ class InvariantSynthesizerProcess(
         for fid in target_function_ids:
             try:
                 node = getattr(graph, "_nodes", {}).get(fid)
-                if node and getattr(node, "span", None) and getattr(node.span, "file", None):
+                if (
+                    node
+                    and getattr(node, "span", None)
+                    and getattr(node.span, "file", None)
+                ):
                     files.add(node.span.file)
             except Exception:
                 continue
@@ -419,5 +433,3 @@ class InvariantSynthesizerProcess(
         name = Path(repo_path).name or "repo"
         safe_name = re.sub(r"[^A-Za-z0-9._-]", "-", name)
         return safe_name
-
-

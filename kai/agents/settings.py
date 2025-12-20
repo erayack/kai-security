@@ -49,9 +49,12 @@ PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 SETUP_AGENT_PROMPT_PATH = PROMPTS_DIR / "setup_agent_prompt.txt"
 PROFILER_AGENT_PROMPT_PATH = PROMPTS_DIR / "profiler_agent_prompt.txt"
 BLACKBOX_AGENT_PROMPT_PATH = PROMPTS_DIR / "blackbox_agent_prompt.txt"
-INVARIANT_SYNTHESIZER_AGENT_PROMPT_PATH = PROMPTS_DIR / "invariant_synthesizer_agent_prompt.txt"
+INVARIANT_SYNTHESIZER_AGENT_PROMPT_PATH = (
+    PROMPTS_DIR / "invariant_synthesizer_agent_prompt.txt"
+)
 STATE_AGENT_PROMPT_PATH = PROMPTS_DIR / "state_agent_prompt.txt"
 QUANT_AGENT_PROMPT_PATH = PROMPTS_DIR / "quant_agent_prompt.txt"
+VERIFIER_AGENT_PROMPT_PATH = PROMPTS_DIR / "verifier_agent_prompt.txt"
 
 # Conversation defaults
 SAVE_CONVERSATION_PATH = "output/conversations/"

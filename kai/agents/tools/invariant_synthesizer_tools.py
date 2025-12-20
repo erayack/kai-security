@@ -86,5 +86,3 @@ def finalize_no_invariant(reason: str) -> Dict[str, Any]:
 
 
 __all__ = ["finalize_invariant", "finalize_no_invariant"]
-
-

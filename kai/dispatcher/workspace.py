@@ -63,38 +63,7 @@ class WorkspaceManager:
         # Default to foundry for Solidity projects
         return "foundry"
 
-    async def provision(self, mission: Mission, master_context: MasterContext) -> str:
-        """
-        Provision a workspace for a mission based on preset.
-
-        Presets:
-        - CLEAN: copy essential dirs + configs
-        - WRITEABLE: currently same as CLEAN (workspace is writeable either way)
-        - SANDBOX: full project copy
-        - LIGHTWEIGHT: minimal project with remappings (no file copy)
-        """
-        master = Path(master_context.root_path)
-        workspace_base = Path(self.workspace_dir)
-        workspace = workspace_base / mission.mission_id
-
-        if workspace.exists():
-            shutil.rmtree(workspace)
-        workspace.mkdir(parents=True, exist_ok=True)
-
-        preset = mission.workspace_preset
-        framework = self._detect_framework(master, master_context)
-        adapter = self._get_adapter(framework)
-
-        if preset == WorkspacePreset.LIGHTWEIGHT:
-            return adapter.provision_lightweight(
-                workspace, master, master_context, self.logger
-            )
-
-        return adapter.provision_full(
-            workspace, master, master_context, preset, self.logger
-        )
-
-    def provision_sync(
+    def provision(
         self,
         workspace_id: str,
         master_path: str,
@@ -102,13 +71,19 @@ class WorkspaceManager:
         master_context: Optional[MasterContext] = None,
     ) -> str:
         """
-        Synchronous workspace provisioning for standalone use (e.g., playgrounds).
+        Provision a workspace.
 
         Args:
             workspace_id: Unique identifier for the workspace
             master_path: Path to the master/source repository
             preset: Workspace preset to use
             master_context: Optional MasterContext (will be inferred if not provided)
+
+        Presets:
+        - CLEAN: copy essential dirs + configs
+        - WRITEABLE: currently same as CLEAN (workspace is writeable either way)
+        - SANDBOX: full project copy
+        - LIGHTWEIGHT: minimal project with remappings (no file copy)
 
         Returns:
             Path to the provisioned workspace
@@ -144,20 +119,23 @@ class WorkspaceManager:
             workspace, master, master_context, preset, self.logger
         )
 
-    async def cleanup(self, mission: Mission) -> None:
-        """Clean up a mission's workspace."""
-        workspace = Path(self.workspace_dir) / mission.mission_id
-        if workspace.exists():
-            try:
-                shutil.rmtree(workspace)
-                if self.logger:
-                    self.logger.debug(f"Cleaned up workspace: {workspace}")
-            except OSError as e:
-                if self.logger:
-                    self.logger.warning(f"Failed to cleanup workspace {workspace}: {e}")
+    def provision_for_mission(
+        self, mission: Mission, master_context: MasterContext
+    ) -> str:
+        """
+        Provision a workspace for a mission.
 
-    def cleanup_sync(self, workspace_id: str) -> None:
-        """Synchronous cleanup for standalone use."""
+        Convenience wrapper that extracts params from Mission object.
+        """
+        return self.provision(
+            workspace_id=mission.mission_id,
+            master_path=master_context.root_path,
+            preset=mission.workspace_preset,
+            master_context=master_context,
+        )
+
+    def cleanup(self, workspace_id: str) -> None:
+        """Clean up a workspace by ID."""
         workspace = Path(self.workspace_dir) / workspace_id
         if workspace.exists():
             try:
@@ -167,3 +145,7 @@ class WorkspaceManager:
             except OSError as e:
                 if self.logger:
                     self.logger.warning(f"Failed to cleanup workspace {workspace}: {e}")
+
+    def cleanup_for_mission(self, mission: Mission) -> None:
+        """Clean up a mission's workspace."""
+        self.cleanup(mission.mission_id)

@@ -57,7 +57,11 @@ class StateAgentResult:
         return len(self.exploits) > 0
 
     def to_exploit_candidates(self, worker_id: str) -> List[ExploitCandidate]:
-        """Convert all exploits to ExploitCandidates."""
+        """Convert all exploits to ExploitCandidates.
+
+        Note: compiled is set to False here - the Verifier will run the test
+        and determine the actual test_passed status.
+        """
         candidates = []
         for f in self.exploits:
             candidates.append(
@@ -70,7 +74,7 @@ class StateAgentResult:
                     target_file=f.get("poc_path", ""),
                     target_function="",
                     description=f.get("reasoning", ""),
-                    compiled=True,
+                    compiled=False,  # Verifier will validate
                     logs=[],
                 )
             )

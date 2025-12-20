@@ -59,5 +59,3 @@ class InvariantSynthesizerAgent(BaseAgent):
             thoughts=thoughts,
             python_block=python_code,
         )
-
-
