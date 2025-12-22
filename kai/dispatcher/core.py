@@ -7,6 +7,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
+# Type alias for shutdown trigger callable
+ShutdownTrigger = Callable[[], bool]
+
 from kai.schemas import (
     ActorMatrix,
     CampaignBrief,
@@ -76,12 +79,18 @@ class Dispatcher:
         self,
         agent_factories: Optional[Dict[MissionAgentType, AgentFactory]] = None,
         config: Optional[DispatcherConfig] = None,
+        shutdown_trigger: Optional[ShutdownTrigger] = None,
     ):
         # Use default factories if none provided
         self.agent_factories = agent_factories or dict(DEFAULT_AGENT_FACTORIES)
         self.config = config or DispatcherConfig()
 
         self.logger = logger.getChild("Dispatcher")
+
+        # Shutdown trigger - callable that returns True when shutdown requested
+        self._shutdown_trigger = shutdown_trigger
+        self._shutdown_requested = False
+        self._shutdown_reason: Optional[str] = None
 
         # State populated by boot()
         self.master_context: Optional[MasterContext] = None
@@ -160,7 +169,9 @@ class Dispatcher:
             from kai.processes.workspace_validation import WorkspaceValidationProcess
             from kai.schemas import WorkspacePreset, WorkspaceValidationInput
 
-            ws_output = await WorkspaceValidationProcess(context=self.master_context).run(
+            ws_output = await WorkspaceValidationProcess(
+                context=self.master_context
+            ).run(
                 WorkspaceValidationInput(
                     master_context=self.master_context,
                     presets=[
@@ -174,7 +185,9 @@ class Dispatcher:
                 )
             )
             if not ws_output.success:
-                self.logger.error(ws_output.error_message or "Workspace validation failed")
+                self.logger.error(
+                    ws_output.error_message or "Workspace validation failed"
+                )
                 # Log per-preset summary for debugging
                 for r in ws_output.results:
                     self.logger.error(
@@ -320,15 +333,65 @@ class Dispatcher:
             priority = campaign.priority if campaign else 1
             self.mission_queue.put_nowait((priority, mission.mission_id, mission))
 
+    def _check_shutdown(self) -> bool:
+        """
+        Check if shutdown has been requested.
+
+        Returns True if shutdown triggered, False otherwise.
+        """
+        if self._shutdown_requested:
+            return True
+
+        if self._shutdown_trigger and self._shutdown_trigger():
+            self._shutdown_requested = True
+            self.logger.warning("Shutdown triggered by external signal")
+            return True
+
+        return False
+
+    @property
+    def shutdown_requested(self) -> bool:
+        """Whether shutdown has been requested."""
+        return self._shutdown_requested
+
+    @property
+    def shutdown_reason(self) -> Optional[str]:
+        """Reason for shutdown, if available."""
+        return self._shutdown_reason
+
+    def request_shutdown(self, reason: str = "Manual shutdown") -> None:
+        """
+        Request graceful shutdown of the dispatcher.
+
+        Args:
+            reason: Human-readable reason for shutdown
+        """
+        self._shutdown_requested = True
+        self._shutdown_reason = reason
+        self.logger.info(f"Shutdown requested: {reason}")
+
     async def run_loop(self) -> None:
         """
         Event loop: dispatch missions to agents, handle results.
 
-        Runs until mission queue is empty and no active agents.
+        Runs until:
+        - Mission queue is empty and no active agents, OR
+        - Shutdown is triggered (waits for active missions to complete)
         """
         self.logger.info("Starting run loop...")
 
         while not self.mission_queue.empty() or self.active_missions:
+            # Check for shutdown signal
+            if self._check_shutdown():
+                self.logger.warning(
+                    f"Shutdown requested. Waiting for {len(self.active_missions)} "
+                    f"active mission(s) to complete..."
+                )
+                # Stop spawning new missions, wait for active ones to finish
+                while self.active_missions:
+                    await asyncio.sleep(0.5)
+                break
+
             # Spawn agents if slots available
             while (
                 len(self.active_missions) < self.config.max_concurrent_agents
@@ -342,10 +405,16 @@ class Dispatcher:
             # Brief pause to allow task switching
             await asyncio.sleep(0.1)
 
-        self.logger.info(
-            f"Run loop complete: {len(self.completed_missions)} missions, "
-            f"{len(self.exploit_candidates)} candidates"
-        )
+        if self._shutdown_requested:
+            remaining = self.mission_queue.qsize()
+            self.logger.info(
+                f"Shutdown complete. {remaining} mission(s) left in queue (not executed)."
+            )
+        else:
+            self.logger.info(
+                f"Run loop complete: {len(self.completed_missions)} missions, "
+                f"{len(self.exploit_candidates)} candidates"
+            )
 
     async def _execute_mission(self, mission: Mission) -> None:
         """Execute a single mission with an agent."""
@@ -395,10 +464,7 @@ class Dispatcher:
                 await self._handle_blackbox_agent_result(mission, agent)
 
             else:
-                # Generic fallback
-                prompt = self._build_mission_prompt(mission)
-                result = await agent.chat(prompt)
-                await self._handle_result(mission, result)
+                raise ValueError(f"Unsupported agent type: {mission.agent_type}")
 
             mission.status = "completed"
 
@@ -420,73 +486,13 @@ class Dispatcher:
             # Cleanup workspace
             self._cleanup_workspace(mission)
 
-    @staticmethod
-    def _build_mission_prompt(mission: Mission) -> str:
-        """Build the initial prompt for an agent based on mission details."""
-        # TODO: Feed context to prompt template instead
-        lines = [f"Mission: {mission.mission_id}"]
-
-        if mission.invariant:
-            lines.append(f"\nTarget Invariant: {mission.invariant.rule}")
-            lines.append(f"Type: {mission.invariant.type.value}")
-            if mission.invariant.explanation:
-                lines.append(f"Explanation: {mission.invariant.explanation}")
-            if mission.invariant.target_function_ids:
-                lines.append(
-                    f"Target Functions: {', '.join(mission.invariant.target_function_ids)}"
-                )
-            if mission.invariant.target_var_ids:
-                lines.append(
-                    f"Target Variables: {', '.join(mission.invariant.target_var_ids)}"
-                )
-
-        if mission.scope.entrypoints_subset.ids:
-            lines.append(
-                f"\nEntrypoints: {', '.join(mission.scope.entrypoints_subset.ids[:10])}"
-            )
-            if len(mission.scope.entrypoints_subset.ids) > 10:
-                lines.append(
-                    f"  ... and {len(mission.scope.entrypoints_subset.ids) - 10} more"
-                )
-
-        if mission.scope.actor_roles:
-            lines.append(f"Actor Roles: {', '.join(mission.scope.actor_roles)}")
-
-        lines.append(f"\nObjective: {mission.objectives.notes or 'Find exploit'}")
-        lines.append(f"Max Turns: {mission.max_turns}")
-
-        return "\n".join(lines)
-
-    async def _handle_result(self, mission: Mission, result: Any) -> None:
-        """Handle agent result: ExploitCandidate or Observation."""
-        if isinstance(result, ExploitCandidate):
-            self.logger.info(f"ExploitCandidate from {mission.mission_id}")
-            if result.compiled and self.master_context:
-                await self._verify_candidate(result)
-            self.exploit_candidates.append(result)
-
-        elif isinstance(result, Observation):
-            self.logger.info(f"Observation from {mission.mission_id}")
-            # Synthesize new invariant from observation
-            new_inv = await self._synthesize_invariant(result)
-            if new_inv and new_inv.id not in self.invariants:
-                self.logger.info(f"New invariant discovered: {new_inv.id}")
-                self.invariants[new_inv.id] = new_inv
-                # Schedule new missions for this invariant
-                self._schedule_missions_for_invariant(new_inv)
-
     async def _handle_state_agent_result(self, mission: Mission, agent: Any) -> None:
         """
-        Extract and handle results from StateAgent.
+        Extract and handle results from StateAgent/QuantAgent.
 
-        StateAgent stores exploit candidates in _registered_exploits via register_exploit tool.
+        These agents implement get_exploit_candidates() which returns registered exploits.
         """
-        # Get exploit candidates from agent
-        candidates = []
-        if hasattr(agent, "get_exploit_candidates"):
-            candidates = agent.get_exploit_candidates()
-        elif hasattr(agent, "_registered_exploits"):
-            candidates = agent._registered_exploits
+        candidates = agent.get_exploit_candidates()
 
         if not candidates:
             self.logger.info(f"No exploit candidates from {mission.mission_id}")
@@ -586,11 +592,9 @@ class Dispatcher:
         """
         Extract and handle results from BlackboxAgent.
 
-        BlackboxAgent stores observations in blackbox_observations via add_observation tool.
+        BlackboxAgent implements get_observations() which returns recorded observations.
         """
-        observations = []
-        if hasattr(agent, "blackbox_observations"):
-            observations = agent.blackbox_observations
+        observations = agent.get_observations()
 
         if not observations:
             self.logger.info(f"No observations from {mission.mission_id}")

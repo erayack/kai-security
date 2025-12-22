@@ -253,9 +253,9 @@ class FoundryToolAdapter(ToolAdapter):
             normalized = normalized[len("test/") :]
 
         # Ensure extension
-        if not normalized.endswith(self.get_test_file_extension()) and not normalized.endswith(
-            self.get_source_file_extension()
-        ):
+        if not normalized.endswith(
+            self.get_test_file_extension()
+        ) and not normalized.endswith(self.get_source_file_extension()):
             normalized = normalized + self.get_test_file_extension()
 
         return workspace / test_dir / normalized

@@ -14,6 +14,7 @@ __all__ = [
     "register_workspace_validation_result",
 ]
 
+
 def write_and_compile(file_path: str, content: str) -> Dict[str, Any]:
     """
     Write a smoke test file into the already-provisioned workspace and compile it.
@@ -58,7 +59,9 @@ def run_test(
     agent = _get_current_agent()
     fw = dict(framework_kwargs or {})
     if "match_path" not in fw:
-        last_mp = getattr(agent, "_last_ws_validation_match_path", None) if agent else None
+        last_mp = (
+            getattr(agent, "_last_ws_validation_match_path", None) if agent else None
+        )
         if isinstance(last_mp, str) and last_mp.strip():
             fw["match_path"] = last_mp.strip()
 
@@ -105,6 +108,3 @@ def register_workspace_validation_result(payload: Dict[str, Any]) -> Dict[str, A
         }
     except Exception as e:
         return {"registered": False, "error": f"Validation failed: {str(e)}"}
-
-
-

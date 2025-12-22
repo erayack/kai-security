@@ -62,6 +62,10 @@ class BlackboxAgent(BaseAgent):
             master_context=self.master_context,
         )
 
+    def get_observations(self) -> List[Observation]:
+        """Get all observations recorded during blackbox exploration."""
+        return self.blackbox_observations
+
     @staticmethod
     def _coerce_dependency_graph(graph: Any):
         """

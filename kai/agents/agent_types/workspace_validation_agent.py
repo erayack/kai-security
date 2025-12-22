@@ -26,7 +26,9 @@ class WorkspaceValidationAgent(BaseAgent):
         master_context: Optional[MasterContext] = None,
         dependency_graph: Any = None,
     ):
-        tools_schema = generate_tool_schema("kai.agents.tools.workspace_validation_tools")
+        tools_schema = generate_tool_schema(
+            "kai.agents.tools.workspace_validation_tools"
+        )
         super().__init__(
             max_tool_turns=max_tool_turns,
             repo_path=repo_path,
@@ -72,5 +74,3 @@ class WorkspaceValidationAgent(BaseAgent):
     # Backwards-compatible accessor for tools (if needed).
     def _register_workspace_validation_result(self, payload: Dict) -> None:
         self._set_validation_result(WorkspaceValidationResult(**payload))
-
-

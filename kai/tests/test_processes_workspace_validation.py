@@ -44,7 +44,9 @@ async def test_workspace_validation_integration_bbp_master_fixture():
         )
 
     if shutil.which("forge") is None:
-        pytest.skip("Requires Foundry forge installed to run real workspace validation.")
+        pytest.skip(
+            "Requires Foundry forge installed to run real workspace validation."
+        )
 
     proc = WorkspaceValidationProcess(context=mc)
     out = await proc.execute(
@@ -75,5 +77,3 @@ async def test_workspace_validation_integration_bbp_master_fixture():
     for r in out.results:
         assert r.compiled is True, f"{r.preset}: compile failed: {r.compile_errors}"
         assert r.test_success is True, f"{r.preset}: test failed: {r.raw_output}"
-
-

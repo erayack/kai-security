@@ -89,7 +89,9 @@ async def test_invariant_synthesizer_process_real_run():
 
     # Verify per-observation result artifacts exist and indicate invariant vs no-invariant.
     result_files = sorted([p for p in new_files if p.name.endswith(".result.json")])
-    assert len(result_files) == 2, "Each processed observation should emit a .result.json artifact"
+    assert len(result_files) == 2, (
+        "Each processed observation should emit a .result.json artifact"
+    )
     for p in result_files:
         payload = json.loads(p.read_text())
         assert payload.get("kind") in {"invariant", "no_invariant"}
@@ -105,5 +107,3 @@ async def test_invariant_synthesizer_process_real_run():
             assert inv.rule
             assert inv.type
             assert inv.id.startswith("INV_OBS_")
-
-

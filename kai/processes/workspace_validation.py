@@ -50,7 +50,9 @@ class WorkspaceValidationProcess(
         - otherwise fall back to config-file detection
         """
         frameworks = (
-            (getattr(master_context, "frameworks", None) or []) if master_context else []
+            (getattr(master_context, "frameworks", None) or [])
+            if master_context
+            else []
         )
         if frameworks:
             fw0 = str(frameworks[0]).lower()
@@ -104,7 +106,11 @@ class WorkspaceValidationProcess(
         presets: List[WorkspacePreset] = (
             list(input_data.presets)
             if input_data.presets
-            else [WorkspacePreset.LIGHTWEIGHT, WorkspacePreset.WRITEABLE, WorkspacePreset.SANDBOX]
+            else [
+                WorkspacePreset.LIGHTWEIGHT,
+                WorkspacePreset.WRITEABLE,
+                WorkspacePreset.SANDBOX,
+            ]
         )
 
         master = Path(mc.root_path)
@@ -147,7 +153,9 @@ class WorkspaceValidationProcess(
                 use_openai = bool(
                     settings.OPENAI_API_KEY and not settings.OPENROUTER_API_KEY
                 )
-                has_api_key = bool(settings.OPENROUTER_API_KEY or settings.OPENAI_API_KEY)
+                has_api_key = bool(
+                    settings.OPENROUTER_API_KEY or settings.OPENAI_API_KEY
+                )
                 agent = WorkspaceValidationAgent(
                     max_tool_turns=8,
                     repo_path=workspace_path,
@@ -235,9 +243,13 @@ class WorkspaceValidationProcess(
                 if reg is None:
                     # Deterministic fallback (keeps workspace validation usable even if LLM backend fails)
                     if agent_error:
-                        raw_output = f"[workspace_validation_agent_error]\n{agent_error}\n"
+                        raw_output = (
+                            f"[workspace_validation_agent_error]\n{agent_error}\n"
+                        )
 
-                    abs_test_path = tool_adapter.normalize_test_path(rel_stem, workspace)
+                    abs_test_path = tool_adapter.normalize_test_path(
+                        rel_stem, workspace
+                    )
                     abs_test_path.parent.mkdir(parents=True, exist_ok=True)
                     abs_test_path.write_text(smoke_content)
                     smoke_relpath = abs_test_path.relative_to(workspace).as_posix()
@@ -252,7 +264,11 @@ class WorkspaceValidationProcess(
                     raw_output = (
                         raw_output + compile_out
                         if raw_output
-                        else (compile_out[:5000] if len(compile_out) > 5000 else compile_out)
+                        else (
+                            compile_out[:5000]
+                            if len(compile_out) > 5000
+                            else compile_out
+                        )
                     )
 
                     test_success = False
@@ -277,7 +293,9 @@ class WorkspaceValidationProcess(
                                 + "\n\n=== TEST OUTPUT ===\n"
                                 + test_out
                             ).strip()
-                            raw_output = combined[:5000] if len(combined) > 5000 else combined
+                            raw_output = (
+                                combined[:5000] if len(combined) > 5000 else combined
+                            )
 
                     err = agent_error or None
                     if not compiled or not test_success:
@@ -336,6 +354,3 @@ class WorkspaceValidationProcess(
             )
 
         return WorkspaceValidationOutput(success=True, results=results)
-
-
-
