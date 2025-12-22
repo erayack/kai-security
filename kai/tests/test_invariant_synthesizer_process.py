@@ -65,7 +65,7 @@ async def test_invariant_synthesizer_process_real_run():
         master_context=brief.master_context,
         dependency_graph=graph,
         protocol_manifesto=None,
-        model_name="z-ai/glm-4.6",  # Fast/cheap model
+        model_name="z-ai/glm-4.7",  # Fast/cheap model
         use_openai=False,
     )
 

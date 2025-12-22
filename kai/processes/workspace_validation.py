@@ -16,6 +16,7 @@ from kai.schemas import (
 )
 
 from kai.agents.agent_types.workspace_validation_agent import WorkspaceValidationAgent
+from kai.utils.tool_adapters import get_tool_adapter
 
 
 class WorkspaceValidationProcess(
@@ -108,6 +109,7 @@ class WorkspaceValidationProcess(
 
         master = Path(mc.root_path)
         framework = self._detect_framework(master, mc)
+        tool_adapter = get_tool_adapter(framework)
 
         results: List[WorkspaceValidationResult] = []
         failures: List[str] = []
@@ -133,80 +135,155 @@ class WorkspaceValidationProcess(
                     preset=preset,
                     master_context=mc,
                 )
-                workspace = Path(workspace_path)
+                # IMPORTANT: WorkspaceManager returns a path that may be relative
+                # (e.g., "kai_workspaces/..."). BaseAgent stores `scope_paths` as-is
+                # but makes `repo_path` absolute; passing a relative scope causes the
+                # sandbox path logic to "double-join" and break tools (list_files/read_file).
+                workspace = Path(workspace_path).resolve()
+                workspace_path = str(workspace)
 
                 # Delegate smoke compile/test to WorkspaceValidationAgent (tool-calling).
                 # The agent operates on the already provisioned workspace (no provisioning tools needed).
                 use_openai = bool(
                     settings.OPENAI_API_KEY and not settings.OPENROUTER_API_KEY
                 )
+                has_api_key = bool(settings.OPENROUTER_API_KEY or settings.OPENAI_API_KEY)
                 agent = WorkspaceValidationAgent(
                     max_tool_turns=8,
-                    repo_path=str(workspace),
-                    scope_paths=[str(workspace)],
+                    repo_path=workspace_path,
+                    scope_paths=[workspace_path],
                     model=settings.MAIN_DEFAULT_MODEL,
                     use_openai=use_openai,
                 )
                 # Provide context the tools expect
                 agent.master_context = mc
-                agent.workspace_path = str(workspace)
+                agent.workspace_path = workspace_path
                 agent.framework = framework
 
                 smoke_content, _imported, rel_stem = self._build_smoke_test(
                     master_context=mc, framework=framework
                 )
 
+                reg = None
+                agent_error: Optional[str] = None
                 try:
-                    framework_hint = None
-                    if getattr(mc, "frameworks", None):
-                        # Only provide framework hint if Setup produced it.
-                        framework_hint = framework
-                    prompt_lines: List[str] = [
-                        "Validate this provisioned workspace.",
-                        f"preset={preset.value}",
-                    ]
-                    if framework_hint:
-                        prompt_lines.append(f"framework={framework_hint}")
-                    prompt_lines.extend(
-                        [
-                            f"timeout_compile_s={int(input_data.timeout_compile_s)}",
-                            f"timeout_test_s={int(input_data.timeout_test_s)}",
-                            "Use this exact smoke test content and path:",
-                            f"- file_path: {rel_stem}",
-                            "-----BEGIN_SMOKE_TEST-----",
-                            smoke_content,
-                            "-----END_SMOKE_TEST-----",
-                            "You MUST call register_workspace_validation_result(...) before stopping.",
+                    if has_api_key:
+                        framework_hint = None
+                        if getattr(mc, "frameworks", None):
+                            # Only provide framework hint if Setup produced it.
+                            framework_hint = framework
+                        prompt_lines: List[str] = [
+                            "Validate this provisioned workspace.",
+                            f"preset={preset.value}",
                         ]
-                    )
-                    user_prompt = "\n".join(prompt_lines) + "\n"
-                    await agent.chat_with_tools(user_prompt)
-
-                    reg = getattr(agent, "_registered_workspace_validation_result", None)
-                    if reg is None:
-                        # One hard retry like other processes (setup/profiler/verifier)
-                        retry_prompt = (
-                            "FORMAT REQUIREMENT: You must call "
-                            "register_workspace_validation_result({...}) now.\n"
-                            f"preset={preset.value}\n"
-                            f"workspace_path={workspace_path}\n"
-                            f"framework={framework}\n"
-                            "If compilation/test failed, still register a result with compiled/test_success false "
-                            "and include raw_output + compile_errors."
+                        if framework_hint:
+                            prompt_lines.append(f"framework={framework_hint}")
+                        prompt_lines.extend(
+                            [
+                                f"timeout_compile_s={int(input_data.timeout_compile_s)}",
+                                f"timeout_test_s={int(input_data.timeout_test_s)}",
+                                "Do NOT call list_files unless debugging an unexpected failure (it can be huge).",
+                                "Use this exact smoke test content and path:",
+                                f"- file_path: {rel_stem}",
+                                "-----BEGIN_SMOKE_TEST-----",
+                                smoke_content,
+                                "-----END_SMOKE_TEST-----",
+                                "You MUST call register_workspace_validation_result(...) before stopping.",
+                            ]
                         )
-                        await agent.chat_with_tools(retry_prompt)
+                        user_prompt = "\n".join(prompt_lines) + "\n"
+                        await agent.chat_with_tools(user_prompt)
+
                         reg = getattr(
                             agent, "_registered_workspace_validation_result", None
                         )
+                        if reg is None:
+                            # One hard retry like other processes (setup/profiler/verifier)
+                            retry_prompt = (
+                                "FORMAT REQUIREMENT: You must call "
+                                "register_workspace_validation_result({...}) now.\n"
+                                f"preset={preset.value}\n"
+                                f"workspace_path={workspace_path}\n"
+                                f"framework={framework}\n"
+                                "If compilation/test failed, still register a result with compiled/test_success false "
+                                "and include raw_output + compile_errors."
+                            )
+                            await agent.chat_with_tools(retry_prompt)
+                            reg = getattr(
+                                agent, "_registered_workspace_validation_result", None
+                            )
+                except Exception as e:
+                    # If the model backend flakes (e.g., transient 500), fall back to deterministic validation.
+                    agent_error = str(e)
                 finally:
+                    # Save conversation like other processes (best-effort)
+                    try:
+                        project_root = Path(__file__).resolve().parents[2]
+                        repo_slug = self._repo_slug(mc.root_path)
+                        save_folder = project_root / "output" / repo_slug
+                        agent.save_conversation(
+                            save_folder=str(save_folder),
+                            prefix=f"workspace_validation_{preset.value}",
+                        )
+                    except Exception:
+                        pass
                     try:
                         await agent.close()
                     except Exception:
                         pass
 
                 if reg is None:
-                    err = "WorkspaceValidationAgent did not register a WorkspaceValidationResult"
-                    failures.append(f"{preset.value}: error={err}")
+                    # Deterministic fallback (keeps workspace validation usable even if LLM backend fails)
+                    if agent_error:
+                        raw_output = f"[workspace_validation_agent_error]\n{agent_error}\n"
+
+                    abs_test_path = tool_adapter.normalize_test_path(rel_stem, workspace)
+                    abs_test_path.parent.mkdir(parents=True, exist_ok=True)
+                    abs_test_path.write_text(smoke_content)
+                    smoke_relpath = abs_test_path.relative_to(workspace).as_posix()
+
+                    compile_result = tool_adapter.compile(
+                        workspace_path=workspace,
+                        timeout=int(input_data.timeout_compile_s),
+                    )
+                    compiled = bool(compile_result.success)
+                    compile_errors = list(compile_result.errors or [])
+                    compile_out = compile_result.raw_output or ""
+                    raw_output = (
+                        raw_output + compile_out
+                        if raw_output
+                        else (compile_out[:5000] if len(compile_out) > 5000 else compile_out)
+                    )
+
+                    test_success = False
+                    tests_passed = 0
+                    tests_failed = 0
+                    if compiled:
+                        test_result = tool_adapter.run_test(
+                            workspace_path=workspace,
+                            match_contract="WorkspaceSmokeTest",
+                            match_test="test_smoke",
+                            verbosity=2,
+                            timeout=int(input_data.timeout_test_s),
+                            framework_kwargs={"match_path": smoke_relpath},
+                        )
+                        test_success = bool(test_result.success)
+                        tests_passed = int(test_result.tests_passed or 0)
+                        tests_failed = int(test_result.tests_failed or 0)
+                        test_out = test_result.raw_output or ""
+                        if test_out:
+                            combined = (
+                                (raw_output or "")
+                                + "\n\n=== TEST OUTPUT ===\n"
+                                + test_out
+                            ).strip()
+                            raw_output = combined[:5000] if len(combined) > 5000 else combined
+
+                    err = agent_error or None
+                    if not compiled or not test_success:
+                        failures.append(
+                            f"{preset.value}: compiled={compiled}, test_success={test_success}"
+                        )
                 else:
                     # Convert registered payload into process result (keep deterministic wrapper fields)
                     smoke_relpath = reg.smoke_test_relpath

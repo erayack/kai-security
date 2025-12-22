@@ -18,7 +18,7 @@ Inputs:
   Use them verbatim.
 
 Required workflow (do exactly this):
-1) Inspect the workspace layout if needed (list_files).
+1) Do NOT call list_files unless you are debugging an unexpected failure. If you must, use depth=1.
 2) Write the provided smoke test using write_and_compile(file_path, content).
 3) If compilation fails, DO NOT patch files. Register failure (compiled=false) with compile_errors + raw_output.
 4) If compilation succeeds, run the smoke test using run_test (use match_contract/match_test only if applicable).

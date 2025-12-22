@@ -292,6 +292,20 @@ async def get_model_response_with_tools(
                 )
             raise
 
+        # Defensive checks: some OpenAI-compatible backends can return malformed/partial
+        # responses that deserialize but lack choices. Fail with a clear error instead
+        # of crashing with "NoneType is not subscriptable".
+        try:
+            choices = getattr(completion, "choices", None)
+            if not choices:
+                raise Exception(
+                    f"Tool-calling completion missing choices (model={model}). "
+                    f"completion={repr(completion)}"
+                )
+        except Exception:
+            # Re-raise as a regular exception for upstream handling/logging.
+            raise
+
         # Update usage
         if completion.usage:
             total_usage["prompt_tokens"] += completion.usage.prompt_tokens

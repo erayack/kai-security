@@ -31,7 +31,7 @@ async def test_adapter_chooser_selects_foundry(monkeypatch):
     process = AdapterChooserProcess(mc)
 
     result = await process.execute(
-        AdapterChooserInput(model_name="openai/gpt-5.1-codex-max")
+        AdapterChooserInput(model_name="z-ai/glm-4.7")
     )
 
     assert result.success is True
