@@ -10,6 +10,8 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 # Type alias for shutdown trigger callable
 ShutdownTrigger = Callable[[], bool]
 
+from kai.state_manager import KaiStateManager
+
 from kai.schemas import (
     ActorMatrix,
     CampaignBrief,
@@ -80,12 +82,16 @@ class Dispatcher:
         agent_factories: Optional[Dict[MissionAgentType, AgentFactory]] = None,
         config: Optional[DispatcherConfig] = None,
         shutdown_trigger: Optional[ShutdownTrigger] = None,
+        state_manager: Optional[KaiStateManager] = None,
     ):
         # Use default factories if none provided
         self.agent_factories = agent_factories or dict(DEFAULT_AGENT_FACTORIES)
         self.config = config or DispatcherConfig()
 
         self.logger = logger.getChild("Dispatcher")
+
+        # External state manager for persistence (mongo/s3/local)
+        self._state_manager = state_manager
 
         # Shutdown trigger - callable that returns True when shutdown requested
         self._shutdown_trigger = shutdown_trigger
@@ -114,6 +120,16 @@ class Dispatcher:
             workspace_dir=self.config.workspace_dir, logger=self.logger
         )
         self._planner: Optional[MissionPlanner] = None
+
+    async def _persist(self, coro) -> bool:
+        """Safely call state manager method. No-op if no state manager."""
+        if not self._state_manager:
+            return True
+        try:
+            return await coro
+        except Exception as e:
+            self.logger.warning(f"State persistence failed: {e}")
+            return False
 
     async def boot(
         self,
