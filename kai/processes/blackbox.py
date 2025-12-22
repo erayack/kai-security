@@ -137,9 +137,20 @@ class BlackboxProcess(BaseProcess[BlackboxInput, BlackboxOutput]):
                 except Exception:
                     pass
 
-            save_folder = self._project_root() / "output" / repo_slug
-            convo_path = agent.save_conversation(
-                save_folder=str(save_folder), prefix=prefix
+            # Save conversation via state manager
+            convo_path = await self._save_conversation(
+                agent_id=agent.agent_id,
+                agent_type="blackbox",
+                messages=[m.model_dump() for m in agent.messages],
+                metadata={
+                    "repo_path": repo_path,
+                    "campaign_id": campaign_id,
+                    "estimated_cost": agent.estimated_cost,
+                    "total_tokens": agent.total_tokens,
+                    "time_spent": agent.time_spent,
+                    "model": agent.model,
+                    "prefix": prefix,
+                },
             )
 
             observations: List[Observation] = getattr(

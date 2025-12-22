@@ -82,9 +82,7 @@ class ProfilerProcess(BaseProcess[ProfilerInput, ProfilerOutput]):
             except Exception:
                 pass
 
-        # Save conversation under output/<repo_slug>
-        save_folder = self._project_root() / "output" / self._repo_slug(repo_path)
-        agent.save_conversation(save_folder=str(save_folder), prefix=prefix)
+        # Conversation saving handled by dispatcher via state_manager
 
         manifesto: Optional[ProtocolManifesto] = (
             response.protocol_manifesto if response else None

@@ -1,8 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, Optional, TYPE_CHECKING
 import logging
 
 from kai.schemas import MasterContext
+
+if TYPE_CHECKING:
+    from kai.state_manager import KaiStateManager
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
@@ -18,8 +21,13 @@ class BaseProcess(ABC, Generic[InputT, OutputT]):
     performs some logic using the global context, and returns an output.
     """
 
-    def __init__(self, context: MasterContext):
+    def __init__(
+        self,
+        context: MasterContext,
+        state_manager: Optional["KaiStateManager"] = None,
+    ):
         self.context = context
+        self.state_manager = state_manager
         self.logger = logger.getChild(self.__class__.__name__)
 
     @abstractmethod
@@ -34,6 +42,31 @@ class BaseProcess(ABC, Generic[InputT, OutputT]):
             The structured output of this process.
         """
         pass
+
+    async def _save_conversation(
+        self,
+        agent_id: str,
+        agent_type: str,
+        messages: list,
+        metadata: dict,
+    ) -> Optional[str]:
+        """
+        Save conversation via state manager if available.
+
+        Returns path/URI if saved, None otherwise.
+        """
+        if not self.state_manager:
+            return None
+        try:
+            return await self.state_manager.save_conversation(
+                agent_id=agent_id,
+                agent_type=agent_type,
+                messages=messages,
+                metadata=metadata,
+            )
+        except Exception as e:
+            self.logger.warning(f"Failed to save conversation: {e}")
+            return None
 
     async def run(self, input_data: InputT) -> OutputT:
         """

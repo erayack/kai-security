@@ -1,8 +1,6 @@
 import json
 import hashlib
-import re
-from pathlib import Path
-from typing import List, Optional, Dict, Any, Set
+from typing import List, Optional, Any, Set
 
 from kai.agents.agent_types.invariant_synthesizer_agent import InvariantSynthesizerAgent
 from kai.processes.base import BaseProcess
@@ -160,25 +158,7 @@ class InvariantSynthesizerProcess(
                     "completion_tokens", 0
                 )
 
-                # Save conversation
-                save_folder = (
-                    self._project_root() / "output" / self._repo_slug(ctx.root_path)
-                )
-                convo_path = agent.save_conversation(
-                    save_folder=str(save_folder), prefix="invariant_synthesizer"
-                )
-
-                # Save a "sister" result file next to the conversation file.
-                # This contains either the finalized grounded Invariant or the no-invariant reason.
-                self._save_result_sister_file(
-                    convo_path=convo_path,
-                    observation=obs,
-                    invariant=invariant,
-                    draft=getattr(agent, "_finalized_invariant_draft", None),
-                    no_invariant_reason=getattr(
-                        agent, "_finalized_no_invariant_reason", None
-                    ),
-                )
+                # Conversation/result saving handled by dispatcher via state_manager
 
             except Exception as e:
                 self.logger.error(f"Agent synthesis failed for observation: {e}")
@@ -361,56 +341,6 @@ class InvariantSynthesizerProcess(
 
         return sorted(files)
 
-    def _save_result_sister_file(
-        self,
-        *,
-        convo_path: str,
-        observation: Observation,
-        invariant: Optional[Invariant],
-        draft: Optional[Dict[str, Any]],
-        no_invariant_reason: Optional[str],
-    ) -> None:
-        """
-        Write a sibling JSON file next to the saved conversation.
-
-        Example:
-          - convo:  invariant_synthesizer_<uuid>.json
-          - sister: invariant_synthesizer_<uuid>.result.json
-        """
-        try:
-            if not convo_path:
-                return
-            convo = Path(convo_path)
-            # Keep same basename; add a stable suffix.
-            result_path = convo.with_name(convo.name.replace(".json", ".result.json"))
-
-            payload: Dict[str, Any] = {
-                "conversation_file": convo.name,
-                "observation": observation.model_dump(),
-            }
-
-            if invariant is not None:
-                payload.update(
-                    {
-                        "kind": "invariant",
-                        "draft": draft or {},
-                        "invariant": invariant.model_dump(),
-                    }
-                )
-            else:
-                payload.update(
-                    {
-                        "kind": "no_invariant",
-                        "reason": no_invariant_reason
-                        or "No invariant was finalized for this observation.",
-                    }
-                )
-
-            result_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        except Exception:
-            # Never break the pipeline due to optional artifact writing.
-            return
-
     def _summarize_manifesto(self, manifesto: Optional[Any]) -> str:
         """Minimal summary for LLM context."""
         if not manifesto:
@@ -425,11 +355,3 @@ class InvariantSynthesizerProcess(
             lines.append(f"Domain: {manifesto.domain}")
 
         return "\n".join(lines)
-
-    def _project_root(self) -> Path:
-        return Path(__file__).resolve().parent.parent.parent
-
-    def _repo_slug(self, repo_path: str) -> str:
-        name = Path(repo_path).name or "repo"
-        safe_name = re.sub(r"[^A-Za-z0-9._-]", "-", name)
-        return safe_name

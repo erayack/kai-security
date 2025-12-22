@@ -224,17 +224,7 @@ class WorkspaceValidationProcess(
                     # If the model backend flakes (e.g., transient 500), fall back to deterministic validation.
                     agent_error = str(e)
                 finally:
-                    # Save conversation like other processes (best-effort)
-                    try:
-                        project_root = Path(__file__).resolve().parents[2]
-                        repo_slug = self._repo_slug(mc.root_path)
-                        save_folder = project_root / "output" / repo_slug
-                        agent.save_conversation(
-                            save_folder=str(save_folder),
-                            prefix=f"workspace_validation_{preset.value}",
-                        )
-                    except Exception:
-                        pass
+                    # Conversation saving handled by dispatcher via state_manager
                     try:
                         await agent.close()
                     except Exception:

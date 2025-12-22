@@ -103,9 +103,7 @@ class VerifierProcess(BaseProcess[VerifierProcessInput, VerifierProcessOutput]):
             # Cleanup workspace
             workspace_manager.cleanup(workspace_id)
 
-        # Save conversation
-        save_folder = self._project_root() / "output" / self._repo_slug(repo_path)
-        agent.save_conversation(save_folder=str(save_folder), prefix=prefix)
+        # Conversation saving handled by dispatcher via state_manager
 
         # Determine success
         success = verdict is not None
