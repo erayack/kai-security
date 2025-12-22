@@ -671,3 +671,67 @@ class Dispatcher:
                 v.rejection_reason for v in rejected if v.rejection_reason
             ],
         }
+
+    def export_results(self, output_path: str) -> None:
+        """
+        Export all dispatcher results to a JSON file.
+
+        Includes campaigns, missions, exploit candidates, verdicts, and stats.
+
+        Args:
+            output_path: Path to the output JSON file
+        """
+        import json
+        from pathlib import Path
+
+        # Build summary
+        summary = {
+            "total_campaigns": len(self.campaigns),
+            "total_missions": len(self.completed_missions),
+            "successful_missions": len(
+                [m for m in self.completed_missions if m.status == "completed"]
+            ),
+            "failed_missions": len(
+                [m for m in self.completed_missions if m.status == "failed"]
+            ),
+            "total_exploit_candidates": len(self.exploit_candidates),
+            "total_verdicts": len(self.verdicts),
+            "verified_exploits": len([v for v in self.verdicts if v.is_valid]),
+            "rejected_exploits": len([v for v in self.verdicts if not v.is_valid]),
+        }
+
+        # Serialize campaigns
+        campaigns_data = [c.model_dump() for c in self.campaigns]
+
+        # Serialize missions
+        missions_data = [m.model_dump() for m in self.completed_missions]
+
+        # Group exploit candidates by mission
+        exploits_by_mission: Dict[str, List[Dict]] = {}
+        for candidate in self.exploit_candidates:
+            mission_id = candidate.mission_id
+            if mission_id not in exploits_by_mission:
+                exploits_by_mission[mission_id] = []
+            exploits_by_mission[mission_id].append(candidate.model_dump())
+
+        # Serialize verdicts with full details
+        verdicts_data = [v.model_dump() for v in self.verdicts]
+
+        # Build final report
+        report = {
+            "summary": summary,
+            "verification_stats": self.get_verification_stats(),
+            "campaigns": campaigns_data,
+            "missions": missions_data,
+            "exploits_by_mission": exploits_by_mission,
+            "verdicts": verdicts_data,
+        }
+
+        # Write to file
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_file, "w") as f:
+            json.dump(report, f, indent=2, default=str)
+
+        self.logger.info(f"Results exported to {output_path}")
