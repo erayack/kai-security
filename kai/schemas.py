@@ -551,6 +551,47 @@ class EnvironmentSetupOutput(BaseModel):
 
 
 # ---------------------------
+# Workspace Validation Schemas
+# ---------------------------
+
+
+class WorkspaceValidationInput(BaseModel):
+    """
+    Input for WorkspaceValidationProcess.
+
+    Validates that a provisioned agent workspace can:
+    - accept a minimal test file write
+    - compile successfully (adapter-based)
+    - run a targeted smoke test (adapter-based)
+    """
+
+    master_context: MasterContext
+    presets: List["WorkspacePreset"] = Field(default_factory=list)
+    timeout_compile_s: int = 120
+    timeout_test_s: int = 120
+
+
+class WorkspaceValidationResult(BaseModel):
+    preset: "WorkspacePreset"
+    workspace_path: str
+    smoke_test_relpath: str
+    framework: str
+    compiled: bool = False
+    compile_errors: List[str] = Field(default_factory=list)
+    test_success: bool = False
+    tests_passed: int = 0
+    tests_failed: int = 0
+    raw_output: str = ""
+    error: Optional[str] = None
+
+
+class WorkspaceValidationOutput(BaseModel):
+    success: bool
+    results: List[WorkspaceValidationResult] = Field(default_factory=list)
+    error_message: Optional[str] = None
+
+
+# ---------------------------
 # Actor Analysis Schemas
 # ---------------------------
 

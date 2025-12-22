@@ -230,6 +230,69 @@ class FoundryToolAdapter(ToolAdapter):
         """Return Solidity source file extension."""
         return ".sol"
 
+    def normalize_test_path(self, file_path: str, workspace: Path) -> Path:
+        """
+        Normalize test path for Foundry projects.
+
+        Important: some repos configure a non-default test directory in foundry.toml,
+        e.g. `test = "test/foundry"`. In those repos, `forge test --match-path ...`
+        will only match files under the configured test dir. So we must write the
+        smoke test (and PoCs) under that directory.
+        """
+        test_dir = self._detect_test_dir(workspace) or "test"
+
+        p = Path(file_path)
+        if p.is_absolute():
+            p = Path(p.name)
+
+        normalized = p.as_posix().lstrip("/")
+        # Strip leading configured test_dir or generic "test/"
+        if normalized.startswith(test_dir.rstrip("/") + "/"):
+            normalized = normalized[len(test_dir.rstrip("/")) + 1 :]
+        elif normalized.startswith("test/"):
+            normalized = normalized[len("test/") :]
+
+        # Ensure extension
+        if not normalized.endswith(self.get_test_file_extension()) and not normalized.endswith(
+            self.get_source_file_extension()
+        ):
+            normalized = normalized + self.get_test_file_extension()
+
+        return workspace / test_dir / normalized
+
+    def get_allowed_patch_directories(self) -> List[str]:
+        # Support both default and common custom Foundry test roots.
+        return [
+            "test/poc",
+            "test\\poc",
+            "test/foundry/poc",
+            "test\\foundry\\poc",
+        ]
+
+    def _detect_test_dir(self, workspace: Path) -> Optional[str]:
+        """
+        Best-effort parse of foundry.toml to determine the configured test directory.
+        """
+        candidates = [workspace / "foundry.toml", workspace / "forge" / "foundry.toml"]
+        for cfg in candidates:
+            if not cfg.exists() or not cfg.is_file():
+                continue
+            try:
+                import tomllib  # py3.11+
+            except Exception:
+                tomllib = None  # type: ignore[assignment]
+            if tomllib is None:
+                continue
+            try:
+                data = tomllib.loads(cfg.read_text(encoding="utf-8"))
+                profile = (data.get("profile") or {}).get("default") or {}
+                test_dir = profile.get("test") or data.get("test")
+                if isinstance(test_dir, str) and test_dir.strip():
+                    return test_dir.strip().strip('"').strip("'")
+            except Exception:
+                continue
+        return None
+
     def parse_compile_errors(self, output: str) -> List[str]:
         """
         Parse Foundry compilation output for errors.

@@ -20,6 +20,7 @@ class AgentType(Enum):
     STATE = settings.STATE_AGENT_PROMPT_PATH
     QUANT = settings.QUANT_AGENT_PROMPT_PATH
     VERIFIER = settings.VERIFIER_AGENT_PROMPT_PATH
+    WORKSPACE_VALIDATION = settings.WORKSPACE_VALIDATION_AGENT_PROMPT_PATH
     FIXER = "fixer"
 
 
@@ -37,6 +38,8 @@ def agent_type_to_kind(agent_type: AgentType) -> str:
         return "state"
     if agent_type == AgentType.QUANT:
         return "quant"
+    if agent_type == AgentType.WORKSPACE_VALIDATION:
+        return "workspace_validation"
     if agent_type == AgentType.VERIFIER:
         return "verifier"
     return "unknown"
@@ -62,6 +65,7 @@ def load_system_prompt(
         AgentType.INVARIANT_SYNTHESIZER,
         AgentType.STATE,
         AgentType.QUANT,
+        AgentType.WORKSPACE_VALIDATION,
     }:
         raise ValueError(f"Unsupported agent type for Kai v2 scope: {agent_type}")
 

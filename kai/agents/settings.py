@@ -55,6 +55,9 @@ INVARIANT_SYNTHESIZER_AGENT_PROMPT_PATH = (
 STATE_AGENT_PROMPT_PATH = PROMPTS_DIR / "state_agent_prompt.txt"
 QUANT_AGENT_PROMPT_PATH = PROMPTS_DIR / "quant_agent_prompt.txt"
 VERIFIER_AGENT_PROMPT_PATH = PROMPTS_DIR / "verifier_agent_prompt.txt"
+WORKSPACE_VALIDATION_AGENT_PROMPT_PATH = (
+    PROMPTS_DIR / "workspace_validation_agent_prompt.txt"
+)
 
 # Conversation defaults
 SAVE_CONVERSATION_PATH = "output/conversations/"

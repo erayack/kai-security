@@ -8,7 +8,11 @@ framework (Foundry, Hardhat, etc.).
 from kai.utils.workspace.base import WorkspaceAdapter
 from kai.utils.workspace.foundry import FoundryWorkspaceAdapter
 
-__all__ = ["WorkspaceAdapter", "FoundryWorkspaceAdapter", "get_workspace_adapter"]
+__all__ = [
+    "WorkspaceAdapter",
+    "FoundryWorkspaceAdapter",
+    "get_workspace_adapter",
+]
 
 
 def get_workspace_adapter(framework: str) -> WorkspaceAdapter:

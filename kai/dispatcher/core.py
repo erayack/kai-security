@@ -132,7 +132,7 @@ class Dispatcher:
         )
 
         try:
-            self.logger.info("Step 1/5: Environment Setup...")
+            self.logger.info("Step 1/6: Environment Setup...")
             env_process = EnvironmentSetupProcess(
                 MasterContext(
                     root_path="./", compile_success=True
@@ -156,13 +156,43 @@ class Dispatcher:
             self.master_context = env_output.master_context
             self.logger.info(f"MasterContext ready: {self.master_context.root_path}")
 
-            self.logger.info("Step 2/5: Building DependencyGraph...")
+            self.logger.info("Step 2/6: Workspace Validation...")
+            from kai.processes.workspace_validation import WorkspaceValidationProcess
+            from kai.schemas import WorkspacePreset, WorkspaceValidationInput
+
+            ws_output = await WorkspaceValidationProcess(context=self.master_context).run(
+                WorkspaceValidationInput(
+                    master_context=self.master_context,
+                    presets=[
+                        WorkspacePreset.LIGHTWEIGHT,
+                        WorkspacePreset.CLEAN,
+                        WorkspacePreset.WRITEABLE,
+                        WorkspacePreset.SANDBOX,
+                    ],
+                    timeout_compile_s=120,
+                    timeout_test_s=120,
+                )
+            )
+            if not ws_output.success:
+                self.logger.error(ws_output.error_message or "Workspace validation failed")
+                # Log per-preset summary for debugging
+                for r in ws_output.results:
+                    self.logger.error(
+                        f"WorkspaceValidation {r.preset.value}: "
+                        f"compiled={r.compiled}, test_success={r.test_success}, "
+                        f"workspace={r.workspace_path}, error={r.error}"
+                    )
+                return False
+
+            self.logger.info("Workspace validation passed")
+
+            self.logger.info("Step 3/6: Building DependencyGraph...")
             self.dependency_graph = await self._build_dependency_graph()
             if not self.dependency_graph:
                 self.logger.error("Static analysis failed")
                 return False
 
-            self.logger.info("Step 3/5: Profiler...")
+            self.logger.info("Step 4/6: Profiler...")
             profiler_process = ProfilerProcess(context=self.master_context)
             profiler_input = ProfilerInput(
                 master_context=self.master_context,
@@ -180,7 +210,7 @@ class Dispatcher:
             else:
                 self.logger.warning("Profiler failed, continuing without manifesto")
 
-            self.logger.info("Step 4/5: Actor Analysis...")
+            self.logger.info("Step 5/6: Actor Analysis...")
             actor_process = ActorProcess(context=self.master_context)
             actor_input = ActorMatrixInput(
                 master_context=self.master_context,
@@ -200,7 +230,7 @@ class Dispatcher:
             self.actor_matrix = actor_output.actor_matrix
             self.logger.info(f"ActorMatrix ready: {len(self.actor_matrix.roles)} roles")
 
-            self.logger.info("Step 5/5: Invariant Analysis...")
+            self.logger.info("Step 6/6: Invariant Analysis...")
             inv_process = InvariantProcess(context=self.master_context)
             inv_input = InvariantProcessInput(
                 master_context=self.master_context,

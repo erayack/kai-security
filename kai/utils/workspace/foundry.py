@@ -70,6 +70,8 @@ class FoundryWorkspaceAdapter(WorkspaceAdapter):
         """
         if preset == WorkspacePreset.SANDBOX:
             shutil.copytree(master, workspace, dirs_exist_ok=True)
+            # Master repos are made read-only; ensure the provisioned workspace is writable.
+            self._make_writable(workspace)
             if logger:
                 logger.debug(f"Provisioned SANDBOX Foundry workspace: {workspace}")
             return str(workspace)
@@ -94,11 +96,39 @@ class FoundryWorkspaceAdapter(WorkspaceAdapter):
             if item.is_file() and not item.name.startswith("."):
                 shutil.copy2(item, workspace / item.name)
 
+        # Master repos are made read-only; ensure the provisioned workspace is writable.
+        self._make_writable(workspace)
+
         if logger:
             logger.debug(
                 f"Provisioned {preset.value.upper()} Foundry workspace: {workspace}"
             )
         return str(workspace)
+
+    def _make_writable(self, root: Path) -> None:
+        """
+        Ensure provisioned workspace directories/files are writable.
+
+        We keep the golden master repo read-only, but agent workspaces must be writable
+        (at least for test/ harness injection).
+        """
+        try:
+            root.chmod(root.stat().st_mode | 0o200)
+        except Exception:
+            pass
+        for current, dirs, files in os.walk(root):
+            for d in dirs:
+                p = Path(current) / d
+                try:
+                    p.chmod(p.stat().st_mode | 0o200)
+                except Exception:
+                    pass
+            for f in files:
+                p = Path(current) / f
+                try:
+                    p.chmod(p.stat().st_mode | 0o200)
+                except Exception:
+                    pass
 
     def detect_remappings(self, master: Path) -> str:
         """
