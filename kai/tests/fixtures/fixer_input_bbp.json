@@ -1,0 +1,58 @@
+{
+  "exploit_candidate": {
+    "mission_id": "inv50_quant_INV_ERC4626_CONVERT_",
+    "worker_id": "quant",
+    "invariant_id": "INV_ERC4626_CONVERT_INVERSE_ASSETS",
+    "mechanism": "donation_attack",
+    "poc_code": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n\n// (Truncated for test fixture)\n// This PoC demonstrates an ERC4626 donation/inflation scenario for StakedUSDe.\ncontract INV_ERC4626_CONVERT_INVERSE_ASSETS_Test { }\n",
+    "target_file": "test/poc/INV_ERC4626_CONVERT_INVERSE_ASSETS.t.sol",
+    "target_function": "StakedUSDe.convertToShares(uint256)",
+    "description": "A user can donate USDe directly to the vault (ERC20 transfer) without minting shares, inflating totalAssets while totalSupply stays constant. For sufficiently large donation, convertToShares(1e18) can floor to 0 and convertToAssets(0)=0, violating the convert round-trip expectation for integrators.",
+    "compiled": true,
+    "logs": []
+  },
+  "verdict": {
+    "mission_id": "inv50_quant_INV_ERC4626_CONVERT_",
+    "invariant_id": "INV_ERC4626_CONVERT_INVERSE_ASSETS",
+    "worker_id": "quant",
+    "is_valid": true,
+    "severity": "high",
+    "uses_mock_contracts": false,
+    "is_economically_feasible": true,
+    "is_known_limitation": false,
+    "targets_real_implementation": true,
+    "attack_cost_estimate": null,
+    "attacker_profit_estimate": null,
+    "cost_benefit_ratio": null,
+    "vulnerability_class": "erc4626_donation_attack",
+    "reasoning": "The PoC targets real contracts and demonstrates that share conversion quotes can collapse to 0 after a direct donation, breaking ERC4626 conversion expectations and potentially harming integrators relying on convert/preview semantics.",
+    "rejection_reason": null,
+    "poc_path": "test/poc/INV_ERC4626_CONVERT_INVERSE_ASSETS.t.sol",
+    "test_passed": true
+  },
+  "master_context": {
+    "root_path": "/Users/atakantekparmak/Desktop/work/exploit-agent/testbed/bbp-public-assets-f3e56d5f/master/contracts",
+    "frameworks": ["foundry"],
+    "artifacts_path": "/Users/atakantekparmak/Desktop/work/exploit-agent/testbed/bbp-public-assets-f3e56d5f/master/contracts/out",
+    "src_path": "/Users/atakantekparmak/Desktop/work/exploit-agent/testbed/bbp-public-assets-f3e56d5f/master/contracts/contracts",
+    "lib_path": "/Users/atakantekparmak/Desktop/work/exploit-agent/testbed/bbp-public-assets-f3e56d5f/master/contracts/lib",
+    "test_path": "/Users/atakantekparmak/Desktop/work/exploit-agent/testbed/bbp-public-assets-f3e56d5f/master/contracts/test",
+    "compile_success": true,
+    "build_commands": [
+      {
+        "command": "forge build --root /Users/atakantekparmak/Desktop/work/exploit-agent/testbed/bbp-public-assets-f3e56d5f/master/contracts",
+        "order_of_execution": 0
+      }
+    ],
+    "test_commands": [
+      {
+        "command": "forge test --root /Users/atakantekparmak/Desktop/work/exploit-agent/testbed/bbp-public-assets-f3e56d5f/master/contracts",
+        "order_of_execution": 0
+      }
+    ],
+    "adapter": "solidity"
+  },
+  "model_name": "z-ai/glm-4.7",
+  "use_openai": false
+}
+

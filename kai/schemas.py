@@ -908,3 +908,23 @@ class VerifierProcessOutput(BaseModel):
     error_message: Optional[str] = None
     estimated_cost: float = 0.0
     total_tokens: Dict[str, int] = Field(default_factory=dict)
+
+
+# ---------------------------
+# Fixer Schemas
+# ---------------------------
+
+
+class FixerInput(BaseModel):
+    """
+    Input shape for a Fixer workflow.
+
+    Note: Fixer is not currently wired into the Kai v2 dispatcher, but this schema
+    is provided for future compatibility and for tool outputs that reference these types.
+    """
+
+    exploit_candidate: ExploitCandidate
+    verdict: Verdict
+    master_context: Optional[MasterContext] = None
+    model_name: str = "z-ai/glm-4.7"
+    use_openai: bool = False
