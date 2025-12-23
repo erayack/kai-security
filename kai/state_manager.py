@@ -6,9 +6,10 @@ Passed to Dispatcher to decouple business logic from persistence.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 
 from kai.schemas import (
+    ActorMatrix,
     ExploitCandidate,
     Invariant,
     Mission,
@@ -38,7 +39,11 @@ class KaiStateManager(ABC):
         """
         self.execution_id = execution_id
 
-    # --- Campaigns ---
+    @abstractmethod
+    async def update_state(
+        self, state: Literal["setup", "profiler", "invariant"]
+    ) -> None:
+        pass
 
     @abstractmethod
     async def save_campaigns(self, campaigns: List[CampaignBrief]) -> bool:
@@ -47,6 +52,36 @@ class KaiStateManager(ABC):
 
         Args:
             campaigns: List of campaign briefs to save
+
+        Returns:
+            True if successful
+        """
+        pass
+
+    # --- Dependency Graph ---
+
+    @abstractmethod
+    async def save_dependency_graph(self, graph_data: Dict[str, Any]) -> bool:
+        """
+        Save the dependency graph.
+
+        Args:
+            graph_data: Serialized dependency graph data
+
+        Returns:
+            True if successful
+        """
+        pass
+
+    # --- Actor Matrix ---
+
+    @abstractmethod
+    async def save_actor_matrix(self, actor_matrix: ActorMatrix) -> bool:
+        """
+        Save the actor matrix.
+
+        Args:
+            actor_matrix: The actor matrix to save
 
         Returns:
             True if successful
@@ -169,20 +204,5 @@ class KaiStateManager(ABC):
 
         Returns:
             Path or URI where conversation was saved, or None if failed
-        """
-        pass
-
-    # --- Final Report ---
-
-    @abstractmethod
-    async def export_results(self, report: Dict[str, Any]) -> bool:
-        """
-        Export final results report.
-
-        Args:
-            report: The complete results report dict
-
-        Returns:
-            True if successful
         """
         pass

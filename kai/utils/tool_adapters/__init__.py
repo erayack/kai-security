@@ -20,6 +20,7 @@ __all__ = [
     "TestResult",
     "FoundryToolAdapter",
     "get_tool_adapter",
+    "get_supported_frameworks",
 ]
 
 # Registry of tool adapters by framework name

@@ -181,6 +181,13 @@ class Dispatcher:
             self.master_context = env_output.master_context
             self.logger.info(f"MasterContext ready: {self.master_context.root_path}")
 
+            # Persist state transition
+            await self._persist(
+                self._state_manager.update_state("setup")
+                if self._state_manager
+                else None
+            )
+
             self.logger.info("Step 2/6: Workspace Validation...")
             from kai.processes.workspace_validation import WorkspaceValidationProcess
             from kai.schemas import WorkspacePreset, WorkspaceValidationInput
@@ -221,6 +228,15 @@ class Dispatcher:
                 self.logger.error("Static analysis failed")
                 return False
 
+            # Persist dependency graph
+            await self._persist(
+                self._state_manager.save_dependency_graph(
+                    self.dependency_graph.to_dict()
+                )
+                if self._state_manager
+                else None
+            )
+
             self.logger.info("Step 4/6: Profiler...")
             profiler_process = ProfilerProcess(context=self.master_context)
             profiler_input = ProfilerInput(
@@ -238,6 +254,13 @@ class Dispatcher:
                 )
             else:
                 self.logger.warning("Profiler failed, continuing without manifesto")
+
+            # Persist state transition
+            await self._persist(
+                self._state_manager.update_state("profiler")
+                if self._state_manager
+                else None
+            )
 
             self.logger.info("Step 5/6: Actor Analysis...")
             actor_process = ActorProcess(context=self.master_context)
@@ -259,6 +282,13 @@ class Dispatcher:
             self.actor_matrix = actor_output.actor_matrix
             self.logger.info(f"ActorMatrix ready: {len(self.actor_matrix.roles)} roles")
 
+            # Persist actor matrix
+            await self._persist(
+                self._state_manager.save_actor_matrix(self.actor_matrix)
+                if self._state_manager
+                else None
+            )
+
             self.logger.info("Step 6/6: Invariant Analysis...")
             inv_process = InvariantProcess(context=self.master_context)
             inv_input = InvariantProcessInput(
@@ -279,8 +309,32 @@ class Dispatcher:
                     f"Invariant analysis failed: {inv_output.error_message}"
                 )
 
+            # Persist state transition and invariants
+            await self._persist(
+                self._state_manager.update_state("invariant")
+                if self._state_manager
+                else None
+            )
+            await self._persist(
+                self._state_manager.save_invariants(list(self.invariants.values()))
+                if self._state_manager
+                else None
+            )
+
             self.logger.info("Planning missions...")
-            self._plan_missions()
+            planned_missions = self._plan_missions()
+
+            # Persist campaigns and missions
+            await self._persist(
+                self._state_manager.save_campaigns(self.campaigns)
+                if self._state_manager
+                else None
+            )
+            await self._persist(
+                self._state_manager.save_missions(planned_missions)
+                if self._state_manager
+                else None
+            )
 
             self.logger.info(
                 f"Boot complete: {len(self.campaigns)} campaigns, "
@@ -315,7 +369,7 @@ class Dispatcher:
             self.logger.error(f"Failed to build DependencyGraph: {e}")
         return None
 
-    def _plan_missions(self) -> None:
+    def _plan_missions(self) -> List[Mission]:
         """Plan missions from invariants (delegates to MissionPlanner)."""
         if (
             not self.invariants
@@ -324,7 +378,7 @@ class Dispatcher:
             or not self.master_context
         ):
             self.logger.warning("Cannot plan missions: missing prerequisites")
-            return
+            return []
 
         self._planner = MissionPlanner(
             dependency_graph=self.dependency_graph,
@@ -348,6 +402,8 @@ class Dispatcher:
             )
             priority = campaign.priority if campaign else 1
             self.mission_queue.put_nowait((priority, mission.mission_id, mission))
+
+        return missions
 
     def _check_shutdown(self) -> bool:
         """
@@ -435,6 +491,11 @@ class Dispatcher:
     async def _execute_mission(self, mission: Mission) -> None:
         """Execute a single mission with an agent."""
         mission.status = "in_progress"
+        await self._persist(
+            self._state_manager.update_mission_status(mission.mission_id, "in_progress")
+            if self._state_manager
+            else None
+        )
         # Note: mission already added to active_missions in run_loop
 
         factory = self.agent_factories.get(mission.agent_type)
@@ -483,12 +544,26 @@ class Dispatcher:
                 raise ValueError(f"Unsupported agent type: {mission.agent_type}")
 
             mission.status = "completed"
+            await self._persist(
+                self._state_manager.update_mission_status(
+                    mission.mission_id, "completed"
+                )
+                if self._state_manager
+                else None
+            )
 
         except Exception as e:
             self.logger.error(
                 f"Mission {mission.mission_id} failed: {e}", exc_info=True
             )
             mission.status = "failed"
+            await self._persist(
+                self._state_manager.update_mission_status(
+                    mission.mission_id, "failed", error=str(e)
+                )
+                if self._state_manager
+                else None
+            )
 
         finally:
             # Cleanup agent
@@ -534,6 +609,13 @@ class Dispatcher:
                 await self._verify_candidate(candidate)
 
             self.exploit_candidates.append(candidate)
+
+            # Persist exploit candidate
+            await self._persist(
+                self._state_manager.save_exploit_candidate(candidate)
+                if self._state_manager
+                else None
+            )
 
     async def _verify_candidate(self, candidate: ExploitCandidate) -> Optional[Verdict]:
         """
@@ -582,6 +664,13 @@ class Dispatcher:
                 verdict = output.verdict
                 self.verdicts.append(verdict)
 
+                # Persist verdict
+                await self._persist(
+                    self._state_manager.save_verdict(verdict)
+                    if self._state_manager
+                    else None
+                )
+
                 if verdict.is_valid:
                     self.logger.info(
                         f"VERIFIED: {candidate.mission_id} - "
@@ -618,6 +707,13 @@ class Dispatcher:
 
         self.logger.info(
             f"BlackboxAgent {mission.mission_id} recorded {len(observations)} observation(s)"
+        )
+
+        # Persist observations
+        await self._persist(
+            self._state_manager.save_observations(observations)
+            if self._state_manager
+            else None
         )
 
         for obs in observations:
