@@ -45,3 +45,12 @@ actual_costs_analysis.json
 
 # repos/
 repos/
+
+# testbed
+testbed/
+
+# .cursor
+.cursor/
+
+# kai_workspaces
+kai_workspaces/

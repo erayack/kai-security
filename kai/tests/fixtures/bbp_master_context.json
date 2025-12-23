@@ -1,0 +1,23 @@
+{
+    "root_path": "/Users/atakantekparmak/Desktop/work/exploit-agent/testbed/bbp-public-assets-f3e56d5f/master/contracts",
+    "frameworks": [
+        "foundry"
+    ],
+    "artifacts_path": "/Users/atakantekparmak/Desktop/work/exploit-agent/testbed/bbp-public-assets-f3e56d5f/master/contracts/out",
+    "src_path": "/Users/atakantekparmak/Desktop/work/exploit-agent/testbed/bbp-public-assets-f3e56d5f/master/contracts/contracts",
+    "lib_path": "/Users/atakantekparmak/Desktop/work/exploit-agent/testbed/bbp-public-assets-f3e56d5f/master/contracts/lib",
+    "test_path": "/Users/atakantekparmak/Desktop/work/exploit-agent/testbed/bbp-public-assets-f3e56d5f/master/contracts/test",
+    "compile_success": true,
+    "build_commands": [
+        {
+            "command": "forge build --root /Users/atakantekparmak/Desktop/work/exploit-agent/testbed/bbp-public-assets-f3e56d5f/master/contracts",
+            "order_of_execution": 0
+        }
+    ],
+    "test_commands": [
+        {
+            "command": "forge test --root /Users/atakantekparmak/Desktop/work/exploit-agent/testbed/bbp-public-assets-f3e56d5f/master/contracts",
+            "order_of_execution": 0
+        }
+    ]
+  }

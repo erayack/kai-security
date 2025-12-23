@@ -1,0 +1,83 @@
+{
+  "name": "Ethena Protocol",
+  "purpose": "To provide a delta-neutral synthetic dollar (USDe) backed by staked Ethereum that generates sustainable yield for holders through staking rewards and perpetual funding rates.",
+  "description": "Ethena is a decentralized finance protocol that enables users to mint USDe, a synthetic dollar stablecoin backed by staked Ethereum. The protocol maintains delta neutrality through perpetual futures positions, generating yield from both Ethereum staking rewards and perpetual funding rates. Users can mint USDe by depositing collateral, stake their USDe to earn protocol yield, and participate in governance through the ENA token. The system includes sophisticated risk management through access controls, blacklisting mechanisms, and emergency response capabilities.",
+  "domain": "Decentralized Finance (DeFi) - Synthetic Assets & Yield Generation",
+  "programming_languages": [
+    "Solidity"
+  ],
+  "intended_users": [
+    "DeFi users seeking yield",
+    "Liquidity providers",
+    "Protocol participants",
+    "Governance token holders",
+    "Institutional users"
+  ],
+  "key_concepts": [
+    "Delta-neutral synthetic stablecoin",
+    "Ethereum staking integration",
+    "Perpetual futures hedging",
+    "Yield generation and distribution",
+    "Access control and governance",
+    "EIP-712 signed orders",
+    "Liquidity provider staking",
+    "Emergency response mechanisms"
+  ],
+  "key_features": [
+    {
+      "name": "USDe Minting & Redemption",
+      "description": "Atomic minting and redemption of USDe tokens through EIP-712 signed orders with collateral deposits and multi-route support",
+      "actors": [
+        "Users",
+        "Minters",
+        "Redeemers",
+        "Collateral Managers"
+      ]
+    },
+    {
+      "name": "USDe Staking",
+      "description": "ERC4626-based vault for staking USDe to earn protocol yield with vesting periods, blacklist support, and reward distribution",
+      "actors": [
+        "Stakers",
+        "Reward Distributors",
+        "Blacklist Managers",
+        "Protocol Administrators"
+      ]
+    },
+    {
+      "name": "LP Token Staking",
+      "description": "Epoch-based staking system for liquidity providers in USDe pools with cooldown periods and airdrop shard allocation",
+      "actors": [
+        "Liquidity Providers",
+        "Protocol Administrators"
+      ]
+    },
+    {
+      "name": "Governance (ENA)",
+      "description": "ERC20 governance token with controlled inflation (max 10% annually) and ownership-based minting controls",
+      "actors": [
+        "Token Holders",
+        "Protocol Administrators",
+        "Treasury/Foundation"
+      ]
+    },
+    {
+      "name": "Access Control System",
+      "description": "Role-based access control with multiple permission levels including minter, redeemer, collateral manager, and emergency gatekeeper roles",
+      "actors": [
+        "Protocol Administrators",
+        "Role Managers",
+        "Emergency Responders"
+      ]
+    },
+    {
+      "name": "Risk Management",
+      "description": "Blacklisting mechanisms, cooldown periods, emergency shutdown capabilities, and insurance fund integration",
+      "actors": [
+        "Risk Managers",
+        "Protocol Administrators",
+        "Compliance Officers"
+      ]
+    }
+  ]
+}

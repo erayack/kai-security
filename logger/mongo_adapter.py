@@ -14,11 +14,22 @@ class MongoDBHandler(Handler):
 
     def __init__(
         self,
-        uri: str,
+        uri: Optional[str],
         db_name: str,
         level: int = logging.INFO,
     ) -> None:
         super().__init__(level)
+
+        # If no URI provided, disable MongoDB logging
+        self.enabled = bool(uri)
+        if not self.enabled:
+            self.client = None
+            self.db = None
+            self.executions = None
+            self.agents = None
+            self.exploits = None
+            return
+
         self.client = MongoClient(host=uri)
         self.db: Database = self.client[db_name]
 
@@ -35,6 +46,10 @@ class MongoDBHandler(Handler):
 
     @override
     def emit(self, record: LogRecord) -> None:
+        # Skip if MongoDB is not enabled
+        if not self.enabled:
+            return
+
         try:
             if not getattr(record, "mongo", False):
                 return
