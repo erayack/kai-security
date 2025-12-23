@@ -79,7 +79,9 @@ class FixerAgent(BaseAgent):
         try:
             template = TOOLCALLING_PROMPT_PATH.read_text(encoding="utf-8")
         except FileNotFoundError:
-            raise FileNotFoundError(f"Toolcalling prompt file not found: {TOOLCALLING_PROMPT_PATH}")
+            raise FileNotFoundError(
+                f"Toolcalling prompt file not found: {TOOLCALLING_PROMPT_PATH}"
+            )
 
         sev = getattr(self._verdict, "severity", None)
         severity_str = (
