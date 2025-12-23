@@ -58,6 +58,7 @@ VERIFIER_AGENT_PROMPT_PATH = PROMPTS_DIR / "verifier_agent_prompt.txt"
 WORKSPACE_VALIDATION_AGENT_PROMPT_PATH = (
     PROMPTS_DIR / "workspace_validation_agent_prompt.txt"
 )
+FIXER_AGENT_PROMPT_PATH = PROMPTS_DIR / "fixer_agent_prompt.txt"
 
 # Conversation defaults
 SAVE_CONVERSATION_PATH = "output/conversations/"

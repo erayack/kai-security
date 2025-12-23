@@ -21,7 +21,7 @@ class AgentType(Enum):
     QUANT = settings.QUANT_AGENT_PROMPT_PATH
     VERIFIER = settings.VERIFIER_AGENT_PROMPT_PATH
     WORKSPACE_VALIDATION = settings.WORKSPACE_VALIDATION_AGENT_PROMPT_PATH
-    FIXER = "fixer"
+    FIXER = settings.FIXER_AGENT_PROMPT_PATH
 
 
 def agent_type_to_kind(agent_type: AgentType) -> str:
@@ -42,6 +42,8 @@ def agent_type_to_kind(agent_type: AgentType) -> str:
         return "workspace_validation"
     if agent_type == AgentType.VERIFIER:
         return "verifier"
+    if agent_type == AgentType.FIXER:
+        return "fixer"
     return "unknown"
 
 
@@ -56,7 +58,7 @@ def load_system_prompt(
     tools_schema: str | None = None,
 ) -> str:
     """
-    Load the system prompt from the file (SETUP and PROFILER supported).
+    Load the system prompt from the file for supported Kai v2 agent types.
     """
     if agent_type not in {
         AgentType.SETUP,
@@ -65,7 +67,9 @@ def load_system_prompt(
         AgentType.INVARIANT_SYNTHESIZER,
         AgentType.STATE,
         AgentType.QUANT,
+        AgentType.VERIFIER,
         AgentType.WORKSPACE_VALIDATION,
+        AgentType.FIXER,
     }:
         raise ValueError(f"Unsupported agent type for Kai v2 scope: {agent_type}")
 

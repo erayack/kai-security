@@ -45,20 +45,15 @@ class FixerAgent(BaseAgent):
         execution_id: Optional[str] = None,
         scope_paths: Optional[list[str]] = None,
     ):
-        # AgentType.FIXER is not currently supported by load_system_prompt(), so we
-        # initialize with a supported agent_type and then replace the system prompt.
         super().__init__(
             max_tool_turns=max_tool_turns,
             repo_path=repo_path,
             use_vllm=use_vllm,
             model=model,
-            agent_type=AgentType.STATE,
+            agent_type=AgentType.FIXER,
             use_openai=use_openai,
             scope_paths=scope_paths,
         )
-
-        # Set the real agent type (for logging/semantics).
-        self.agent_type = AgentType.FIXER
 
         if execution_id:
             self.execution_id = execution_id
