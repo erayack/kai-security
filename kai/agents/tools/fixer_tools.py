@@ -360,14 +360,7 @@ def register_fix(
 
 __all__ = [
     "list_files",
-    "dependency_graph_public_entrypoints",
-    "dependency_graph_protocol_entrypoints",
-    "dependency_graph_slice",
-    "dependency_graph_resolve",
-    "dependency_graph_loc",
     "dependency_graph_snippet",
-    "dependency_graph_neighbors",
-    "dependency_graph_callers",
     "write_and_compile",
     "run_test",
     "update_file_with_diff",

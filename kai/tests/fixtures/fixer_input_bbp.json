@@ -1,33 +1,33 @@
 {
   "exploit_candidate": {
-    "mission_id": "inv50_quant_INV_ERC4626_CONVERT_",
+    "mission_id": "inv65_quant_INV_ERC4626_WITHDRAW",
     "worker_id": "quant",
-    "invariant_id": "INV_ERC4626_CONVERT_INVERSE_ASSETS",
-    "mechanism": "donation_attack",
-    "poc_code": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n\n// (Truncated for test fixture)\n// This PoC demonstrates an ERC4626 donation/inflation scenario for StakedUSDe.\ncontract INV_ERC4626_CONVERT_INVERSE_ASSETS_Test { }\n",
-    "target_file": "test/poc/INV_ERC4626_CONVERT_INVERSE_ASSETS.t.sol",
-    "target_function": "StakedUSDe.convertToShares(uint256)",
-    "description": "A user can donate USDe directly to the vault (ERC20 transfer) without minting shares, inflating totalAssets while totalSupply stays constant. For sufficiently large donation, convertToShares(1e18) can floor to 0 and convertToAssets(0)=0, violating the convert round-trip expectation for integrators.",
+    "invariant_id": "INV_ERC4626_WITHDRAW_PREVIEW_UPPER_BOUND",
+    "mechanism": "withdrawal_restriction",
+    "poc_code": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n\nimport \"forge-std/Test.sol\";\n\nimport \"contracts/USDe.sol\";\nimport \"contracts/StakedUSDe.sol\";\nimport \"contracts/interfaces/IStakedUSDe.sol\";\n\ncontract INV_ERC4626_WITHDRAW_PREVIEW_UPPER_BOUND_Test is Test {\n    address internal admin = address(this);\n    address internal rewarder = address(this);\n    address internal alice = address(0xA11CE);\n\n    function _deployStakedUSDe() internal returns (USDe usde, StakedUSDe vault) {\n        usde = new USDe(admin);\n        usde.setMinter(admin);\n\n        vault = new StakedUSDe(IERC20(address(usde)), rewarder, admin);\n\n        // fund alice\n        usde.mint(alice, 10 ether);\n\n        vm.startPrank(alice);\n        usde.approve(address(vault), type(uint256).max);\n        vm.stopPrank();\n    }\n\n    /// @dev Violation: previewWithdraw suggests a 1-wei withdrawal costs 1 share,\n    /// but withdraw reverts due to MinSharesViolation when totalSupply would drop below MIN_SHARES.\n    function test_previewWithdraw_underestimates_withdraw_feasibility_dueToMinShares() public {\n        (USDe usde, StakedUSDe vault) = _deployStakedUSDe();\n\n        // Deposit exactly MIN_SHARES worth of assets (1e18). Initial state totalAssets()==0,\n        // so shares minted == assets == 1e18 and passes MIN_SHARES check.\n        vm.startPrank(alice);\n        vault.deposit(1 ether, alice);\n\n        uint256 assetsToWithdraw = 1; // 1 wei USDe\n\n        // In this state, previewWithdraw returns 1 share and maxWithdraw allows it.\n        uint256 previewShares = vault.previewWithdraw(assetsToWithdraw);\n        assertEq(previewShares, 1);\n        assertGe(vault.maxWithdraw(alice), assetsToWithdraw);\n\n        // But withdraw reverts because it would leave totalSupply in (0, MIN_SHARES).\n        vm.expectRevert(IStakedUSDe.MinSharesViolation.selector);\n        vault.withdraw(assetsToWithdraw, alice, alice);\n        vm.stopPrank();\n\n        // Sanity: state unchanged after revert\n        assertEq(vault.balanceOf(alice), 1 ether);\n        assertEq(usde.balanceOf(alice), 9 ether);\n    }\n\n    /// @dev Control: for sufficiently large totalSupply, withdraw succeeds and equals previewWithdraw.\n    function test_withdraw_sharesEqualsPreviewWithdraw_whenNoMinSharesViolation() public {\n        (, StakedUSDe vault) = _deployStakedUSDe();\n\n        vm.startPrank(alice);\n        vault.deposit(2 ether, alice);\n\n        uint256 assetsToWithdraw = 1; // 1 wei\n        uint256 previewShares = vault.previewWithdraw(assetsToWithdraw);\n\n        uint256 sharesBefore = vault.balanceOf(alice);\n        uint256 sharesReturned = vault.withdraw(assetsToWithdraw, alice, alice);\n        uint256 sharesAfter = vault.balanceOf(alice);\n\n        assertEq(sharesReturned, previewShares);\n        assertEq(sharesBefore - sharesAfter, sharesReturned);\n        vm.stopPrank();\n    }\n}\n",
+    "target_file": "test/poc/INV_ERC4626_WITHDRAW_PREVIEW_UPPER_BOUND.t.sol",
+    "target_function": "StakedUSDe.withdraw(uint256,address,address)",
+    "description": "StakedUSDe (ERC4626) overrides _withdraw with _checkMinShares() requiring totalSupply==0 or >= MIN_SHARES (1e18). previewWithdraw (in OZ ERC4626) computes shares = _convertToShares(assets, Rounding.Up) and does not account for this min-share invariant. Thus there exist states where previewWithdraw returns a finite share cost and maxWithdraw allows the asset amount, but withdraw reverts post-burn due to MinSharesViolation.\n\nConcrete state: deposit exactly MIN_SHARES assets so totalSupply==1e18. For assets=1 wei, previewWithdraw returns 1 share and maxWithdraw>=1. withdraw(1 wei) attempts to burn 1 share, leaving totalSupply=1e18-1 which is in (0, MIN_SHARES) and reverts. This breaks the invariant requirement that previewWithdraw must not underestimate share cost / feasibility immediately before withdraw, harming composability (preview suggests feasible but withdraw reverts).",
     "compiled": true,
     "logs": []
   },
   "verdict": {
-    "mission_id": "inv50_quant_INV_ERC4626_CONVERT_",
-    "invariant_id": "INV_ERC4626_CONVERT_INVERSE_ASSETS",
+    "mission_id": "inv65_quant_INV_ERC4626_WITHDRAW",
+    "invariant_id": "INV_ERC4626_WITHDRAW_PREVIEW_UPPER_BOUND",
     "worker_id": "quant",
     "is_valid": true,
-    "severity": "high",
+    "severity": "low",
     "uses_mock_contracts": false,
     "is_economically_feasible": true,
     "is_known_limitation": false,
     "targets_real_implementation": true,
-    "attack_cost_estimate": null,
-    "attacker_profit_estimate": null,
-    "cost_benefit_ratio": null,
-    "vulnerability_class": "erc4626_donation_attack",
-    "reasoning": "The PoC targets real contracts and demonstrates that share conversion quotes can collapse to 0 after a direct donation, breaking ERC4626 conversion expectations and potentially harming integrators relying on convert/preview semantics.",
-    "rejection_reason": null,
-    "poc_path": "test/poc/INV_ERC4626_CONVERT_INVERSE_ASSETS.t.sol",
+    "attack_cost_estimate": "At minimum, attacker needs to leave ~1e18 USDe worth of shares outstanding to force totalSupply==MIN_SHARES for a victim; otherwise this arises naturally for small remaining supply.",
+    "attacker_profit_estimate": "No direct profit; primarily a griefing/composability failure (unexpected revert).",
+    "cost_benefit_ratio": "Unfavorable for profit (≈0 gain); could be used for costly griefing or cause integration DoS at edge supply.",
+    "vulnerability_class": "erc4626_preview_mismatch / withdrawal_restriction",
+    "reasoning": "PoC test passes against the real StakedUSDe implementation.\n\nStakedUSDe enforces a MIN_SHARES (1e18) invariant via `_checkMinShares()` which reverts if `totalSupply()` is in (0, MIN_SHARES). This check is executed *after* `super._withdraw(...)` inside the overridden `_withdraw`.\n\nOpenZeppelin ERC4626 `previewWithdraw(assets)` computes the shares required purely from the conversion math and does not account for StakedUSDe’s additional post-withdraw constraint. Therefore there exist states where `previewWithdraw` returns a small finite share amount and `maxWithdraw` permits the assets, but calling `withdraw` reverts with `MinSharesViolation` because the resulting totalSupply would drop below MIN_SHARES (e.g., totalSupply == 1e18, withdraw 1 wei => burn 1 share => totalSupply = 1e18-1, revert).\n\nImpact: ERC4626 composability issue/withdrawal restriction mismatch—integrators relying on `previewWithdraw` (and/or `maxWithdraw`) may believe a withdrawal is feasible, but the actual `withdraw` reverts. No direct asset theft was demonstrated; users can avoid the revert by withdrawing/redeeming in a way that takes totalSupply to 0 or keeps it >= MIN_SHARES.\n\nNo mocks or hostile components were used; the test deploys USDe and StakedUSDe from the codebase.",
+    "rejection_reason": "",
+    "poc_path": "test/poc/INV_ERC4626_WITHDRAW_PREVIEW_UPPER_BOUND.t.sol",
     "test_passed": true
   },
   "master_context": {
@@ -52,7 +52,7 @@
     ],
     "adapter": "solidity"
   },
-  "model_name": "z-ai/glm-4.7",
+  "model_name": "anthropic/claude-opus-4.5",
   "use_openai": false
 }
 

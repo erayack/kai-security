@@ -10,6 +10,8 @@ from kai.agents.agent_types.fixer_agent import FixerAgent
 from kai.schemas import FixerInput, WorkspacePreset
 from kai.tests.test_processes_profiler import _normalize_master_context_paths
 from kai.utils.dependency import DependencyGraph
+from kai.utils.state_managers import LocalStateManager
+from kai.utils.tool_adapters import get_tool_adapter
 from kai.utils.workspace import get_workspace_adapter
 from logger import logging
 from logger.mongo_adapter import MongoDBHandler
@@ -67,13 +69,27 @@ async def test_fixer_agent_runs_and_registers_fix_on_bbp(tmp_path: Path):
     # Provision a writable workspace copy so the agent can apply diffs safely
     ws = tmp_path / "fixer_ws"
     ws.mkdir(parents=True, exist_ok=True)
-    adapter = get_workspace_adapter("foundry")
-    workspace_path = adapter.provision_full(
+    ws_adapter = get_workspace_adapter("foundry")
+    workspace_path = ws_adapter.provision_full(
         workspace=ws,
         master=master_root,
         master_context=mc,
         preset=WorkspacePreset.WRITEABLE,
     )
+
+    # Inject the verified PoC into the provisioned workspace so the agent (and forge)
+    # can reproduce/validate the exploit in this workspace.
+    tool_adapter = get_tool_adapter("foundry")
+    abs_poc_path = tool_adapter.normalize_test_path(
+        fx.exploit_candidate.target_file, Path(workspace_path)
+    )
+    abs_poc_path.parent.mkdir(parents=True, exist_ok=True)
+    abs_poc_path.write_text(fx.exploit_candidate.poc_code, encoding="utf-8")
+
+    # Hard assertions: the test must ensure the PoC is materialized on disk.
+    assert abs_poc_path.exists(), f"Expected PoC to exist at {abs_poc_path}"
+    poc_text = abs_poc_path.read_text(encoding="utf-8", errors="replace")
+    assert "INV_ERC4626_WITHDRAW_PREVIEW_UPPER_BOUND" in poc_text
 
     # Load dependency graph fixture (cached BBP graph used in other tests)
     graph_json = Path(__file__).resolve().parent / "fixtures" / "dependency_graph.json"
@@ -93,11 +109,13 @@ async def test_fixer_agent_runs_and_registers_fix_on_bbp(tmp_path: Path):
         scope_paths=[workspace_path],
         model=fx.model_name,
         use_openai=use_openai,
-        max_tool_turns=24,
+        max_tool_turns=32,
     )
     agent.workspace_path = workspace_path
     agent.framework = "foundry"
     user_prompt = "Start your work."
+
+    state_manager = LocalStateManager(execution_id=agent.execution_id or agent.agent_id)
 
     try:
         await agent.chat_with_tools(user_prompt)
@@ -112,7 +130,20 @@ async def test_fixer_agent_runs_and_registers_fix_on_bbp(tmp_path: Path):
     finally:
         # Persist conversation for debugging even when assertions fail.
         try:
-            convo_path = agent.save_conversation("conversations/fixer_convo.json")
+            convo_path = await state_manager.save_conversation(
+                agent_id=agent.agent_id,
+                agent_type="fixer",
+                messages=[m.model_dump() for m in agent.messages],
+                metadata={
+                    "repo_path": workspace_path,
+                    "estimated_cost": agent.estimated_cost,
+                    "total_tokens": agent.total_tokens,
+                    "time_spent": agent.time_spent,
+                    "model": agent.model,
+                    # Preserve the old relative filename semantics (optional).
+                    "conversation_path": "conversations/fixer_convo.json",
+                },
+            )
             print(
                 f"[fixer_test] fixer conversation saved at: {convo_path}",
                 file=sys.stderr,

@@ -634,13 +634,23 @@ def read_file(
                 lines = f.readlines()
                 total_lines = len(lines)
 
+                # Empty files should just return empty content, regardless of range.
+                if total_lines == 0:
+                    return ""
+
                 # Validate line numbers
                 if start_line is not None and (
                     start_line < 1 or start_line > total_lines
                 ):
                     return f"Error: start_line {start_line} is out of range (file has {total_lines} lines)"
-                if end_line is not None and (end_line < 1 or end_line > total_lines):
-                    return f"Error: end_line {end_line} is out of range (file has {total_lines} lines)"
+
+                # If end_line is past EOF, clamp it to the file length instead of erroring.
+                if end_line is not None:
+                    if end_line < 1:
+                        return f"Error: end_line {end_line} is out of range (file has {total_lines} lines)"
+                    if end_line > total_lines:
+                        end_line = total_lines
+
                 if (
                     start_line is not None
                     and end_line is not None
