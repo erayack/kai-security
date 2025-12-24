@@ -342,7 +342,10 @@ class DependencyGraph:
             if "span" in nd and nd["span"]:
                 sp = nd["span"]
                 span = SourceSpan(
-                    file=sp["file"],
+                    # Normalize fixture-built absolute paths to repo-relative paths.
+                    # Many cached fixtures were generated on another machine and embed
+                    # absolute file paths (e.g. /Users/...); keep the graph portable.
+                    file=g.norm_path(sp["file"]),
                     start_line=sp["start_line"],
                     end_line=sp["end_line"],
                     start_col=sp.get("start_col"),

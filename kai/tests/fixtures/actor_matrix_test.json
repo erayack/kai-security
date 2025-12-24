@@ -14,7 +14,7 @@
             "name": "mint",
             "container": "ENA",
             "signature": "mint(address,uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/ENA.sol",
+            "file": "contracts/ENA.sol",
             "writes_state": true,
             "write_targets": [
               "lastMintTimestamp"
@@ -28,7 +28,7 @@
             "name": "renounceOwnership",
             "container": "ENA",
             "signature": "renounceOwnership() returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/ENA.sol",
+            "file": "contracts/ENA.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -38,7 +38,7 @@
             "name": "setEpoch",
             "container": "EthenaLPStaking",
             "signature": "setEpoch(uint8) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "file": "contracts/EthenaLPStaking.sol",
             "writes_state": true,
             "write_targets": [
               "currentEpoch"
@@ -52,7 +52,7 @@
             "name": "updateStakeParameters",
             "container": "EthenaLPStaking",
             "signature": "updateStakeParameters(address,uint8,uint248,uint48) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "file": "contracts/EthenaLPStaking.sol",
             "writes_state": true,
             "write_targets": [
               "stakeParametersByToken"
@@ -66,7 +66,7 @@
             "name": "rescueTokens",
             "container": "StakingRewardsDistributor",
             "signature": "rescueTokens(address,address,uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakingRewardsDistributor.sol",
+            "file": "contracts/StakingRewardsDistributor.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -76,7 +76,7 @@
             "name": "setMintingContract",
             "container": "StakingRewardsDistributor",
             "signature": "setMintingContract(EthenaMinting) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakingRewardsDistributor.sol",
+            "file": "contracts/StakingRewardsDistributor.sol",
             "writes_state": true,
             "write_targets": [
               "mintContract"
@@ -90,7 +90,7 @@
             "name": "approveToMintContract",
             "container": "StakingRewardsDistributor",
             "signature": "approveToMintContract(address[]) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakingRewardsDistributor.sol",
+            "file": "contracts/StakingRewardsDistributor.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -100,7 +100,7 @@
             "name": "revokeApprovals",
             "container": "StakingRewardsDistributor",
             "signature": "revokeApprovals(address[],address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakingRewardsDistributor.sol",
+            "file": "contracts/StakingRewardsDistributor.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -110,7 +110,7 @@
             "name": "setOperator",
             "container": "StakingRewardsDistributor",
             "signature": "setOperator(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakingRewardsDistributor.sol",
+            "file": "contracts/StakingRewardsDistributor.sol",
             "writes_state": true,
             "write_targets": [
               "operator"
@@ -124,7 +124,7 @@
             "name": "renounceOwnership",
             "container": "StakingRewardsDistributor",
             "signature": "renounceOwnership() returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakingRewardsDistributor.sol",
+            "file": "contracts/StakingRewardsDistributor.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -134,7 +134,7 @@
             "name": "mint",
             "container": "TestnetERC20",
             "signature": "mint(uint256) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/TestnetERC20.sol",
+            "file": "contracts/TestnetERC20.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -144,7 +144,7 @@
             "name": "mint",
             "container": "TestnetERC20",
             "signature": "mint(address,uint256) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/TestnetERC20.sol",
+            "file": "contracts/TestnetERC20.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -154,7 +154,7 @@
             "name": "setMinter",
             "container": "USDe",
             "signature": "setMinter(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/USDe.sol",
+            "file": "contracts/USDe.sol",
             "writes_state": true,
             "write_targets": [
               "minter"
@@ -168,7 +168,7 @@
             "name": "renounceOwnership",
             "container": "USDe",
             "signature": "renounceOwnership() returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/USDe.sol",
+            "file": "contracts/USDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -178,7 +178,7 @@
             "name": "renounceOwnership",
             "container": "EthenaLPStaking",
             "signature": "renounceOwnership() returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "file": "contracts/EthenaLPStaking.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -190,7 +190,7 @@
             "modifiers": [
               "onlyOwner"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/ENA.sol",
+            "snippet_file": "contracts/ENA.sol",
             "snippet_lines": [
               42,
               49
@@ -201,7 +201,7 @@
             "modifiers": [
               "onlyOwner"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "snippet_file": "contracts/EthenaLPStaking.sol",
             "snippet_lines": [
               64,
               68
@@ -212,7 +212,7 @@
             "modifiers": [
               "onlyOwner"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "snippet_file": "contracts/EthenaLPStaking.sol",
             "snippet_lines": [
               77,
               85
@@ -235,7 +235,7 @@
             "name": "mint",
             "container": "EthenaMinting",
             "signature": "mint(IEthenaMinting.Order,IEthenaMinting.Route,IEthenaMinting.Signature) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": true,
             "write_targets": [
               "mintedPerBlock"
@@ -249,7 +249,7 @@
             "name": "mintWETH",
             "container": "EthenaMinting",
             "signature": "mintWETH(IEthenaMinting.Order,IEthenaMinting.Route,IEthenaMinting.Signature) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": true,
             "write_targets": [
               "mintedPerBlock"
@@ -266,7 +266,7 @@
               "onlyRole",
               "belowMaxMintPerBlock"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "snippet_file": "contracts/EthenaMinting.sol",
             "snippet_lines": [
               179,
               204
@@ -278,7 +278,7 @@
               "onlyRole",
               "belowMaxMintPerBlock"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "snippet_file": "contracts/EthenaMinting.sol",
             "snippet_lines": [
               211,
               236
@@ -300,7 +300,7 @@
             "name": "setMaxMintPerBlock",
             "container": "EthenaMinting",
             "signature": "setMaxMintPerBlock(uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -310,7 +310,7 @@
             "name": "setMaxRedeemPerBlock",
             "container": "EthenaMinting",
             "signature": "setMaxRedeemPerBlock(uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -320,7 +320,7 @@
             "name": "disableMintRedeem",
             "container": "EthenaMinting",
             "signature": "disableMintRedeem() returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -330,7 +330,7 @@
             "name": "transferToCustody",
             "container": "EthenaMinting",
             "signature": "transferToCustody(address,address,uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -340,7 +340,7 @@
             "name": "removeSupportedAsset",
             "container": "EthenaMinting",
             "signature": "removeSupportedAsset(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -350,7 +350,7 @@
             "name": "removeCustodianAddress",
             "container": "EthenaMinting",
             "signature": "removeCustodianAddress(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -360,7 +360,7 @@
             "name": "removeMinterRole",
             "container": "EthenaMinting",
             "signature": "removeMinterRole(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -370,7 +370,7 @@
             "name": "removeRedeemerRole",
             "container": "EthenaMinting",
             "signature": "removeRedeemerRole(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -380,7 +380,7 @@
             "name": "removeCollateralManagerRole",
             "container": "EthenaMinting",
             "signature": "removeCollateralManagerRole(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -390,7 +390,7 @@
             "name": "addSupportedAsset",
             "container": "EthenaMinting",
             "signature": "addSupportedAsset(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -400,7 +400,7 @@
             "name": "addCustodianAddress",
             "container": "EthenaMinting",
             "signature": "addCustodianAddress(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -410,7 +410,7 @@
             "name": "transferAdmin",
             "container": "SingleAdminAccessControl",
             "signature": "transferAdmin(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
+            "file": "contracts/SingleAdminAccessControl.sol",
             "writes_state": true,
             "write_targets": [
               "_pendingDefaultAdmin"
@@ -424,7 +424,7 @@
             "name": "removeFromBlacklist",
             "container": "StakedUSDe",
             "signature": "removeFromBlacklist(address,bool) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDe.sol",
+            "file": "contracts/StakedUSDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -434,7 +434,7 @@
             "name": "rescueTokens",
             "container": "StakedUSDe",
             "signature": "rescueTokens(address,uint256,address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDe.sol",
+            "file": "contracts/StakedUSDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -444,7 +444,7 @@
             "name": "redistributeLockedAmount",
             "container": "StakedUSDe",
             "signature": "redistributeLockedAmount(address,address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDe.sol",
+            "file": "contracts/StakedUSDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -454,7 +454,7 @@
             "name": "setCooldownDuration",
             "container": "StakedUSDeV2",
             "signature": "setCooldownDuration(uint24) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "file": "contracts/StakedUSDeV2.sol",
             "writes_state": true,
             "write_targets": [
               "cooldownDuration"
@@ -470,7 +470,7 @@
             "modifiers": [
               "onlyRole"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
+            "snippet_file": "contracts/SingleAdminAccessControl.sol",
             "snippet_lines": [
               25,
               29
@@ -481,7 +481,7 @@
             "modifiers": [
               "onlyRole"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "snippet_file": "contracts/StakedUSDeV2.sol",
             "snippet_lines": [
               122,
               130
@@ -492,7 +492,7 @@
             "modifiers": [
               "onlyRole"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "snippet_file": "contracts/EthenaMinting.sol",
             "snippet_lines": [
               268,
               270
@@ -515,7 +515,7 @@
             "name": "grantRole",
             "container": "SingleAdminAccessControl",
             "signature": "grantRole(bytes32,address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
+            "file": "contracts/SingleAdminAccessControl.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -525,7 +525,7 @@
             "name": "revokeRole",
             "container": "SingleAdminAccessControl",
             "signature": "revokeRole(bytes32,address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
+            "file": "contracts/SingleAdminAccessControl.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -538,7 +538,7 @@
               "notAdmin",
               "onlyRole"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
+            "snippet_file": "contracts/SingleAdminAccessControl.sol",
             "snippet_lines": [
               41,
               43
@@ -550,7 +550,7 @@
               "notAdmin",
               "onlyRole"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
+            "snippet_file": "contracts/SingleAdminAccessControl.sol",
             "snippet_lines": [
               50,
               52
@@ -572,7 +572,7 @@
             "name": "withdraw",
             "container": "USDeSilo",
             "signature": "withdraw(address,uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/USDeSilo.sol",
+            "file": "contracts/USDeSilo.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -584,7 +584,7 @@
             "modifiers": [
               "onlyStakingVault"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/USDeSilo.sol",
+            "snippet_file": "contracts/USDeSilo.sol",
             "snippet_lines": [
               27,
               29
@@ -607,7 +607,7 @@
             "name": "rescueTokens",
             "container": "EthenaLPStaking",
             "signature": "rescueTokens(address,address,uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "file": "contracts/EthenaLPStaking.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -620,7 +620,7 @@
               "onlyOwner",
               "checkAmount"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "snippet_file": "contracts/EthenaLPStaking.sol",
             "snippet_lines": [
               93,
               104
@@ -643,7 +643,7 @@
             "name": "redeem",
             "container": "EthenaMinting",
             "signature": "redeem(IEthenaMinting.Order,IEthenaMinting.Signature) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": true,
             "write_targets": [
               "redeemedPerBlock"
@@ -660,7 +660,7 @@
               "belowMaxRedeemPerBlock",
               "onlyRole"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "snippet_file": "contracts/EthenaMinting.sol",
             "snippet_lines": [
               243,
               265
@@ -683,7 +683,7 @@
             "name": "transferInRewards",
             "container": "StakedUSDe",
             "signature": "transferInRewards(uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDe.sol",
+            "file": "contracts/StakedUSDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -696,7 +696,7 @@
               "notZero",
               "onlyRole"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDe.sol",
+            "snippet_file": "contracts/StakedUSDe.sol",
             "snippet_lines": [
               87,
               93
@@ -719,7 +719,7 @@
             "name": "addToBlacklist",
             "container": "StakedUSDe",
             "signature": "addToBlacklist(address,bool) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDe.sol",
+            "file": "contracts/StakedUSDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -732,7 +732,7 @@
               "onlyRole",
               "notOwner"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDe.sol",
+            "snippet_file": "contracts/StakedUSDe.sol",
             "snippet_lines": [
               100,
               107
@@ -754,7 +754,7 @@
             "name": "renounceRole",
             "container": "SingleAdminAccessControl",
             "signature": "renounceRole(bytes32,address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
+            "file": "contracts/SingleAdminAccessControl.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -766,7 +766,7 @@
             "modifiers": [
               "notAdmin"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
+            "snippet_file": "contracts/SingleAdminAccessControl.sol",
             "snippet_lines": [
               58,
               60
@@ -786,7 +786,7 @@
             "name": "addLiquidity",
             "container": "IUniswapV2Router",
             "signature": "addLiquidity(address,address,uint256,uint256,uint256,uint256,address,uint256) returns(uint256,uint256,uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/uniswap/IUniswapV2Router.sol",
+            "file": "contracts/external/uniswap/IUniswapV2Router.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -796,7 +796,7 @@
             "name": "receive",
             "container": "EthenaMinting",
             "signature": "receive() returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -806,7 +806,7 @@
             "name": "WETH",
             "container": "IUniswapV2Router",
             "signature": "WETH() returns(address)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/uniswap/IUniswapV2Router.sol",
+            "file": "contracts/external/uniswap/IUniswapV2Router.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -816,7 +816,7 @@
             "name": "addLiquidityETH",
             "container": "IUniswapV2Router",
             "signature": "addLiquidityETH(address,uint256,uint256,uint256,address,uint256) returns(uint256,uint256,uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/uniswap/IUniswapV2Router.sol",
+            "file": "contracts/external/uniswap/IUniswapV2Router.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -826,7 +826,7 @@
             "name": "setDelegatedSigner",
             "container": "EthenaMinting",
             "signature": "setDelegatedSigner(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": true,
             "write_targets": [
               "delegatedSigner"
@@ -840,7 +840,7 @@
             "name": "confirmDelegatedSigner",
             "container": "EthenaMinting",
             "signature": "confirmDelegatedSigner(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": true,
             "write_targets": [
               "delegatedSigner"
@@ -854,7 +854,7 @@
             "name": "removeDelegatedSigner",
             "container": "EthenaMinting",
             "signature": "removeDelegatedSigner(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": true,
             "write_targets": [
               "delegatedSigner"
@@ -868,7 +868,7 @@
             "name": "removeLiquidity",
             "container": "IUniswapV2Router",
             "signature": "removeLiquidity(address,address,uint256,uint256,uint256,address,uint256) returns(uint256,uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/uniswap/IUniswapV2Router.sol",
+            "file": "contracts/external/uniswap/IUniswapV2Router.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -878,7 +878,7 @@
             "name": "isSupportedAsset",
             "container": "EthenaMinting",
             "signature": "isSupportedAsset(address) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -888,7 +888,7 @@
             "name": "onPrepare",
             "container": "IStablePoolKeeper",
             "signature": "onPrepare(uint256,bytes) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IStablePoolKeeper.sol",
+            "file": "contracts/interfaces/archive/IStablePoolKeeper.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -898,7 +898,7 @@
             "name": "swap",
             "container": "ISwapper",
             "signature": "swap(address,address,uint256,address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ISwapper.sol",
+            "file": "contracts/interfaces/archive/ISwapper.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -908,7 +908,7 @@
             "name": "getDomainSeparator",
             "container": "EthenaMinting",
             "signature": "getDomainSeparator() returns(bytes32)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -918,7 +918,7 @@
             "name": "hashOrder",
             "container": "EthenaMinting",
             "signature": "hashOrder(IEthenaMinting.Order) returns(bytes32)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -928,7 +928,7 @@
             "name": "encodeOrder",
             "container": "EthenaMinting",
             "signature": "encodeOrder(IEthenaMinting.Order) returns(bytes)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -938,7 +938,7 @@
             "name": "verifyOrder",
             "container": "EthenaMinting",
             "signature": "verifyOrder(IEthenaMinting.Order,IEthenaMinting.Signature) returns(bytes32)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -948,7 +948,7 @@
             "name": "swapExactTokensForETH",
             "container": "ISwapper",
             "signature": "swapExactTokensForETH(uint256,uint256,address[],address,uint256) returns(uint256[])",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ISwapper.sol",
+            "file": "contracts/interfaces/archive/ISwapper.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -958,7 +958,7 @@
             "name": "verifyRoute",
             "container": "EthenaMinting",
             "signature": "verifyRoute(IEthenaMinting.Route) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -968,7 +968,7 @@
             "name": "verifyNonce",
             "container": "EthenaMinting",
             "signature": "verifyNonce(address,uint256) returns(uint256,uint256,uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "file": "contracts/EthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -978,7 +978,7 @@
             "name": "swapTokenForETH",
             "container": "ISwapper",
             "signature": "swapTokenForETH(uint256,uint256,address,address,uint256) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ISwapper.sol",
+            "file": "contracts/interfaces/archive/ISwapper.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -988,7 +988,7 @@
             "name": "getAmountsIn",
             "container": "IUniswapV2Router",
             "signature": "getAmountsIn(uint256,address[]) returns(uint256[])",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/uniswap/IUniswapV2Router.sol",
+            "file": "contracts/external/uniswap/IUniswapV2Router.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -998,7 +998,7 @@
             "name": "estimateSwap",
             "container": "ISwapper",
             "signature": "estimateSwap(address,address,uint256) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ISwapper.sol",
+            "file": "contracts/interfaces/archive/ISwapper.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1008,7 +1008,7 @@
             "name": "getRate",
             "container": "EthenaBalancerRateProvider",
             "signature": "getRate() returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaBalancerRateProvider.sol",
+            "file": "contracts/EthenaBalancerRateProvider.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1018,7 +1018,7 @@
             "name": "acceptAdmin",
             "container": "SingleAdminAccessControl",
             "signature": "acceptAdmin() returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
+            "file": "contracts/SingleAdminAccessControl.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1028,7 +1028,7 @@
             "name": "owner",
             "container": "SingleAdminAccessControl",
             "signature": "owner() returns(address)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/SingleAdminAccessControl.sol",
+            "file": "contracts/SingleAdminAccessControl.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1038,7 +1038,7 @@
             "name": "totalAssets",
             "container": "StakedUSDe",
             "signature": "totalAssets() returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDe.sol",
+            "file": "contracts/StakedUSDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1048,7 +1048,7 @@
             "name": "getUnvestedAmount",
             "container": "StakedUSDe",
             "signature": "getUnvestedAmount() returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDe.sol",
+            "file": "contracts/StakedUSDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1058,7 +1058,7 @@
             "name": "decimals",
             "container": "StakedUSDe",
             "signature": "decimals() returns(uint8)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDe.sol",
+            "file": "contracts/StakedUSDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1068,7 +1068,7 @@
             "name": "renounceRole",
             "container": "StakedUSDe",
             "signature": "renounceRole(bytes32,address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDe.sol",
+            "file": "contracts/StakedUSDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1078,7 +1078,7 @@
             "name": "getAmountsOut",
             "container": "IUniswapV2Router",
             "signature": "getAmountsOut(uint256,address[]) returns(uint256[])",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/uniswap/IUniswapV2Router.sol",
+            "file": "contracts/external/uniswap/IUniswapV2Router.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1088,7 +1088,7 @@
             "name": "unstake",
             "container": "StakedUSDeV2",
             "signature": "unstake(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "file": "contracts/StakedUSDeV2.sol",
             "writes_state": true,
             "write_targets": [
               "cooldowns"
@@ -1102,7 +1102,7 @@
             "name": "transferInRewards",
             "container": "StakingRewardsDistributor",
             "signature": "transferInRewards(uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakingRewardsDistributor.sol",
+            "file": "contracts/StakingRewardsDistributor.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1112,7 +1112,7 @@
             "name": "permit",
             "container": "TestnetERC20",
             "signature": "permit(address,address,uint256,uint256,uint8,bytes32,bytes32) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/TestnetERC20.sol",
+            "file": "contracts/TestnetERC20.sol",
             "writes_state": true,
             "write_targets": [
               "_nonces"
@@ -1126,7 +1126,7 @@
             "name": "nonces",
             "container": "TestnetERC20",
             "signature": "nonces(address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/TestnetERC20.sol",
+            "file": "contracts/TestnetERC20.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1136,7 +1136,7 @@
             "name": "mint",
             "container": "USDe",
             "signature": "mint(address,uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/USDe.sol",
+            "file": "contracts/USDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1146,7 +1146,7 @@
             "name": "receive",
             "container": "WETH9",
             "signature": "receive() returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/WETH9.sol",
+            "file": "contracts/WETH9.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1156,7 +1156,7 @@
             "name": "deposit",
             "container": "WETH9",
             "signature": "deposit() returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/WETH9.sol",
+            "file": "contracts/WETH9.sol",
             "writes_state": true,
             "write_targets": [
               "balanceOf"
@@ -1170,7 +1170,7 @@
             "name": "withdraw",
             "container": "WETH9",
             "signature": "withdraw(uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/WETH9.sol",
+            "file": "contracts/WETH9.sol",
             "writes_state": true,
             "write_targets": [
               "balanceOf"
@@ -1184,7 +1184,7 @@
             "name": "totalSupply",
             "container": "WETH9",
             "signature": "totalSupply() returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/WETH9.sol",
+            "file": "contracts/WETH9.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1194,7 +1194,7 @@
             "name": "approve",
             "container": "WETH9",
             "signature": "approve(address,uint256) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/WETH9.sol",
+            "file": "contracts/WETH9.sol",
             "writes_state": true,
             "write_targets": [
               "allowance"
@@ -1208,7 +1208,7 @@
             "name": "transfer",
             "container": "WETH9",
             "signature": "transfer(address,uint256) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/WETH9.sol",
+            "file": "contracts/WETH9.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1218,7 +1218,7 @@
             "name": "transferFrom",
             "container": "WETH9",
             "signature": "transferFrom(address,address,uint256) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/WETH9.sol",
+            "file": "contracts/WETH9.sol",
             "writes_state": true,
             "write_targets": [
               "allowance",
@@ -1234,7 +1234,7 @@
             "name": "getReward",
             "container": "IBaseRewardPool",
             "signature": "getReward(address,bool) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IBaseRewardPool.sol",
+            "file": "contracts/external/convex/IBaseRewardPool.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1244,7 +1244,7 @@
             "name": "getReward",
             "container": "IBaseRewardPool",
             "signature": "getReward() returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IBaseRewardPool.sol",
+            "file": "contracts/external/convex/IBaseRewardPool.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1254,7 +1254,7 @@
             "name": "earned",
             "container": "IBaseRewardPool",
             "signature": "earned(address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IBaseRewardPool.sol",
+            "file": "contracts/external/convex/IBaseRewardPool.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1264,7 +1264,7 @@
             "name": "balanceOf",
             "container": "IBaseRewardPool",
             "signature": "balanceOf(address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IBaseRewardPool.sol",
+            "file": "contracts/external/convex/IBaseRewardPool.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1274,7 +1274,7 @@
             "name": "extraRewards",
             "container": "IBaseRewardPool",
             "signature": "extraRewards(uint256) returns(address)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IBaseRewardPool.sol",
+            "file": "contracts/external/convex/IBaseRewardPool.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1284,7 +1284,7 @@
             "name": "withdrawAndUnwrap",
             "container": "IBaseRewardPool",
             "signature": "withdrawAndUnwrap(uint256,bool) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IBaseRewardPool.sol",
+            "file": "contracts/external/convex/IBaseRewardPool.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1294,7 +1294,7 @@
             "name": "extraRewardsLength",
             "container": "IBaseRewardPool",
             "signature": "extraRewardsLength() returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IBaseRewardPool.sol",
+            "file": "contracts/external/convex/IBaseRewardPool.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1304,7 +1304,7 @@
             "name": "poolInfo",
             "container": "IConvexBooster",
             "signature": "poolInfo(uint256) returns(address,address,address,address,address,bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IConvexBooster.sol",
+            "file": "contracts/external/convex/IConvexBooster.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1314,7 +1314,7 @@
             "name": "deposit",
             "container": "IConvexBooster",
             "signature": "deposit(uint256,uint256,bool) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IConvexBooster.sol",
+            "file": "contracts/external/convex/IConvexBooster.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1324,7 +1324,7 @@
             "name": "depositAll",
             "container": "IConvexBooster",
             "signature": "depositAll(uint256,bool) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IConvexBooster.sol",
+            "file": "contracts/external/convex/IConvexBooster.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1334,7 +1334,7 @@
             "name": "withdraw",
             "container": "IConvexBooster",
             "signature": "withdraw(uint256,uint256) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IConvexBooster.sol",
+            "file": "contracts/external/convex/IConvexBooster.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1344,7 +1344,7 @@
             "name": "withdrawAll",
             "container": "IConvexBooster",
             "signature": "withdrawAll(uint256) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IConvexBooster.sol",
+            "file": "contracts/external/convex/IConvexBooster.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1354,7 +1354,7 @@
             "name": "rewardClaimed",
             "container": "IConvexBooster",
             "signature": "rewardClaimed(uint256,address,uint256) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IConvexBooster.sol",
+            "file": "contracts/external/convex/IConvexBooster.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1364,7 +1364,7 @@
             "name": "getReward",
             "container": "IVirtualBalanceRewardPool",
             "signature": "getReward(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IVirtualBalanceRewardPool.sol",
+            "file": "contracts/external/convex/IVirtualBalanceRewardPool.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1374,7 +1374,7 @@
             "name": "getReward",
             "container": "IVirtualBalanceRewardPool",
             "signature": "getReward() returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IVirtualBalanceRewardPool.sol",
+            "file": "contracts/external/convex/IVirtualBalanceRewardPool.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1384,7 +1384,7 @@
             "name": "balanceOf",
             "container": "IVirtualBalanceRewardPool",
             "signature": "balanceOf(address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IVirtualBalanceRewardPool.sol",
+            "file": "contracts/external/convex/IVirtualBalanceRewardPool.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1394,7 +1394,7 @@
             "name": "earned",
             "container": "IVirtualBalanceRewardPool",
             "signature": "earned(address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IVirtualBalanceRewardPool.sol",
+            "file": "contracts/external/convex/IVirtualBalanceRewardPool.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1404,7 +1404,7 @@
             "name": "rewardToken",
             "container": "IVirtualBalanceRewardPool",
             "signature": "rewardToken() returns(address)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/convex/IVirtualBalanceRewardPool.sol",
+            "file": "contracts/external/convex/IVirtualBalanceRewardPool.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1414,7 +1414,7 @@
             "name": "exchange",
             "container": "ICurvePool",
             "signature": "exchange(int128,int128,uint256,uint256) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/curve/ICurvePool.sol",
+            "file": "contracts/external/curve/ICurvePool.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1424,7 +1424,7 @@
             "name": "getExpectedEpochId",
             "container": "ILidoOracle",
             "signature": "getExpectedEpochId() returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/lido/ILidoOracle.sol",
+            "file": "contracts/external/lido/ILidoOracle.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1434,7 +1434,7 @@
             "name": "getQuorum",
             "container": "ILidoOracle",
             "signature": "getQuorum() returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/lido/ILidoOracle.sol",
+            "file": "contracts/external/lido/ILidoOracle.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1444,7 +1444,7 @@
             "name": "getOracleMembers",
             "container": "ILidoOracle",
             "signature": "getOracleMembers() returns(address[])",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/lido/ILidoOracle.sol",
+            "file": "contracts/external/lido/ILidoOracle.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1454,7 +1454,7 @@
             "name": "reportBeacon",
             "container": "ILidoOracle",
             "signature": "reportBeacon(uint256,uint64,uint32) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/lido/ILidoOracle.sol",
+            "file": "contracts/external/lido/ILidoOracle.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1464,7 +1464,7 @@
             "name": "getBeaconStat",
             "container": "ILidoToken",
             "signature": "getBeaconStat() returns(uint256,uint256,uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/lido/ILidoToken.sol",
+            "file": "contracts/external/lido/ILidoToken.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1474,7 +1474,7 @@
             "name": "token0",
             "container": "IUniswapV2Pair",
             "signature": "token0() returns(address)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/uniswap/IUniswapV2Pair.sol",
+            "file": "contracts/external/uniswap/IUniswapV2Pair.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1484,7 +1484,7 @@
             "name": "token1",
             "container": "IUniswapV2Pair",
             "signature": "token1() returns(address)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/uniswap/IUniswapV2Pair.sol",
+            "file": "contracts/external/uniswap/IUniswapV2Pair.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1494,7 +1494,7 @@
             "name": "decimals",
             "container": "IUniswapV2Pair",
             "signature": "decimals() returns(uint8)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/uniswap/IUniswapV2Pair.sol",
+            "file": "contracts/external/uniswap/IUniswapV2Pair.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1504,7 +1504,7 @@
             "name": "price0CumulativeLast",
             "container": "IUniswapV2Pair",
             "signature": "price0CumulativeLast() returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/uniswap/IUniswapV2Pair.sol",
+            "file": "contracts/external/uniswap/IUniswapV2Pair.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1514,7 +1514,7 @@
             "name": "price1CumulativeLast",
             "container": "IUniswapV2Pair",
             "signature": "price1CumulativeLast() returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/uniswap/IUniswapV2Pair.sol",
+            "file": "contracts/external/uniswap/IUniswapV2Pair.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1524,7 +1524,7 @@
             "name": "getReserves",
             "container": "IUniswapV2Pair",
             "signature": "getReserves() returns(uint112,uint112,uint32)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/uniswap/IUniswapV2Pair.sol",
+            "file": "contracts/external/uniswap/IUniswapV2Pair.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1534,7 +1534,7 @@
             "name": "totalSupply",
             "container": "IUniswapV2Pair",
             "signature": "totalSupply() returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/uniswap/IUniswapV2Pair.sol",
+            "file": "contracts/external/uniswap/IUniswapV2Pair.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1544,7 +1544,7 @@
             "name": "swapExactTokensForTokens",
             "container": "IUniswapV2Router",
             "signature": "swapExactTokensForTokens(uint256,uint256,address[],address,uint256) returns(uint256[])",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/uniswap/IUniswapV2Router.sol",
+            "file": "contracts/external/uniswap/IUniswapV2Router.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1554,7 +1554,7 @@
             "name": "totalAssets",
             "container": "IERC4626Minimal",
             "signature": "totalAssets() returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IERC4626Minimal.sol",
+            "file": "contracts/interfaces/IERC4626Minimal.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1564,7 +1564,7 @@
             "name": "convertToShares",
             "container": "IERC4626Minimal",
             "signature": "convertToShares(uint256) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IERC4626Minimal.sol",
+            "file": "contracts/interfaces/IERC4626Minimal.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1574,7 +1574,7 @@
             "name": "convertToAssets",
             "container": "IERC4626Minimal",
             "signature": "convertToAssets(uint256) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IERC4626Minimal.sol",
+            "file": "contracts/interfaces/IERC4626Minimal.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1584,7 +1584,7 @@
             "name": "maxDeposit",
             "container": "IERC4626Minimal",
             "signature": "maxDeposit(address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IERC4626Minimal.sol",
+            "file": "contracts/interfaces/IERC4626Minimal.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1594,7 +1594,7 @@
             "name": "previewDeposit",
             "container": "IERC4626Minimal",
             "signature": "previewDeposit(uint256) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IERC4626Minimal.sol",
+            "file": "contracts/interfaces/IERC4626Minimal.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1604,7 +1604,7 @@
             "name": "deposit",
             "container": "IERC4626Minimal",
             "signature": "deposit(uint256,address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IERC4626Minimal.sol",
+            "file": "contracts/interfaces/IERC4626Minimal.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1614,7 +1614,7 @@
             "name": "maxMint",
             "container": "IERC4626Minimal",
             "signature": "maxMint(address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IERC4626Minimal.sol",
+            "file": "contracts/interfaces/IERC4626Minimal.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1624,7 +1624,7 @@
             "name": "previewMint",
             "container": "IERC4626Minimal",
             "signature": "previewMint(uint256) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IERC4626Minimal.sol",
+            "file": "contracts/interfaces/IERC4626Minimal.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1634,7 +1634,7 @@
             "name": "mint",
             "container": "IERC4626Minimal",
             "signature": "mint(uint256,address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IERC4626Minimal.sol",
+            "file": "contracts/interfaces/IERC4626Minimal.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1644,7 +1644,7 @@
             "name": "maxWithdraw",
             "container": "IERC4626Minimal",
             "signature": "maxWithdraw(address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IERC4626Minimal.sol",
+            "file": "contracts/interfaces/IERC4626Minimal.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1654,7 +1654,7 @@
             "name": "previewWithdraw",
             "container": "IERC4626Minimal",
             "signature": "previewWithdraw(uint256) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IERC4626Minimal.sol",
+            "file": "contracts/interfaces/IERC4626Minimal.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1664,7 +1664,7 @@
             "name": "withdraw",
             "container": "IERC4626Minimal",
             "signature": "withdraw(uint256,address,address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IERC4626Minimal.sol",
+            "file": "contracts/interfaces/IERC4626Minimal.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1674,7 +1674,7 @@
             "name": "maxRedeem",
             "container": "IERC4626Minimal",
             "signature": "maxRedeem(address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IERC4626Minimal.sol",
+            "file": "contracts/interfaces/IERC4626Minimal.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1684,7 +1684,7 @@
             "name": "previewRedeem",
             "container": "IERC4626Minimal",
             "signature": "previewRedeem(uint256) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IERC4626Minimal.sol",
+            "file": "contracts/interfaces/IERC4626Minimal.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1694,7 +1694,7 @@
             "name": "redeem",
             "container": "IERC4626Minimal",
             "signature": "redeem(uint256,address,address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IERC4626Minimal.sol",
+            "file": "contracts/interfaces/IERC4626Minimal.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1704,7 +1704,7 @@
             "name": "getRate",
             "container": "IEthenaBalancerRateProvider",
             "signature": "getRate() returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IEthenaBalancerRateProvider.sol",
+            "file": "contracts/interfaces/IEthenaBalancerRateProvider.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1714,7 +1714,7 @@
             "name": "hashOrder",
             "container": "IEthenaMinting",
             "signature": "hashOrder(IEthenaMinting.Order) returns(bytes32)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IEthenaMinting.sol",
+            "file": "contracts/interfaces/IEthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1724,7 +1724,7 @@
             "name": "verifyOrder",
             "container": "IEthenaMinting",
             "signature": "verifyOrder(IEthenaMinting.Order,IEthenaMinting.Signature) returns(bytes32)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IEthenaMinting.sol",
+            "file": "contracts/interfaces/IEthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1734,7 +1734,7 @@
             "name": "verifyRoute",
             "container": "IEthenaMinting",
             "signature": "verifyRoute(IEthenaMinting.Route) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IEthenaMinting.sol",
+            "file": "contracts/interfaces/IEthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1744,7 +1744,7 @@
             "name": "verifyNonce",
             "container": "IEthenaMinting",
             "signature": "verifyNonce(address,uint256) returns(uint256,uint256,uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IEthenaMinting.sol",
+            "file": "contracts/interfaces/IEthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1754,7 +1754,7 @@
             "name": "mint",
             "container": "IEthenaMinting",
             "signature": "mint(IEthenaMinting.Order,IEthenaMinting.Route,IEthenaMinting.Signature) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IEthenaMinting.sol",
+            "file": "contracts/interfaces/IEthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1764,7 +1764,7 @@
             "name": "mintWETH",
             "container": "IEthenaMinting",
             "signature": "mintWETH(IEthenaMinting.Order,IEthenaMinting.Route,IEthenaMinting.Signature) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IEthenaMinting.sol",
+            "file": "contracts/interfaces/IEthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1774,7 +1774,7 @@
             "name": "redeem",
             "container": "IEthenaMinting",
             "signature": "redeem(IEthenaMinting.Order,IEthenaMinting.Signature) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IEthenaMinting.sol",
+            "file": "contracts/interfaces/IEthenaMinting.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1784,7 +1784,7 @@
             "name": "transferInRewards",
             "container": "IStakedUSDe",
             "signature": "transferInRewards(uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IStakedUSDe.sol",
+            "file": "contracts/interfaces/IStakedUSDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1794,7 +1794,7 @@
             "name": "rescueTokens",
             "container": "IStakedUSDe",
             "signature": "rescueTokens(address,uint256,address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IStakedUSDe.sol",
+            "file": "contracts/interfaces/IStakedUSDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1804,7 +1804,7 @@
             "name": "getUnvestedAmount",
             "container": "IStakedUSDe",
             "signature": "getUnvestedAmount() returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IStakedUSDe.sol",
+            "file": "contracts/interfaces/IStakedUSDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1814,7 +1814,7 @@
             "name": "cooldownAssets",
             "container": "IStakedUSDeCooldown",
             "signature": "cooldownAssets(uint256) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IStakedUSDeCooldown.sol",
+            "file": "contracts/interfaces/IStakedUSDeCooldown.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1824,7 +1824,7 @@
             "name": "cooldownShares",
             "container": "IStakedUSDeCooldown",
             "signature": "cooldownShares(uint256) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IStakedUSDeCooldown.sol",
+            "file": "contracts/interfaces/IStakedUSDeCooldown.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1834,7 +1834,7 @@
             "name": "unstake",
             "container": "IStakedUSDeCooldown",
             "signature": "unstake(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IStakedUSDeCooldown.sol",
+            "file": "contracts/interfaces/IStakedUSDeCooldown.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1844,7 +1844,7 @@
             "name": "setCooldownDuration",
             "container": "IStakedUSDeCooldown",
             "signature": "setCooldownDuration(uint24) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IStakedUSDeCooldown.sol",
+            "file": "contracts/interfaces/IStakedUSDeCooldown.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1854,7 +1854,7 @@
             "name": "transferInRewards",
             "container": "IStakingRewardsDistributor",
             "signature": "transferInRewards(uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IStakingRewardsDistributor.sol",
+            "file": "contracts/interfaces/IStakingRewardsDistributor.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1864,7 +1864,7 @@
             "name": "rescueTokens",
             "container": "IStakingRewardsDistributor",
             "signature": "rescueTokens(address,address,uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IStakingRewardsDistributor.sol",
+            "file": "contracts/interfaces/IStakingRewardsDistributor.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1874,7 +1874,7 @@
             "name": "setOperator",
             "container": "IStakingRewardsDistributor",
             "signature": "setOperator(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IStakingRewardsDistributor.sol",
+            "file": "contracts/interfaces/IStakingRewardsDistributor.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1884,7 +1884,7 @@
             "name": "setMintingContract",
             "container": "IStakingRewardsDistributor",
             "signature": "setMintingContract(EthenaMinting) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IStakingRewardsDistributor.sol",
+            "file": "contracts/interfaces/IStakingRewardsDistributor.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1894,7 +1894,7 @@
             "name": "approveToMintContract",
             "container": "IStakingRewardsDistributor",
             "signature": "approveToMintContract(address[]) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IStakingRewardsDistributor.sol",
+            "file": "contracts/interfaces/IStakingRewardsDistributor.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1904,7 +1904,7 @@
             "name": "mint",
             "container": "IUSDe",
             "signature": "mint(address,uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IUSDe.sol",
+            "file": "contracts/interfaces/IUSDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1914,7 +1914,7 @@
             "name": "burn",
             "container": "IUSDe",
             "signature": "burn(uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IUSDe.sol",
+            "file": "contracts/interfaces/IUSDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1924,7 +1924,7 @@
             "name": "burnFrom",
             "container": "IUSDe",
             "signature": "burnFrom(address,uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IUSDe.sol",
+            "file": "contracts/interfaces/IUSDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1934,7 +1934,7 @@
             "name": "grantRole",
             "container": "IUSDe",
             "signature": "grantRole(bytes32,address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IUSDe.sol",
+            "file": "contracts/interfaces/IUSDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1944,7 +1944,7 @@
             "name": "setMinter",
             "container": "IUSDe",
             "signature": "setMinter(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IUSDe.sol",
+            "file": "contracts/interfaces/IUSDe.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1954,7 +1954,7 @@
             "name": "deposit",
             "container": "IWETH9",
             "signature": "deposit() returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IWETH9.sol",
+            "file": "contracts/interfaces/IWETH9.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1964,7 +1964,7 @@
             "name": "withdraw",
             "container": "IWETH9",
             "signature": "withdraw(uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IWETH9.sol",
+            "file": "contracts/interfaces/IWETH9.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1974,7 +1974,7 @@
             "name": "totalSupply",
             "container": "IWETH9",
             "signature": "totalSupply() returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IWETH9.sol",
+            "file": "contracts/interfaces/IWETH9.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1984,7 +1984,7 @@
             "name": "approve",
             "container": "IWETH9",
             "signature": "approve(address,uint256) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/IWETH9.sol",
+            "file": "contracts/interfaces/IWETH9.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -1994,7 +1994,7 @@
             "name": "decimals",
             "container": "IChainlinkV3Aggregator",
             "signature": "decimals() returns(uint8)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IChainlinkV3Aggregator.sol",
+            "file": "contracts/interfaces/archive/IChainlinkV3Aggregator.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2004,7 +2004,7 @@
             "name": "latestRoundData",
             "container": "IChainlinkV3Aggregator",
             "signature": "latestRoundData() returns(uint80,int256,uint256,uint256,uint80)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IChainlinkV3Aggregator.sol",
+            "file": "contracts/interfaces/archive/IChainlinkV3Aggregator.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2014,7 +2014,7 @@
             "name": "getLendingMarket",
             "container": "ILendingAddressRegistry",
             "signature": "getLendingMarket() returns(address)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingAddressRegistry.sol",
+            "file": "contracts/interfaces/archive/ILendingAddressRegistry.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2024,7 +2024,7 @@
             "name": "setLendingMarket",
             "container": "ILendingAddressRegistry",
             "signature": "setLendingMarket(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingAddressRegistry.sol",
+            "file": "contracts/interfaces/archive/ILendingAddressRegistry.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2034,7 +2034,7 @@
             "name": "getPriceOracleAggregator",
             "container": "ILendingAddressRegistry",
             "signature": "getPriceOracleAggregator() returns(address)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingAddressRegistry.sol",
+            "file": "contracts/interfaces/archive/ILendingAddressRegistry.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2044,7 +2044,7 @@
             "name": "setPriceOracleAggregator",
             "container": "ILendingAddressRegistry",
             "signature": "setPriceOracleAggregator(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingAddressRegistry.sol",
+            "file": "contracts/interfaces/archive/ILendingAddressRegistry.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2054,7 +2054,7 @@
             "name": "getTreasury",
             "container": "ILendingAddressRegistry",
             "signature": "getTreasury() returns(address)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingAddressRegistry.sol",
+            "file": "contracts/interfaces/archive/ILendingAddressRegistry.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2064,7 +2064,7 @@
             "name": "setTreasury",
             "container": "ILendingAddressRegistry",
             "signature": "setTreasury(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingAddressRegistry.sol",
+            "file": "contracts/interfaces/archive/ILendingAddressRegistry.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2074,7 +2074,7 @@
             "name": "getStaking",
             "container": "ILendingAddressRegistry",
             "signature": "getStaking() returns(address)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingAddressRegistry.sol",
+            "file": "contracts/interfaces/archive/ILendingAddressRegistry.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2084,7 +2084,7 @@
             "name": "setStaking",
             "container": "ILendingAddressRegistry",
             "signature": "setStaking(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingAddressRegistry.sol",
+            "file": "contracts/interfaces/archive/ILendingAddressRegistry.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2094,7 +2094,7 @@
             "name": "getStablePool",
             "container": "ILendingAddressRegistry",
             "signature": "getStablePool() returns(address)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingAddressRegistry.sol",
+            "file": "contracts/interfaces/archive/ILendingAddressRegistry.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2104,7 +2104,7 @@
             "name": "setStablePool",
             "container": "ILendingAddressRegistry",
             "signature": "setStablePool(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingAddressRegistry.sol",
+            "file": "contracts/interfaces/archive/ILendingAddressRegistry.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2114,7 +2114,7 @@
             "name": "getSwapper",
             "container": "ILendingAddressRegistry",
             "signature": "getSwapper() returns(address)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingAddressRegistry.sol",
+            "file": "contracts/interfaces/archive/ILendingAddressRegistry.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2124,7 +2124,7 @@
             "name": "setSwapper",
             "container": "ILendingAddressRegistry",
             "signature": "setSwapper(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingAddressRegistry.sol",
+            "file": "contracts/interfaces/archive/ILendingAddressRegistry.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2134,7 +2134,7 @@
             "name": "getKeepers",
             "container": "ILendingAddressRegistry",
             "signature": "getKeepers() returns(address[])",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingAddressRegistry.sol",
+            "file": "contracts/interfaces/archive/ILendingAddressRegistry.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2144,7 +2144,7 @@
             "name": "addKeeper",
             "container": "ILendingAddressRegistry",
             "signature": "addKeeper(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingAddressRegistry.sol",
+            "file": "contracts/interfaces/archive/ILendingAddressRegistry.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2154,7 +2154,7 @@
             "name": "removeKeeper",
             "container": "ILendingAddressRegistry",
             "signature": "removeKeeper(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingAddressRegistry.sol",
+            "file": "contracts/interfaces/archive/ILendingAddressRegistry.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2164,7 +2164,7 @@
             "name": "isKeeper",
             "container": "ILendingAddressRegistry",
             "signature": "isKeeper(address) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingAddressRegistry.sol",
+            "file": "contracts/interfaces/archive/ILendingAddressRegistry.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2174,7 +2174,7 @@
             "name": "getAddress",
             "container": "ILendingAddressRegistry",
             "signature": "getAddress(bytes32) returns(address)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingAddressRegistry.sol",
+            "file": "contracts/interfaces/archive/ILendingAddressRegistry.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2184,7 +2184,7 @@
             "name": "getUserCount",
             "container": "ILendingMarket",
             "signature": "getUserCount(address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingMarket.sol",
+            "file": "contracts/interfaces/archive/ILendingMarket.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2194,7 +2194,7 @@
             "name": "getUserAt",
             "container": "ILendingMarket",
             "signature": "getUserAt(address,uint256) returns(address)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingMarket.sol",
+            "file": "contracts/interfaces/archive/ILendingMarket.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2204,7 +2204,7 @@
             "name": "factory",
             "container": "IUniswapV2Router",
             "signature": "factory() returns(address)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/uniswap/IUniswapV2Router.sol",
+            "file": "contracts/external/uniswap/IUniswapV2Router.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2214,7 +2214,7 @@
             "name": "positionView",
             "container": "ILendingMarket",
             "signature": "positionView(address,address) returns(ILendingMarket.PositionView)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingMarket.sol",
+            "file": "contracts/interfaces/archive/ILendingMarket.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2224,7 +2224,7 @@
             "name": "liquidatable",
             "container": "ILendingMarket",
             "signature": "liquidatable(address,address) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingMarket.sol",
+            "file": "contracts/interfaces/archive/ILendingMarket.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2234,7 +2234,7 @@
             "name": "liquidate",
             "container": "ILendingMarket",
             "signature": "liquidate(address,address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingMarket.sol",
+            "file": "contracts/interfaces/archive/ILendingMarket.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2244,7 +2244,7 @@
             "name": "totalSupply",
             "container": "ILendingVault",
             "signature": "totalSupply() returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingVault.sol",
+            "file": "contracts/interfaces/archive/ILendingVault.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2254,7 +2254,7 @@
             "name": "balanceOf",
             "container": "ILendingVault",
             "signature": "balanceOf(address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingVault.sol",
+            "file": "contracts/interfaces/archive/ILendingVault.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2264,7 +2264,7 @@
             "name": "totalCollateral",
             "container": "ILendingVault",
             "signature": "totalCollateral() returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingVault.sol",
+            "file": "contracts/interfaces/archive/ILendingVault.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2274,7 +2274,7 @@
             "name": "userCollateral",
             "container": "ILendingVault",
             "signature": "userCollateral(address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingVault.sol",
+            "file": "contracts/interfaces/archive/ILendingVault.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2284,7 +2284,7 @@
             "name": "userCollateralUSD",
             "container": "ILendingVault",
             "signature": "userCollateralUSD(address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingVault.sol",
+            "file": "contracts/interfaces/archive/ILendingVault.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2294,7 +2294,7 @@
             "name": "deposit",
             "container": "ILendingVault",
             "signature": "deposit(address,uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingVault.sol",
+            "file": "contracts/interfaces/archive/ILendingVault.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2304,7 +2304,7 @@
             "name": "withdraw",
             "container": "ILendingVault",
             "signature": "withdraw(address,uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingVault.sol",
+            "file": "contracts/interfaces/archive/ILendingVault.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2314,7 +2314,7 @@
             "name": "claim",
             "container": "ILendingVault",
             "signature": "claim(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/ILendingVault.sol",
+            "file": "contracts/interfaces/archive/ILendingVault.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2324,7 +2324,7 @@
             "name": "viewPriceInUSD",
             "container": "IOracle",
             "signature": "viewPriceInUSD() returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IOracle.sol",
+            "file": "contracts/interfaces/archive/IOracle.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2334,7 +2334,7 @@
             "name": "updateOracleForAsset",
             "container": "IPriceOracleAggregator",
             "signature": "updateOracleForAsset(address,IOracle) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IPriceOracleAggregator.sol",
+            "file": "contracts/interfaces/archive/IPriceOracleAggregator.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2344,7 +2344,7 @@
             "name": "viewPriceInUSD",
             "container": "IPriceOracleAggregator",
             "signature": "viewPriceInUSD(address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IPriceOracleAggregator.sol",
+            "file": "contracts/interfaces/archive/IPriceOracleAggregator.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2354,7 +2354,7 @@
             "name": "deposit",
             "container": "IRedeem",
             "signature": "deposit(address,uint256) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IRedeem.sol",
+            "file": "contracts/interfaces/archive/IRedeem.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2364,7 +2364,7 @@
             "name": "prepare",
             "container": "IStablePool",
             "signature": "prepare(uint256,bytes) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IStablePool.sol",
+            "file": "contracts/interfaces/archive/IStablePool.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2374,7 +2374,7 @@
             "name": "deposit",
             "container": "IWETH",
             "signature": "deposit() returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IWETH.sol",
+            "file": "contracts/interfaces/archive/IWETH.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2384,7 +2384,7 @@
             "name": "withdraw",
             "container": "IWETH",
             "signature": "withdraw(uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IWETH.sol",
+            "file": "contracts/interfaces/archive/IWETH.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2394,7 +2394,7 @@
             "name": "deposit",
             "container": "IWETH10",
             "signature": "deposit() returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IWETH10.sol",
+            "file": "contracts/interfaces/archive/IWETH10.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2404,7 +2404,7 @@
             "name": "depositTo",
             "container": "IWETH10",
             "signature": "depositTo(address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IWETH10.sol",
+            "file": "contracts/interfaces/archive/IWETH10.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2414,7 +2414,7 @@
             "name": "withdraw",
             "container": "IWETH10",
             "signature": "withdraw(uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IWETH10.sol",
+            "file": "contracts/interfaces/archive/IWETH10.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2424,7 +2424,7 @@
             "name": "withdrawTo",
             "container": "IWETH10",
             "signature": "withdrawTo(address,uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IWETH10.sol",
+            "file": "contracts/interfaces/archive/IWETH10.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2434,7 +2434,7 @@
             "name": "withdrawFrom",
             "container": "IWETH10",
             "signature": "withdrawFrom(address,address,uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IWETH10.sol",
+            "file": "contracts/interfaces/archive/IWETH10.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2444,7 +2444,7 @@
             "name": "depositToAndCall",
             "container": "IWETH10",
             "signature": "depositToAndCall(address,bytes) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IWETH10.sol",
+            "file": "contracts/interfaces/archive/IWETH10.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2454,7 +2454,7 @@
             "name": "approveAndCall",
             "container": "IWETH10",
             "signature": "approveAndCall(address,uint256,bytes) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IWETH10.sol",
+            "file": "contracts/interfaces/archive/IWETH10.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2464,7 +2464,7 @@
             "name": "transferAndCall",
             "container": "IWETH10",
             "signature": "transferAndCall(address,uint256,bytes) returns(bool)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IWETH10.sol",
+            "file": "contracts/interfaces/archive/IWETH10.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2474,7 +2474,7 @@
             "name": "mint",
             "container": "IeETH",
             "signature": "mint(address,uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IeETH.sol",
+            "file": "contracts/interfaces/archive/IeETH.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2484,7 +2484,7 @@
             "name": "burn",
             "container": "IeETH",
             "signature": "burn(address,uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IeETH.sol",
+            "file": "contracts/interfaces/archive/IeETH.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2494,7 +2494,7 @@
             "name": "burnFrom",
             "container": "IeETH",
             "signature": "burnFrom(address,uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/interfaces/archive/IeETH.sol",
+            "file": "contracts/interfaces/archive/IeETH.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2504,7 +2504,7 @@
             "name": "decimals",
             "container": "MockToken",
             "signature": "decimals() returns(uint8)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/mock/MockToken.sol",
+            "file": "contracts/mock/MockToken.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2514,7 +2514,7 @@
             "name": "mint",
             "container": "MockToken",
             "signature": "mint(uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/mock/MockToken.sol",
+            "file": "contracts/mock/MockToken.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2524,7 +2524,7 @@
             "name": "mint",
             "container": "MockToken",
             "signature": "mint(uint256,address) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/mock/MockToken.sol",
+            "file": "contracts/mock/MockToken.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2534,7 +2534,7 @@
             "name": "decimals",
             "container": "MockUSDT",
             "signature": "decimals() returns(uint8)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/mock/MockUSDT.sol",
+            "file": "contracts/mock/MockUSDT.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2544,7 +2544,7 @@
             "name": "mint",
             "container": "MockUSDT",
             "signature": "mint(uint256) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/mock/MockUSDT.sol",
+            "file": "contracts/mock/MockUSDT.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2554,7 +2554,7 @@
             "name": "swapTokensForExactTokens",
             "container": "IUniswapV2Router",
             "signature": "swapTokensForExactTokens(uint256,uint256,address[],address,uint256) returns(uint256[])",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/uniswap/IUniswapV2Router.sol",
+            "file": "contracts/external/uniswap/IUniswapV2Router.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2564,7 +2564,7 @@
             "name": "swapExactTokensForETH",
             "container": "IUniswapV2Router",
             "signature": "swapExactTokensForETH(uint256,uint256,address[],address,uint256) returns(uint256[])",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/external/uniswap/IUniswapV2Router.sol",
+            "file": "contracts/external/uniswap/IUniswapV2Router.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2574,7 +2574,7 @@
           {
             "function_id": "unit:4730",
             "modifiers": [],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/WETH9.sol",
+            "snippet_file": "contracts/WETH9.sol",
             "snippet_lines": [
               62,
               76
@@ -2583,7 +2583,7 @@
           {
             "function_id": "unit:1444",
             "modifiers": [],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "snippet_file": "contracts/EthenaMinting.sol",
             "snippet_lines": [
               284,
               287
@@ -2592,7 +2592,7 @@
           {
             "function_id": "unit:1481",
             "modifiers": [],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaMinting.sol",
+            "snippet_file": "contracts/EthenaMinting.sol",
             "snippet_lines": [
               290,
               296
@@ -2614,7 +2614,7 @@
             "name": "stake",
             "container": "EthenaLPStaking",
             "signature": "stake(address,uint104) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "file": "contracts/EthenaLPStaking.sol",
             "writes_state": true,
             "write_targets": [
               "stakes",
@@ -2630,7 +2630,7 @@
             "name": "unstake",
             "container": "EthenaLPStaking",
             "signature": "unstake(address,uint104) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "file": "contracts/EthenaLPStaking.sol",
             "writes_state": true,
             "write_targets": [
               "stakes",
@@ -2646,7 +2646,7 @@
             "name": "withdraw",
             "container": "EthenaLPStaking",
             "signature": "withdraw(address,uint104) returns()",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "file": "contracts/EthenaLPStaking.sol",
             "writes_state": true,
             "write_targets": [
               "stakes",
@@ -2664,7 +2664,7 @@
             "modifiers": [
               "checkAmount"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "snippet_file": "contracts/EthenaLPStaking.sol",
             "snippet_lines": [
               118,
               128
@@ -2675,7 +2675,7 @@
             "modifiers": [
               "checkAmount"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "snippet_file": "contracts/EthenaLPStaking.sol",
             "snippet_lines": [
               136,
               147
@@ -2686,7 +2686,7 @@
             "modifiers": [
               "checkAmount"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/EthenaLPStaking.sol",
+            "snippet_file": "contracts/EthenaLPStaking.sol",
             "snippet_lines": [
               154,
               164
@@ -2708,7 +2708,7 @@
             "name": "cooldownAssets",
             "container": "StakedUSDeV2",
             "signature": "cooldownAssets(uint256) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "file": "contracts/StakedUSDeV2.sol",
             "writes_state": true,
             "write_targets": [
               "cooldowns"
@@ -2722,7 +2722,7 @@
             "name": "cooldownShares",
             "container": "StakedUSDeV2",
             "signature": "cooldownShares(uint256) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "file": "contracts/StakedUSDeV2.sol",
             "writes_state": true,
             "write_targets": [
               "cooldowns"
@@ -2738,7 +2738,7 @@
             "modifiers": [
               "ensureCooldownOn"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "snippet_file": "contracts/StakedUSDeV2.sol",
             "snippet_lines": [
               96,
               105
@@ -2749,7 +2749,7 @@
             "modifiers": [
               "ensureCooldownOn"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "snippet_file": "contracts/StakedUSDeV2.sol",
             "snippet_lines": [
               109,
               118
@@ -2771,7 +2771,7 @@
             "name": "withdraw",
             "container": "StakedUSDeV2",
             "signature": "withdraw(uint256,address,address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "file": "contracts/StakedUSDeV2.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2781,7 +2781,7 @@
             "name": "redeem",
             "container": "StakedUSDeV2",
             "signature": "redeem(uint256,address,address) returns(uint256)",
-            "file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "file": "contracts/StakedUSDeV2.sol",
             "writes_state": false,
             "write_targets": [],
             "write_target_ids": []
@@ -2793,7 +2793,7 @@
             "modifiers": [
               "ensureCooldownOff"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "snippet_file": "contracts/StakedUSDeV2.sol",
             "snippet_lines": [
               54,
               62
@@ -2804,7 +2804,7 @@
             "modifiers": [
               "ensureCooldownOff"
             ],
-            "snippet_file": "/Users/kayaomers/Documents/firstbatch/exploit-agent/master/bbp-public-assets/contracts/contracts/StakedUSDeV2.sol",
+            "snippet_file": "contracts/StakedUSDeV2.sol",
             "snippet_lines": [
               67,
               75
