@@ -191,7 +191,24 @@ class Dispatcher:
                 else None
             )
 
-            self.logger.info("Step 2/6: Workspace Validation...")
+            # Build DependencyGraph BEFORE workspace validation to avoid cache conflicts
+            # (Workspace validation runs forge which creates cache files)
+            self.logger.info("Step 2/6: Building DependencyGraph...")
+            self.dependency_graph = await self._build_dependency_graph()
+            if not self.dependency_graph:
+                self.logger.error("Static analysis failed")
+                return False
+
+            # Persist dependency graph
+            await self._persist(
+                self._state_manager.save_dependency_graph(
+                    self.dependency_graph.to_dict()
+                )
+                if self._state_manager
+                else None
+            )
+
+            self.logger.info("Step 3/6: Workspace Validation...")
             from kai.processes.workspace_validation import WorkspaceValidationProcess
             from kai.schemas import WorkspacePreset, WorkspaceValidationInput
 
@@ -224,21 +241,6 @@ class Dispatcher:
                 return False
 
             self.logger.info("Workspace validation passed")
-
-            self.logger.info("Step 3/6: Building DependencyGraph...")
-            self.dependency_graph = await self._build_dependency_graph()
-            if not self.dependency_graph:
-                self.logger.error("Static analysis failed")
-                return False
-
-            # Persist dependency graph
-            await self._persist(
-                self._state_manager.save_dependency_graph(
-                    self.dependency_graph.to_dict()
-                )
-                if self._state_manager
-                else None
-            )
 
             self.logger.info("Step 4/6: Profiler...")
             profiler_process = ProfilerProcess(context=self.master_context)
