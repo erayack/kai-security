@@ -17,6 +17,7 @@ from kai.schemas import (
     CampaignBrief,
     CampaignBudget,
     ExploitCandidate,
+    Fix,
     Invariant,
     InvariantType,
     MasterContext,
@@ -27,6 +28,7 @@ from kai.schemas import (
     Verdict,
     VerdictSeverity,
     VerifierProcessInput,
+    WorkspacePreset,
 )
 from kai.utils.dependency.graph import DependencyGraph
 
@@ -52,7 +54,7 @@ class DispatcherConfig:
     max_campaigns: int = 10
     include_exploration: bool = True
     default_budget: CampaignBudget = field(default_factory=CampaignBudget)
-    workspace_dir: str = "./kai_workspaces"
+    workspace_dir: str = "./kai_workspaces"  # TODO: check if it respects workspace_dir
     # Model settings for agents
     model: str = "openai/gpt-5.2"
     use_openai: bool = False
@@ -115,6 +117,7 @@ class Dispatcher:
         self.completed_missions: List[Mission] = []
         self.exploit_candidates: List[ExploitCandidate] = []
         self.verdicts: List[Verdict] = []
+        self.fixes: List[Fix] = []
 
         self._workspace_manager = WorkspaceManager(
             workspace_dir=self.config.workspace_dir, logger=self.logger
@@ -488,6 +491,9 @@ class Dispatcher:
                 f"{len(self.exploit_candidates)} candidates"
             )
 
+        # Generate fixes for all verified exploits
+        await self._fix_verified_exploits()
+
     async def _execute_mission(self, mission: Mission) -> None:
         """Execute a single mission with an agent."""
         mission.status = "in_progress"
@@ -692,6 +698,141 @@ class Dispatcher:
         except Exception as e:
             self.logger.error(f"Verification failed for {candidate.mission_id}: {e}")
             return None
+
+    async def _fix_verified_exploits(self) -> None:
+        """
+        Generate fixes for all verified exploits.
+
+        Called after all missions complete. Iterates over verdicts with is_valid=True
+        and runs FixerAgent on each.
+        """
+        valid_verdicts = [v for v in self.verdicts if v.is_valid]
+
+        if not valid_verdicts:
+            self.logger.info("No verified exploits to fix")
+            return
+
+        self.logger.info(
+            f"Generating fixes for {len(valid_verdicts)} verified exploit(s)..."
+        )
+
+        for verdict in valid_verdicts:
+            # Find the corresponding exploit candidate
+            candidate = next(
+                (
+                    c
+                    for c in self.exploit_candidates
+                    if c.mission_id == verdict.mission_id
+                    and c.invariant_id == verdict.invariant_id
+                ),
+                None,
+            )
+
+            if not candidate:
+                self.logger.warning(
+                    f"No exploit candidate found for verdict {verdict.mission_id}"
+                )
+                continue
+
+            fixes = await self._fix_single_exploit(candidate, verdict)
+            for fix in fixes:
+                self.fixes.append(fix)
+                # Embed fix into verdict
+                verdict.fixes.append(fix)
+                # Persist fix
+                await self._persist(
+                    self._state_manager.save_fix(fix) if self._state_manager else None
+                )
+
+        self.logger.info(f"Generated {len(self.fixes)} fix(es) for verified exploits")
+
+    async def _fix_single_exploit(
+        self, candidate: ExploitCandidate, verdict: Verdict
+    ) -> List[Fix]:
+        """
+        Generate fixes for a single verified exploit using FixerAgent.
+
+        Args:
+            candidate: The exploit candidate
+            verdict: The verification verdict
+
+        Returns:
+            List of Fix objects (may be empty if fixer failed)
+        """
+        import uuid
+
+        if not self.master_context:
+            return []
+
+        from kai.agents.agent_types.fixer_agent import FixerAgent
+
+        # Get the invariant
+        invariant = self.invariants.get(candidate.invariant_id)
+
+        self.logger.info(f"Fixing exploit: {candidate.mission_id}")
+
+        try:
+            # Provision WRITEABLE workspace for fixer (needs to modify contracts)
+            workspace_path = self._workspace_manager.provision(
+                workspace_id=f"fixer_{candidate.mission_id}",
+                master_path=self.master_context.root_path,
+                preset=WorkspacePreset.WRITEABLE,
+            )
+
+            # Create fixer agent with required context
+            agent = FixerAgent(
+                exploit_candidate=candidate,
+                verdict=verdict,
+                repo_path=workspace_path,
+                dependency_graph=self.dependency_graph,
+                max_tool_turns=24,  # TODO: should be configurable
+                model=self.config.model,
+                use_openai=self.config.use_openai,
+            )
+
+            # Run the fixer
+            await agent.chat_with_tools("Begin.")
+
+            # Extract all registered fixes
+            registered_fixes = getattr(agent, "_registered_fixes", [])
+
+            if not registered_fixes:
+                self.logger.warning(
+                    f"Fixer did not register any fixes for {candidate.mission_id}"
+                )
+                return []
+
+            # Convert all registered fixes to Fix objects
+            fixes = []
+            for fix_record in registered_fixes:
+                fix = Fix(
+                    fix_id=fix_record.get("fix_id", f"fix_{uuid.uuid4().hex}"),
+                    mission_id=candidate.mission_id,
+                    invariant_id=candidate.invariant_id,
+                    summary=fix_record.get("summary", ""),
+                    reasoning=fix_record.get("reasoning", ""),
+                    canonical_diff=fix_record.get("canonical_diff", ""),
+                    files_changed=fix_record.get("files_changed", []),
+                    compiled=fix_record.get("compiled", False),
+                    tests_passed=fix_record.get("tests_passed", False),
+                )
+                fixes.append(fix)
+
+            self.logger.info(
+                f"FIX GENERATED: {candidate.mission_id} - {len(fixes)} fix(es)"
+            )
+            return fixes
+
+        except Exception as e:
+            self.logger.error(f"Fix generation failed for {candidate.mission_id}: {e}")
+            return []
+
+        finally:
+            # Cleanup fixer workspace
+            try:
+                self._workspace_manager.cleanup(f"fixer_{candidate.mission_id}")
+            except Exception:
+                pass
 
     async def _handle_blackbox_agent_result(self, mission: Mission, agent: Any) -> None:
         """

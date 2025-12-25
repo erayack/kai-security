@@ -278,7 +278,8 @@ def update_file_with_diff(
         if isinstance(applied, dict) and "error" in applied:
             return {"applied": False, **applied}
 
-        new_text: str = applied
+        # At this point applied is guaranteed to be str (checked above)
+        new_text: str = str(applied)
 
         parent = os.path.dirname(abs_path)
         if parent and not os.path.exists(parent):

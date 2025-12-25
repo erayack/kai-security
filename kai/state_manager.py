@@ -11,6 +11,7 @@ from typing import List, Optional, Dict, Any, Literal
 from kai.schemas import (
     ActorMatrix,
     ExploitCandidate,
+    Fix,
     Invariant,
     Mission,
     Observation,
@@ -58,8 +59,6 @@ class KaiStateManager(ABC):
         """
         pass
 
-    # --- Dependency Graph ---
-
     @abstractmethod
     async def save_dependency_graph(self, graph_data: Dict[str, Any]) -> bool:
         """
@@ -72,8 +71,6 @@ class KaiStateManager(ABC):
             True if successful
         """
         pass
-
-    # --- Actor Matrix ---
 
     @abstractmethod
     async def save_actor_matrix(self, actor_matrix: ActorMatrix) -> bool:
@@ -88,8 +85,6 @@ class KaiStateManager(ABC):
         """
         pass
 
-    # --- Invariants ---
-
     @abstractmethod
     async def save_invariants(self, invariants: List[Invariant]) -> bool:
         """
@@ -102,8 +97,6 @@ class KaiStateManager(ABC):
             True if successful
         """
         pass
-
-    # --- Missions ---
 
     @abstractmethod
     async def save_missions(self, missions: List[Mission]) -> bool:
@@ -138,8 +131,6 @@ class KaiStateManager(ABC):
         """
         pass
 
-    # --- Exploit Candidates ---
-
     @abstractmethod
     async def save_exploit_candidate(self, candidate: ExploitCandidate) -> bool:
         """
@@ -152,8 +143,6 @@ class KaiStateManager(ABC):
             True if successful
         """
         pass
-
-    # --- Verdicts ---
 
     @abstractmethod
     async def save_verdict(self, verdict: Verdict) -> bool:
@@ -168,7 +157,18 @@ class KaiStateManager(ABC):
         """
         pass
 
-    # --- Observations ---
+    @abstractmethod
+    async def save_fix(self, fix: Fix) -> bool:
+        """
+        Save a code fix for a verified exploit.
+
+        Args:
+            fix: The Fix object to save
+
+        Returns:
+            True if successful
+        """
+        pass
 
     @abstractmethod
     async def save_observations(self, observations: List[Observation]) -> bool:
@@ -182,8 +182,6 @@ class KaiStateManager(ABC):
             True if successful
         """
         pass
-
-    # --- Conversations ---
 
     @abstractmethod
     async def save_conversation(

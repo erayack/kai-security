@@ -237,17 +237,27 @@ def create_blackbox_agent(
     This factory provides a simpler interface for Dispatcher integration.
     """
     from kai.agents.agent_types.blackbox_agent import BlackboxAgent
+    from kai.schemas import CampaignBrief, CampaignScope
+
+    # Create a CampaignBrief from mission context
+    campaign_brief = CampaignBrief(
+        campaign_id=mission.campaign_id,
+        agent_types=[mission.agent_type],
+        framework=master_context.adapter if master_context else None,
+        scope=CampaignScope(),
+        invariants=[mission.invariant] if mission.invariant else [],
+        master_context=master_context,
+    )
 
     agent = BlackboxAgent(
+        campaign_brief=campaign_brief,
+        dependency_graph=dependency_graph,
         repo_path=workspace_path,
         max_tool_turns=mission.max_turns,
         model=model,
         use_openai=use_openai,
+        execution_id=execution_id,
     )
-
-    # Set execution context
-    if execution_id:
-        agent.execution_id = execution_id
 
     return agent
 

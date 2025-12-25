@@ -261,7 +261,7 @@ class InvariantSynthesizerProcess(
         # 3) If still unresolved but we have affected files, anchor to entrypoints/constructors in those files.
         if not target_ids and affected_files:
             try:
-                cands = []
+                cands: list[str] = []
                 for uid in sorted(_units_in_files()):
                     try:
                         n = g.node(uid)

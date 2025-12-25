@@ -89,6 +89,7 @@ class VerifierAgent(BaseAgent):
         self.invariant = invariant
         self.master_context = master_context
         self.dependency_graph = dependency_graph
+        self.workspace_path: Optional[str] = None
 
         if execution_id:
             self.execution_id = execution_id

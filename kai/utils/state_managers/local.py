@@ -61,7 +61,9 @@ class LocalStateManager(KaiStateManager):
             parts = parts[2:]
         return Path(*parts) if parts else Path("conversation.json")
 
-    async def update_state(self, state: Literal["setup", "profiler", "invariant"]) -> None:
+    async def update_state(
+        self, state: Literal["setup", "profiler", "invariant"]
+    ) -> None:
         return None
 
     async def save_campaigns(self, campaigns: List[CampaignBrief]) -> bool:
@@ -148,5 +150,3 @@ class LocalStateManager(KaiStateManager):
             return str(out_path)
         except Exception:
             return None
-
-

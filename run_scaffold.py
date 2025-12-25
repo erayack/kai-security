@@ -101,9 +101,10 @@ def _get_repo_commit_hash(repo_url: str) -> Optional[str]:
 def _repo_slug(repo_url: str) -> str:
     # Derive a filesystem-safe slug from repo name + commit hash (fallback to URL hash)
     name = Path(re.sub(r"\.git$", "", repo_url.split("/")[-1])).stem or "repo"
-    short_hash = _get_repo_commit_hash(repo_url) or hashlib.sha1(
-        repo_url.encode("utf-8")
-    ).hexdigest()[:8]
+    short_hash = (
+        _get_repo_commit_hash(repo_url)
+        or hashlib.sha1(repo_url.encode("utf-8")).hexdigest()[:8]
+    )
     safe_name = re.sub(r"[^A-Za-z0-9._-]", "-", name)
     return f"{safe_name}-{short_hash}"
 
@@ -149,7 +150,9 @@ async def run_finder_agent(
     # Clone repo if it doesn't exist (finder now runs before setup)
     if not os.path.exists(repo_path):
         if repo_path_override:
-            raise FileNotFoundError(f"Materialized repo not found at {repo_path_override}")
+            raise FileNotFoundError(
+                f"Materialized repo not found at {repo_path_override}"
+            )
         print(f"Cloning repository: {repo_url}")
         repo_path = clone_repo(repo_url)
     max_depth = max_subagent_depth if max_subagent_depth is not None else MAX_DEPTH
@@ -160,7 +163,7 @@ async def run_finder_agent(
         max_tool_turns=num_turns,
         use_openai=use_openai,
         execution_id=execution_id,
-        max_depth=max_depth
+        max_depth=max_depth,
     )
     print("✅ Agent ready, starting chat...")
 
@@ -241,7 +244,9 @@ async def run_setup_agent(
         print(f"Using pre-materialized repo path: {repo_path}")
     if not os.path.exists(repo_path):
         if repo_path_override:
-            raise FileNotFoundError(f"Materialized repo not found at {repo_path_override}")
+            raise FileNotFoundError(
+                f"Materialized repo not found at {repo_path_override}"
+            )
         print(f"Cloning repository: {repo_url}")
         repo_path = clone_repo(repo_url)
     agent = SetupAgent(
@@ -323,7 +328,7 @@ async def run_generator_agent(
     """
     Run the generator agent to locate all exploits.json files and validate the exploits
     they contain by generating and running test scripts (async).
-    
+
     Args:
         repo_url: Repository identifier/URL.
         num_turns: Turn budget for the generator.
@@ -365,7 +370,7 @@ Start by reading the README, then explore the repository and validate all the ex
         use_openai=use_openai,
         depth=0,
         execution_id=execution_id,
-        max_depth=max_depth
+        max_depth=max_depth,
     )
 
     response = None
@@ -401,7 +406,7 @@ async def run_generator_validation(
     use_openai: bool = False,
     repo_path_override: Optional[str] = None,
     max_subagent_depth: Optional[int] = None,
-    execution_id: str = None
+    execution_id: str = None,
 ):
     """
     Directly validate all exploits by processing exploits.json files in batches.
@@ -420,15 +425,20 @@ async def run_generator_validation(
     from agent.generator_utils import get_exploits_jsons, process_exploits_json
     from agent.settings import GENERATOR_BATCH_SIZE
     from scripts.generate_generator_report import generate_generator_report, save_report
+
     repo_path = repo_path_override or _repo_path(repo_url)
     if repo_path_override:
         print(f"Using pre-materialized repo path: {repo_path}")
     repo_slug = _repo_slug(repo_url)
-    
+
     if not os.path.exists(repo_path):
         if repo_path_override:
-            raise FileNotFoundError(f"Materialized repo not found at {repo_path_override}")
-        raise ValueError(f"Repository not found at {repo_path}. Setup agent should have cloned it.")
+            raise FileNotFoundError(
+                f"Materialized repo not found at {repo_path_override}"
+            )
+        raise ValueError(
+            f"Repository not found at {repo_path}. Setup agent should have cloned it."
+        )
     # Find all exploits.json files
     print("\n🔍 Searching for exploits.json files...")
     exploits_files = get_exploits_jsons(repo_path)
@@ -475,7 +485,7 @@ async def run_generator_validation(
                 use_openai=use_openai,
                 use_vllm=False,
                 execution_id=execution_id,
-                max_subagent_depth=max_subagent_depth
+                max_subagent_depth=max_subagent_depth,
             )
             for exploit_file in batch
         ]
@@ -521,10 +531,10 @@ async def run_generator_validation(
     print(f"Removed exploits: {removed_exploits}")
     print(f"Success rate: {success_rate:.1f}%")
     print(f"Total cost: ${total_cost:.4f}")
-    print(f"Total time: {total_time:.1f}s ({total_time/60:.1f}m)")
+    print(f"Total time: {total_time:.1f}s ({total_time / 60:.1f}m)")
     if verified_exploits > 0:
-        print(f"Cost per verified exploit: ${total_cost/verified_exploits:.4f}")
-        print(f"Time per verified exploit: {total_time/verified_exploits:.1f}s")
+        print(f"Cost per verified exploit: ${total_cost / verified_exploits:.4f}")
+        print(f"Time per verified exploit: {total_time / verified_exploits:.1f}s")
     print("=" * 80)
 
     return {
@@ -539,8 +549,8 @@ async def run_generator_validation(
 
 
 async def run_fixer_agent(
-    repo_url: str, 
-    num_turns: int, 
+    repo_url: str,
+    num_turns: int,
     model_name: str,
     use_openai: bool = False,
     repo_path_override: Optional[str] = None,
@@ -551,14 +561,18 @@ async def run_fixer_agent(
     from agent.fixer_utils import process_fix_exploits
     from scripts.generate_fixer_report import generate_fixer_report, save_report
     from agent.generator_utils import get_exploits_jsons
-    
+
     repo_path = repo_path_override or _repo_path(repo_url)
     repo_slug = _repo_slug(repo_url)
-    
+
     if not os.path.exists(repo_path):
         if repo_path_override:
-            raise FileNotFoundError(f"Materialized repo not found at {repo_path_override}")
-        raise ValueError(f"Repository not found at {repo_path}. Finder agent should have cloned it.")
+            raise FileNotFoundError(
+                f"Materialized repo not found at {repo_path_override}"
+            )
+        raise ValueError(
+            f"Repository not found at {repo_path}. Finder agent should have cloned it."
+        )
     # Find all exploits.json files
     print("\n🔍 Searching for exploits.json files...")
     exploits_files = get_exploits_jsons(repo_path)
@@ -646,10 +660,10 @@ async def run_fixer_agent(
     print(f"Failed exploits: {failed_exploits}")
     print(f"Success rate: {success_rate:.1f}%")
     print(f"Total cost: ${total_cost:.4f}")
-    print(f"Total time: {total_time:.1f}s ({total_time/60:.1f}m)")
+    print(f"Total time: {total_time:.1f}s ({total_time / 60:.1f}m)")
     if fixed_exploits > 0:
-        print(f"Cost per fixed exploit: ${total_cost/fixed_exploits:.4f}")
-        print(f"Time per fixed exploit: {total_time/fixed_exploits:.1f}s")
+        print(f"Cost per fixed exploit: ${total_cost / fixed_exploits:.4f}")
+        print(f"Time per fixed exploit: {total_time / fixed_exploits:.1f}s")
     print("=" * 80)
 
     return {
@@ -709,10 +723,13 @@ Examples:
         default=32,
         help="Number of turns for each agent (default: 32)",
     )
-    
-    parser.add_argument('--subagent-turns', type=int,
-                       default=agent_settings.MAX_SUBAGENT_TURNS,
-                       help='Turn budget allocated to each sub-agent (default: %(default)s)')
+
+    parser.add_argument(
+        "--subagent-turns",
+        type=int,
+        default=agent_settings.MAX_SUBAGENT_TURNS,
+        help="Turn budget allocated to each sub-agent (default: %(default)s)",
+    )
     # Model configuration
     parser.add_argument(
         "--model",
@@ -831,8 +848,10 @@ Examples:
     print(f"Setup model: {setup_model}")
     execution_id = ObjectId()
     print(f"Sub-agent turns: {applied_subagent_turns}")
-    print(f"Agents to run: {', '.join([a for a, enabled in [('Finder', run_finder), ('Setup', run_setup), ('Generator', run_generator), ('Fixer', run_fixer)] if enabled])}")
-    print("="*80)
+    print(
+        f"Agents to run: {', '.join([a for a, enabled in [('Finder', run_finder), ('Setup', run_setup), ('Generator', run_generator), ('Fixer', run_fixer)] if enabled])}"
+    )
+    print("=" * 80)
 
     results = {}
     total_cost = 0.0

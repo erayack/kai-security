@@ -61,6 +61,7 @@ class FixerAgent(BaseAgent):
         self.exploit_candidate = exploit_candidate
         self.master_context = master_context
         self.dependency_graph = dependency_graph
+        self.workspace_path: Optional[str] = repo_path
 
         # Store verdict in the same field used by VerifierAgent tools.
         self._verdict: Verdict = verdict

@@ -97,7 +97,7 @@ def analyze_arithmetic(function_id: str) -> Dict[str, Any]:
             return {"error": code["error"]}
 
         # Analyze the code for arithmetic patterns
-        result = {
+        result: Dict[str, Any] = {
             "function_id": function_id,
             "file": file_path,
             "lines": f"{start_line}-{end_line}",
@@ -245,7 +245,7 @@ def compute_boundary_values(
         result = compute_boundary_values("uint256", context="shares")
         # Returns boundary values relevant for share calculations
     """
-    result = {
+    result: Dict[str, Any] = {
         "type": param_type,
         "values": [],
         "overflow_pairs": [],
