@@ -45,6 +45,8 @@ class WorkspaceValidationAgent(BaseAgent):
 
         self.master_context = master_context
         self.dependency_graph = dependency_graph
+        self.workspace_path: Optional[str] = None
+        self.framework: Optional[str] = None
         self._registered_workspace_validation_result: Optional[
             WorkspaceValidationResult
         ] = None
