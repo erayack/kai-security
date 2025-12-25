@@ -769,6 +769,7 @@ class Dispatcher:
         from kai.agents.agent_types.fixer_agent import FixerAgent
 
         # Get the invariant
+        # TODO: check if this is needed
         invariant = self.invariants.get(candidate.invariant_id)
 
         self.logger.info(f"Fixing exploit: {candidate.mission_id}")

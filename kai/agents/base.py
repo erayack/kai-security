@@ -1,6 +1,4 @@
-from kai.agents.engine import execute_sandboxed_code
 from kai.inference import (
-    get_model_response,
     get_model_response_with_tools,
     create_openai_client,
     create_vllm_client,
@@ -8,15 +6,10 @@ from kai.inference import (
 )
 from kai.agents.utils import (
     load_system_prompt,
-    extract_python_code,
-    format_results_and_remaining_turns,
-    extract_thoughts,
     AgentType,
-    agent_type_to_kind,
     generate_openai_tools,
 )
 from kai.agents.settings import (
-    SAVE_CONVERSATION_PATH,
     MAX_TOOL_TURNS,
     VLLM_HOST,
     VLLM_PORT,
@@ -29,20 +22,11 @@ import asyncio
 from logger import logger
 
 from collections.abc import Callable
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Union
 from abc import ABC, abstractmethod
 
-import json
 import os
-import uuid
 from bson import ObjectId
-
-from logger.mongo_logger import (
-    log_agent_started,
-    log_agent_metrics,
-    log_agent_complete,
-)
-import copy
 
 
 class BaseAgent(ABC):

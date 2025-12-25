@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Optional, List, Dict, Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 # Adapter type literal for structured output validation
 AdapterType = Literal["solidity"]
@@ -26,11 +26,15 @@ class ChatMessage(BaseModel):
 class Language(str, Enum):
     SOLIDITY = "solidity"
     JAVASCRIPT = "javascript"
+    RUST = "rust"
+    CPP = "cpp"
 
 
 class Framework(str, Enum):
     FOUNDRY = "foundry"
     NODE = "node"
+    CARGO = "cargo"
+    CMAKE = "cmake"
 
 
 class AdapterSelection(BaseModel):
@@ -42,19 +46,12 @@ class AdapterSelection(BaseModel):
     reason: Optional[str] = None
 
 
-class Command(BaseModel):
-    command: str
-    order_of_execution: int = Field(
-        ge=0,
-        le=100,
-        description="The order of execution of the command will be executed in. 0 is the first command to be executed, 1 the second , and so on.",
-    )
-
-
 class MasterContext(BaseModel):
     """
     Immutable view of the built repository used by downstream agents.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     root_path: str
     frameworks: Optional[list[str]] = None
@@ -63,8 +60,12 @@ class MasterContext(BaseModel):
     lib_path: Optional[str] = None
     test_path: Optional[str] = None
     compile_success: bool
-    build_commands: Optional[list[Command]] = None
-    test_commands: Optional[list[Command]] = None
+    # Setup output: store both the path (relative to root_path) and the full contents.
+    # Prefer scripts over command lists so downstream can execute consistently.
+    build_script_path: Optional[str] = None
+    build_script: Optional[str] = None
+    test_script_path: Optional[str] = None
+    test_script: Optional[str] = None
     adapter: AdapterType = "solidity"  # Domain adapter for dependency graph analysis
 
 

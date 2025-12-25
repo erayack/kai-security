@@ -75,12 +75,11 @@ class ProfilerProcess(BaseProcess[ProfilerInput, ProfilerOutput]):
                 response = await agent.chat_with_tools(retry_prompt)
         except Exception as e:
             exception_msg = str(e)
-            prefix = "error_profiler"
         finally:
             try:
                 await agent.close()
-            except Exception:
-                pass
+            except Exception as e:
+                raise e
 
         # Conversation saving handled by dispatcher via state_manager
 
