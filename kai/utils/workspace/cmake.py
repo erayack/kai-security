@@ -77,6 +77,24 @@ class CMakeWorkspaceAdapter(WorkspaceAdapter):
         # Not applicable for CMake.
         return ""
 
+    def get_runtime_writable_paths(
+        self, project_root: Path, master_context: MasterContext
+    ) -> list[Path]:
+        # Common out-of-source build dirs.
+        candidates = [
+            "build",
+            "cmake-build",
+            "cmake-build-debug",
+            "cmake-build-release",
+        ]
+        out: list[Path] = []
+        for rel in candidates:
+            try:
+                out.append((project_root / rel).resolve())
+            except Exception:
+                continue
+        return out
+
     def infer_src_path(self, master: Path) -> Path:
         # For CMake, the source root is typically the repo root.
         return master

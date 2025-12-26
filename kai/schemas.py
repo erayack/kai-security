@@ -521,6 +521,7 @@ class ProtocolManifesto(BaseModel):
 
 class ProfilerInput(BaseModel):
     master_context: MasterContext
+    dependency_graph: Any | None = None  # DependencyGraph object (optional, for reuse)
     num_turns: int
     model_name: str
     use_openai: bool = False

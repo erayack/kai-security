@@ -77,6 +77,15 @@ class CargoWorkspaceAdapter(WorkspaceAdapter):
         # Not applicable for Cargo.
         return ""
 
+    def get_runtime_writable_paths(
+        self, project_root: Path, master_context: MasterContext
+    ) -> list[Path]:
+        # Cargo writes build artifacts under target/
+        try:
+            return [(project_root / "target").resolve()]
+        except Exception:
+            return []
+
     def infer_src_path(self, master: Path) -> Path:
         if (master / "src").exists():
             return master / "src"

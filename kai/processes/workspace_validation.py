@@ -31,10 +31,10 @@ class WorkspaceValidationProcess(
     - compiles and runs only that smoke test
     """
 
-    def __init__(self, context: MasterContext):
+    def __init__(self, context: MasterContext, *, workspace_dir: str | None = None):
         super().__init__(context=context)
         self._workspace_manager = WorkspaceManager(
-            workspace_dir="./kai_workspaces", logger=self.logger
+            workspace_dir=(workspace_dir or "./kai_workspaces"), logger=self.logger
         )
 
     @staticmethod
