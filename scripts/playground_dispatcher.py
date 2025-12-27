@@ -9,7 +9,7 @@ Minimal example showing the full Kai v2 pipeline:
 4. Fixing (after all missions complete, generates patches for verified exploits)
 
 Usage:
-    uv run pytho scripts/playground_dispatcher.py --repo-path ./master/your-contracts
+    uv run python scripts/playground_dispatcher.py --repo-path ./master/your-contracts
     uv run python scripts/playground_dispatcher.py --repo-path ./master/your-contracts --model anthropic/claude-3-5-sonnet
 """
 

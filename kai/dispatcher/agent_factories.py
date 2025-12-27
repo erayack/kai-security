@@ -238,12 +238,22 @@ def create_blackbox_agent(
     """
     from kai.agents.agent_types.blackbox_agent import BlackboxAgent
     from kai.schemas import CampaignBrief, CampaignScope
+    from kai.utils.tool_adapters import get_supported_frameworks
 
     # Create a CampaignBrief from mission context
+    framework = None
+    if master_context and getattr(master_context, "frameworks", None):
+        supported = set(get_supported_frameworks())
+        for fw in master_context.frameworks or []:
+            fw_lower = str(fw).lower()
+            if fw_lower in supported:
+                framework = fw_lower
+                break
+
     campaign_brief = CampaignBrief(
         campaign_id=mission.campaign_id,
         agent_types=[mission.agent_type],
-        framework=master_context.adapter if master_context else None,
+        framework=framework,
         scope=CampaignScope(),
         invariants=[mission.invariant] if mission.invariant else [],
         master_context=master_context,

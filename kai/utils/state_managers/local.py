@@ -11,6 +11,7 @@ from kai.schemas import (
     ActorMatrix,
     CampaignBrief,
     ExploitCandidate,
+    Fix,
     Invariant,
     Mission,
     Observation,
@@ -93,6 +94,9 @@ class LocalStateManager(KaiStateManager):
         return True
 
     async def save_verdict(self, verdict: Verdict) -> bool:
+        return True
+
+    async def save_fix(self, fix: Fix) -> bool:
         return True
 
     async def save_observations(self, observations: List[Observation]) -> bool:
