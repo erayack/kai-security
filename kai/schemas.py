@@ -3,6 +3,8 @@ from typing import Optional, List, Dict, Any, Literal
 
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 
+from kai.agents import settings
+
 # Adapter type literal for structured output validation
 AdapterType = Literal["solidity"]
 
@@ -185,7 +187,7 @@ class InvariantProcessInput(BaseModel):
     dependency_graph: Any  # DependencyGraph object
     actor_matrix: "ActorMatrix"
     protocol_manifesto: Optional["ProtocolManifesto"] = None
-    model_name: str = "openai/gpt-5.2"
+    model_name: str = settings.MAIN_DEFAULT_MODEL
     use_openai: bool = False
     max_chunk_functions: int = 25  # Max functions per chunk
 
@@ -455,7 +457,7 @@ class ActorAnalysisInput(BaseModel):
 
     graph: Any  # DependencyGraph object
     slither: Optional[Any] = None
-    model_name: str = "z-ai/glm-4.6"
+    model_name: str = settings.MAIN_DEFAULT_MODEL
     use_openai: bool = True
     enable_llm_review: bool = True
     max_suspicious_for_llm: int = 200
@@ -611,7 +613,7 @@ class ActorMatrixInput(BaseModel):
     master_context: "MasterContext"
     dependency_graph: Any  # DependencyGraph object
     protocol_manifesto: Optional["ProtocolManifesto"] = None
-    model_name: str = "z-ai/glm-4.6"
+    model_name: str = settings.MAIN_DEFAULT_MODEL
     use_openai: bool = False
 
 
@@ -899,7 +901,7 @@ class InvariantSynthesizerInput(BaseModel):
     master_context: MasterContext
     dependency_graph: Any
     protocol_manifesto: Optional[ProtocolManifesto] = None
-    model_name: str = "openai/gpt-5.2"
+    model_name: str = settings.MAIN_DEFAULT_MODEL
     use_openai: bool = False
     max_turns_per_observation: int = 8
 
@@ -928,7 +930,7 @@ class VerifierProcessInput(BaseModel):
     invariant: "Invariant"
     master_context: "MasterContext"
     dependency_graph: Any = None  # DependencyGraph object
-    model_name: str = "openai/gpt-5.2"
+    model_name: str = settings.MAIN_DEFAULT_MODEL
     use_openai: bool = False
     max_turns: int = 16
 
@@ -959,5 +961,5 @@ class FixerInput(BaseModel):
     exploit_candidate: ExploitCandidate
     verdict: Verdict
     master_context: Optional[MasterContext] = None
-    model_name: str = "z-ai/glm-4.7"
+    model_name: str = settings.MAIN_DEFAULT_MODEL
     use_openai: bool = False

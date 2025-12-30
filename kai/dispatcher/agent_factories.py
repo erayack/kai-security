@@ -7,6 +7,7 @@ Each factory handles agent-specific setup (prompts, workspace paths, etc.).
 
 from typing import Optional, Dict, Any
 
+from kai.agents import settings
 from kai.schemas import (
     ActorMatrix,
     Invariant,
@@ -120,7 +121,7 @@ def create_state_agent(
     master_context: MasterContext,
     dependency_graph: Optional[DependencyGraph] = None,
     actor_matrix: Optional[ActorMatrix] = None,
-    model: str = "openai/gpt-5.2",
+    model: str = settings.MAIN_DEFAULT_MODEL,
     use_openai: bool = False,
     execution_id: Optional[str] = None,
 ):
@@ -173,7 +174,7 @@ def create_quant_agent(
     master_context: MasterContext,
     dependency_graph: Optional[DependencyGraph] = None,
     actor_matrix: Optional[ActorMatrix] = None,
-    model: str = "openai/gpt-5.2",
+    model: str = settings.MAIN_DEFAULT_MODEL,
     use_openai: bool = False,
     execution_id: Optional[str] = None,
 ):
@@ -226,7 +227,7 @@ def create_blackbox_agent(
     master_context: MasterContext,
     dependency_graph: Optional[DependencyGraph] = None,
     actor_matrix: Optional[ActorMatrix] = None,
-    model: str = "openai/gpt-5.2",
+    model: str = settings.MAIN_DEFAULT_MODEL,
     use_openai: bool = False,
     execution_id: Optional[str] = None,
 ):

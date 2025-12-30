@@ -310,7 +310,9 @@ class EnvironmentSetupProcess(
                 fw_lower = "foundry"
             if fw_lower in supported:
                 return fw_lower
-        raise ValueError(f"No supported framework found in MasterContext.frameworks: {frameworks}")
+        raise ValueError(
+            f"No supported framework found in MasterContext.frameworks: {frameworks}"
+        )
 
     def _runtime_writable_dirs(
         self, project_root: Path, master_context: MasterContext
