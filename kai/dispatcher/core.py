@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
+from kai.agents import settings
 from kai.state_manager import KaiStateManager
 
 from kai.schemas import (
@@ -56,7 +57,7 @@ class DispatcherConfig:
     default_budget: CampaignBudget = field(default_factory=CampaignBudget)
     workspace_dir: str = "./kai_workspaces"  # TODO: check if it respects workspace_dir
     # Model settings for agents
-    model: str = "openai/gpt-5.2"
+    model: str = settings.MAIN_DEFAULT_MODEL
     use_openai: bool = False
 
 
@@ -138,7 +139,7 @@ class Dispatcher:
         self,
         repo_url: Optional[str] = None,
         repo_path: Optional[str] = None,
-        model_name: str = "openai/gpt-5.2",
+        model_name: str = settings.MAIN_DEFAULT_MODEL,
         use_openai: bool = False,
     ) -> bool:
         """
