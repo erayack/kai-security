@@ -337,8 +337,8 @@ class Fix(BaseModel):
 
 class EnvironmentSetupInput(BaseModel):
     repo_url: str
-    num_turns: int
-    model_name: str
+    num_turns: int = settings.MAX_TOOL_TURNS
+    model_name: str = settings.SETUP_DEFAULT_MODEL
     use_openai: bool = False
     execution_id: Optional[str] = None
     repo_path_override: Optional[str] = None
