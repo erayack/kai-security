@@ -490,6 +490,8 @@ class Dispatcher:
 
     def _queue_blackbox_missions(self) -> None:
         """Queue blackbox missions (phase 0)."""
+        if not self._planner:
+            return
         campaign, missions = self._planner.build_blackbox_campaign()
         self.campaigns.append(campaign)
         for mission in missions:
@@ -508,6 +510,8 @@ class Dispatcher:
 
     def _queue_gamified_missions(self) -> None:
         """Queue gamified missions from invariant clusters (phase 2)."""
+        if not self._planner:
+            return
         campaigns, missions = self._planner.build_gamified_campaigns(
             list(self.invariants.values())
         )

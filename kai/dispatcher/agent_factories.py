@@ -326,13 +326,14 @@ def create_gamified_agent(
                 node = dependency_graph._nodes.get(var_id)
                 if node:
                     # Get writers and readers from graph edges
+                    # _edges is Dict[(src, kind, dst), EdgeMeta]
                     writers = []
                     readers = []
-                    for edge in dependency_graph._edges:
-                        if edge.target == var_id and edge.kind.name == "WRITES":
-                            writers.append(edge.source)
-                        if edge.source == var_id and edge.kind.name == "READS":
-                            readers.append(edge.target)
+                    for (src, kind, dst) in dependency_graph._edges:
+                        if dst == var_id and kind.name == "WRITES":
+                            writers.append(src)
+                        if src == var_id and kind.name == "READS":
+                            readers.append(dst)
                     vars_in_scope.append(
                         VarVocabEntry(
                             id=var_id,
