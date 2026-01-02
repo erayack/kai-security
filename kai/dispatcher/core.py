@@ -50,7 +50,7 @@ AgentFactory = Callable[..., "BaseAgent"]
 class DispatcherConfig:
     """Configuration for Dispatcher."""
 
-    max_concurrent_agents: int = 4
+    max_concurrent_agents: int = settings.MAX_CONCURRENT_AGENTS
     max_invariants_per_cluster: int = 5
     max_campaigns: int = 10
     include_exploration: bool = True
@@ -58,6 +58,7 @@ class DispatcherConfig:
     workspace_dir: str = "./kai_workspaces"  # TODO: check if it respects workspace_dir
     # Model settings for agents
     model: str = settings.MAIN_DEFAULT_MODEL
+    verifier_model: str = settings.VERIFIER_DEFAULT_MODEL
     use_openai: bool = False
 
 
@@ -328,24 +329,19 @@ class Dispatcher:
                 else None
             )
 
-            self.logger.info("Planning missions...")
-            planned_missions = self._plan_missions()
-
-            # Persist campaigns and missions
-            await self._persist(
-                self._state_manager.save_campaigns(self.campaigns)
-                if self._state_manager
-                else None
-            )
-            await self._persist(
-                self._state_manager.save_missions(planned_missions)
-                if self._state_manager
-                else None
+            # Initialize planner (actual planning happens in run_loop phases)
+            self._planner = MissionPlanner(
+                dependency_graph=self.dependency_graph,
+                actor_matrix=self.actor_matrix,
+                max_invariants_per_cluster=self.config.max_invariants_per_cluster,
+                max_campaigns=self.config.max_campaigns,
+                include_exploration=self.config.include_exploration,
+                default_budget=self.config.default_budget,
+                master_context=self.master_context,
             )
 
             self.logger.info(
-                f"Boot complete: {len(self.campaigns)} campaigns, "
-                f"{self.mission_queue.qsize()} missions queued"
+                f"Boot complete: {len(self.invariants)} invariants, planner ready"
             )
             return True
 
@@ -401,42 +397,6 @@ class Dispatcher:
             self.logger.error(f"Failed to build DependencyGraph: {e}")
         return None
 
-    def _plan_missions(self) -> List[Mission]:
-        """Plan missions from invariants (delegates to MissionPlanner)."""
-        if (
-            not self.invariants
-            or not self.dependency_graph
-            or not self.actor_matrix
-            or not self.master_context
-        ):
-            self.logger.warning("Cannot plan missions: missing prerequisites")
-            return []
-
-        self._planner = MissionPlanner(
-            dependency_graph=self.dependency_graph,
-            actor_matrix=self.actor_matrix,
-            max_invariants_per_cluster=self.config.max_invariants_per_cluster,
-            max_campaigns=self.config.max_campaigns,
-            include_exploration=self.config.include_exploration,
-            default_budget=self.config.default_budget,
-            master_context=self.master_context,
-        )
-
-        base_index = len(self.completed_missions) + self.mission_queue.qsize()
-        campaigns, missions = self._planner.plan(
-            invariants=list(self.invariants.values()), base_mission_index=base_index
-        )
-        self.campaigns = campaigns
-
-        for mission in missions:
-            campaign = next(
-                (c for c in campaigns if c.campaign_id == mission.campaign_id), None
-            )
-            priority = campaign.priority if campaign else 1
-            self.mission_queue.put_nowait((priority, mission.mission_id, mission))
-
-        return missions
-
     def _check_shutdown(self) -> bool:
         """
         Check if shutdown has been requested.
@@ -476,52 +436,88 @@ class Dispatcher:
 
     async def run_loop(self) -> None:
         """
-        Event loop: dispatch missions to agents, handle results.
-
-        Runs until:
-        - Mission queue is empty and no active agents, OR
-        - Shutdown is triggered (waits for active missions to complete)
+        Three-phase execution:
+        - Phase 0: Blackbox → observations → new invariants
+        - Phase 1: State/Quant (with updated invariants)
+        - Phase 2: Gamified on clusters
         """
-        self.logger.info("Starting run loop...")
+        # Phase 0: Blackbox
+        if self.config.include_exploration and self._planner:
+            self.logger.info("Phase 0: Blackbox...")
+            self._queue_blackbox_missions()
+            await self._drain_mission_queue()
+            self.logger.info(f"Phase 0 done: {len(self.invariants)} invariants")
 
+        if self._shutdown_requested:
+            return
+
+        # Phase 1: State/Quant (plan with all invariants including any from blackbox)
+        self.logger.info("Phase 1: State/Quant...")
+        self._plan_state_quant_missions()
+        await self._drain_mission_queue()
+        self.logger.info(f"Phase 1 done: {len(self.completed_missions)} missions")
+
+        if self._shutdown_requested:
+            return
+
+        # Phase 2: Gamified
+        if self.invariants and self._planner:
+            self.logger.info("Phase 2: Gamified...")
+            self._queue_gamified_missions()
+            await self._drain_mission_queue()
+            self.logger.info(f"Phase 2 done")
+
+        self.logger.info(f"Total: {len(self.exploit_candidates)} candidates")
+        await self._fix_verified_exploits()
+
+    async def _drain_mission_queue(self) -> None:
+        """Run missions from queue until empty."""
         while not self.mission_queue.empty() or self.active_missions:
-            # Check for shutdown signal
             if self._check_shutdown():
-                self.logger.warning(
-                    f"Shutdown requested. Waiting for {len(self.active_missions)} "
-                    f"active mission(s) to complete..."
-                )
-                # Stop spawning new missions, wait for active ones to finish
                 while self.active_missions:
                     await asyncio.sleep(0.5)
                 break
 
-            # Spawn agents if slots available
             while (
                 len(self.active_missions) < self.config.max_concurrent_agents
                 and not self.mission_queue.empty()
             ):
                 _, _, mission = await self.mission_queue.get()
-                # Track immediately to prevent over-spawning
                 self.active_missions[mission.mission_id] = mission
                 asyncio.create_task(self._execute_mission(mission))
 
-            # Brief pause to allow task switching
             await asyncio.sleep(0.1)
 
-        if self._shutdown_requested:
-            remaining = self.mission_queue.qsize()
-            self.logger.info(
-                f"Shutdown complete. {remaining} mission(s) left in queue (not executed)."
-            )
-        else:
-            self.logger.info(
-                f"Run loop complete: {len(self.completed_missions)} missions, "
-                f"{len(self.exploit_candidates)} candidates"
-            )
+    def _queue_blackbox_missions(self) -> None:
+        """Queue blackbox missions (phase 0)."""
+        if not self._planner:
+            return
+        campaign, missions = self._planner.build_blackbox_campaign()
+        self.campaigns.append(campaign)
+        for mission in missions:
+            self.mission_queue.put_nowait((0, mission.mission_id, mission))
 
-        # Generate fixes for all verified exploits
-        await self._fix_verified_exploits()
+    def _plan_state_quant_missions(self) -> None:
+        """Plan state/quant missions with all invariants (phase 1)."""
+        if not self._planner or not self.invariants:
+            return
+        campaigns, missions = self._planner.plan(
+            invariants=list(self.invariants.values())
+        )
+        self.campaigns.extend(campaigns)
+        for mission in missions:
+            self.mission_queue.put_nowait((1, mission.mission_id, mission))
+
+    def _queue_gamified_missions(self) -> None:
+        """Queue gamified missions from invariant clusters (phase 2)."""
+        if not self._planner:
+            return
+        campaigns, missions = self._planner.build_gamified_campaigns(
+            list(self.invariants.values())
+        )
+        self.campaigns.extend(campaigns)
+        for mission in missions:
+            self.mission_queue.put_nowait((2, mission.mission_id, mission))
 
     async def _execute_mission(self, mission: Mission) -> None:
         """Execute a single mission with an agent."""
@@ -574,6 +570,10 @@ class Dispatcher:
             elif mission.agent_type == MissionAgentType.BLACKBOX:
                 await agent.chat_with_tools("Begin.")
                 await self._handle_blackbox_agent_result(mission, agent)
+
+            elif mission.agent_type == MissionAgentType.GAMIFIED:
+                await agent.chat_with_tools("Begin.")
+                await self._handle_gamified_agent_result(mission, agent)
 
             else:
                 raise ValueError(f"Unsupported agent type: {mission.agent_type}")
@@ -688,7 +688,7 @@ class Dispatcher:
                 invariant=invariant,
                 master_context=self.master_context,
                 dependency_graph=self.dependency_graph,
-                model_name=self.config.model,
+                model_name=self.config.verifier_model,
                 use_openai=self.config.use_openai,
                 max_turns=16,
             )
@@ -894,6 +894,47 @@ class Dispatcher:
                 self.logger.info(f"New invariant discovered: {new_inv.id}")
                 self.invariants[new_inv.id] = new_inv
                 self._schedule_missions_for_invariant(new_inv)
+
+    async def _handle_gamified_agent_result(self, mission: Mission, agent: Any) -> None:
+        """
+        Extract and handle results from GamifiedAgent.
+
+        GamifiedAgent discovers exploitation opportunities by reasoning about gaps
+        between invariants in a cluster. It implements get_exploit_candidates() which
+        returns registered exploits (same as StateAgent/QuantAgent).
+        """
+        candidates = agent.get_exploit_candidates()
+
+        if not candidates:
+            self.logger.info(
+                f"No exploit candidates from gamified {mission.mission_id}"
+            )
+            return
+
+        self.logger.info(
+            f"GamifiedAgent {mission.mission_id} found {len(candidates)} exploit candidate(s)"
+        )
+
+        for candidate in candidates:
+            # Tag candidate with mission context
+            if hasattr(candidate, "mission_id") and not candidate.mission_id:
+                candidate.mission_id = mission.mission_id
+
+            # Gamified agents work on clusters, so invariant_id might be "gap_exploit"
+            # or set by the register_finding tool
+
+            # Verify compiled candidates
+            if candidate.compiled and self.master_context:
+                await self._verify_candidate(candidate)
+
+            self.exploit_candidates.append(candidate)
+
+            # Persist exploit candidate
+            await self._persist(
+                self._state_manager.save_exploit_candidate(candidate)
+                if self._state_manager
+                else None
+            )
 
     async def _synthesize_invariant(
         self, observation: Observation

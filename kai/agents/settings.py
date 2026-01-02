@@ -11,7 +11,12 @@ load_dotenv()
 DEFAULT_TURNS = 32
 SETUP_DEFAULT_MODEL = "z-ai/glm-4.7"
 MAIN_DEFAULT_MODEL = "z-ai/glm-4.7"
+GAMIFIED_DEFAULT_MODEL = "z-ai/glm-4.7"
+VERIFIER_DEFAULT_MODEL = "z-ai/glm-4.7"
 MAX_TOOL_TURNS = 24
+
+# Dispatcher settings
+MAX_CONCURRENT_AGENTS = 2
 
 # OpenRouter
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -42,6 +47,7 @@ WORKSPACE_VALIDATION_AGENT_PROMPT_PATH = (
     PROMPTS_DIR / "workspace_validation_agent_prompt.txt"
 )
 FIXER_AGENT_PROMPT_PATH = PROMPTS_DIR / "fixer_agent_prompt.txt"
+GAMIFIED_AGENT_PROMPT_PATH = PROMPTS_DIR / "gamified_agent_prompt.txt"
 
 # Conversation defaults
 SAVE_CONVERSATION_PATH = "output/conversations/"
