@@ -11,6 +11,9 @@ load_dotenv()
 DEFAULT_TURNS = 32
 SETUP_DEFAULT_MODEL = "z-ai/glm-4.7"
 MAIN_DEFAULT_MODEL = "z-ai/glm-4.7"
+GAMIFIED_DEFAULT_MODEL = (
+    "anthropic/claude-opus-4.5"  # "z-ai/glm-4.7"  # "anthropic/claude-opus-4.5"
+)
 MAX_TOOL_TURNS = 24
 
 # OpenRouter
@@ -42,6 +45,7 @@ WORKSPACE_VALIDATION_AGENT_PROMPT_PATH = (
     PROMPTS_DIR / "workspace_validation_agent_prompt.txt"
 )
 FIXER_AGENT_PROMPT_PATH = PROMPTS_DIR / "fixer_agent_prompt.txt"
+GAMIFIED_AGENT_PROMPT_PATH = PROMPTS_DIR / "gamified_agent_prompt.txt"
 
 # Conversation defaults
 SAVE_CONVERSATION_PATH = "output/conversations/"

@@ -791,6 +791,8 @@ class Mission(BaseModel):
     # Target invariant (None for exploratory/game modes)
     invariant_id: Optional[str] = None
     invariant: Optional[Invariant] = None
+    # Invariant cluster for gamified agents (multiple related invariants)
+    invariant_cluster: Optional[List[Invariant]] = None
     # Agent assignment
     agent_type: MissionAgentType
     # Inherited from campaign

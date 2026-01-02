@@ -193,7 +193,10 @@ class FoundryToolAdapter(ToolAdapter):
                     installed.append(package)
                 else:
                     # Check if it's already installed (not an error)
-                    if "already exists" in output.lower() or "already installed" in output.lower():
+                    if (
+                        "already exists" in output.lower()
+                        or "already installed" in output.lower()
+                    ):
                         installed.append(package)
                     else:
                         errors.append(f"{package}: {output.strip()[:200]}")
@@ -231,7 +234,7 @@ class FoundryToolAdapter(ToolAdapter):
             import re
 
             # Match url = <value> lines
-            url_pattern = re.compile(r'url\s*=\s*(.+)')
+            url_pattern = re.compile(r"url\s*=\s*(.+)")
             for match in url_pattern.finditer(content):
                 url = match.group(1).strip()
                 package = self._url_to_package(url)
@@ -248,15 +251,15 @@ class FoundryToolAdapter(ToolAdapter):
         import re
 
         # Remove .git suffix
-        url = re.sub(r'\.git$', '', url)
+        url = re.sub(r"\.git$", "", url)
 
         # Handle HTTPS URLs: https://github.com/owner/repo
-        https_match = re.match(r'https?://github\.com/([^/]+)/([^/]+)', url)
+        https_match = re.match(r"https?://github\.com/([^/]+)/([^/]+)", url)
         if https_match:
             return f"{https_match.group(1)}/{https_match.group(2)}"
 
         # Handle SSH URLs: git@github.com:owner/repo
-        ssh_match = re.match(r'git@github\.com:([^/]+)/([^/]+)', url)
+        ssh_match = re.match(r"git@github\.com:([^/]+)/([^/]+)", url)
         if ssh_match:
             return f"{ssh_match.group(1)}/{ssh_match.group(2)}"
 
