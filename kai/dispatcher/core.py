@@ -50,7 +50,7 @@ AgentFactory = Callable[..., "BaseAgent"]
 class DispatcherConfig:
     """Configuration for Dispatcher."""
 
-    max_concurrent_agents: int = 4
+    max_concurrent_agents: int = settings.MAX_CONCURRENT_AGENTS
     max_invariants_per_cluster: int = 5
     max_campaigns: int = 10
     include_exploration: bool = True
@@ -58,6 +58,7 @@ class DispatcherConfig:
     workspace_dir: str = "./kai_workspaces"  # TODO: check if it respects workspace_dir
     # Model settings for agents
     model: str = settings.MAIN_DEFAULT_MODEL
+    verifier_model: str = settings.VERIFIER_DEFAULT_MODEL
     use_openai: bool = False
 
 
@@ -683,7 +684,7 @@ class Dispatcher:
                 invariant=invariant,
                 master_context=self.master_context,
                 dependency_graph=self.dependency_graph,
-                model_name=self.config.model,
+                model_name=self.config.verifier_model,
                 use_openai=self.config.use_openai,
                 max_turns=16,
             )

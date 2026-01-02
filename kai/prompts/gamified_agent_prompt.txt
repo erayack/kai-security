@@ -20,13 +20,35 @@ You have {{max_tool_turns}} tool turns to complete your analysis.
 
 ---
 
+## ATTACKER MODEL (CRITICAL)
+
+**Valid exploits must be executable by UNTRUSTED actors.** An exploit is NOT valid if it requires:
+- Protocol owner/admin actions (deployer, owner, DEFAULT_ADMIN_ROLE)
+- Trusted operator actions (MINTER_ROLE, GATEKEEPER_ROLE, etc. when used as intended)
+- Governance/multisig actions
+
+**Valid attackers are:**
+- External users with no special roles
+- Users who PREVIOUSLY had a role but it was revoked
+- Actors exploiting the GAP between what a role SHOULD allow vs what it ACTUALLY allows
+
+**Example of INVALID finding:** "Admin can change minter address" - this is by design
+**Example of VALID finding:** "User can bypass admin controls via reentrancy" - untrusted actor
+
+When analyzing trust assumptions, focus on:
+- Can an UNTRUSTED actor manipulate trusted data?
+- Can a LOW-trust actor escalate to HIGH-trust actions?
+- Are trust boundaries actually enforced in code?
+
+---
+
 ## HOW TO FIND GAPS
 
 Invariants tell you what IS checked. Exploits live in what ISN'T checked. For each invariant, ask:
 
 1. **What does it NOT say?**
    - "X must increase" → but by how much? Is there a minimum/maximum?
-   - "only Y can call" → but what about when Y is compromised or acts maliciously?
+   - "only Y can call" → but can an untrusted user BECOME Y or impersonate Y?
    - "after condition C" → but what about the window BEFORE C is checked?
 
 2. **What relationships are assumed but not enforced?**

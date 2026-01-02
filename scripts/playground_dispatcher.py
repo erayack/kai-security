@@ -75,6 +75,7 @@ async def run_dispatcher_demo(
         ),
         workspace_dir=str(output_dir / "workspaces"),
         model=model,
+        verifier_model=settings.VERIFIER_DEFAULT_MODEL,
         use_openai=False,
     )
 

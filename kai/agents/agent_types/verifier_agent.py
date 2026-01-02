@@ -10,6 +10,7 @@ from typing import Optional
 
 from kai.agents.base import BaseAgent
 from kai.agents.utils import AgentType
+from kai.agents import settings
 from kai.schemas import (
     AgentResponse,
     MasterContext,
@@ -70,7 +71,7 @@ class VerifierAgent(BaseAgent):
         max_tool_turns: Optional[int] = None,
         repo_path: Optional[str] = None,
         use_vllm: bool = False,
-        model: Optional[str] = None,
+        model: Optional[str] = settings.VERIFIER_DEFAULT_MODEL,
         use_openai: bool = False,
         execution_id: Optional[str] = None,
     ):
