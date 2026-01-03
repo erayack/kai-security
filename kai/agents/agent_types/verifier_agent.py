@@ -77,7 +77,7 @@ class VerifierAgent(BaseAgent):
     ):
         # Initialize with minimal system prompt - will be replaced by set_toolcalling_prompt()
         super().__init__(
-            max_tool_turns=max_tool_turns or 16,  # Verifier needs fewer turns
+            max_tool_turns=max_tool_turns or settings.VERIFIER_MAX_TURNS,
             repo_path=repo_path,
             use_vllm=use_vllm,
             model=model,
