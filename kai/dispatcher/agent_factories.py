@@ -329,7 +329,7 @@ def create_gamified_agent(
                     # _edges is Dict[(src, kind, dst), EdgeMeta]
                     writers = []
                     readers = []
-                    for (src, kind, dst) in dependency_graph._edges:
+                    for src, kind, dst in dependency_graph._edges:
                         if dst == var_id and kind.name == "WRITES":
                             writers.append(src)
                         if src == var_id and kind.name == "READS":

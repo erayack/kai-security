@@ -7,13 +7,24 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Agent settings (aligned with legacy run_scaffold defaults)
-DEFAULT_TURNS = 32
-SETUP_DEFAULT_MODEL = "z-ai/glm-4.7"
-MAIN_DEFAULT_MODEL = "z-ai/glm-4.7"
-GAMIFIED_DEFAULT_MODEL = "z-ai/glm-4.7"
-VERIFIER_DEFAULT_MODEL = "z-ai/glm-4.7"
-MAX_TOOL_TURNS = 24
+# Agent model settings
+SETUP_DEFAULT_MODEL = "google/gemini-3-flash-preview"
+MAIN_DEFAULT_MODEL = "openai/gpt-5.2"
+GAMIFIED_DEFAULT_MODEL = "anthropic/claude-opus-4.5"
+VERIFIER_DEFAULT_MODEL = "anthropic/claude-opus-4.5"
+
+# Agent turn limits (centralized)
+DEFAULT_MAX_TURNS = (
+    32  # Default for most agents (state, quant, blackbox, gamified, fixer)
+)
+SETUP_MAX_TURNS = 24  # Setup agent needs fewer turns
+PROFILER_MAX_TURNS = 12  # Profiler agent
+VERIFIER_MAX_TURNS = 16  # Verifier needs fewer turns
+VALIDATION_MAX_TURNS = 8  # Workspace validation is quick
+INVARIANT_SYNTH_MAX_TURNS = 8  # Invariant synthesizer per observation
+
+# Legacy alias (deprecated - use DEFAULT_MAX_TURNS)
+MAX_TOOL_TURNS = DEFAULT_MAX_TURNS
 
 # Dispatcher settings
 MAX_CONCURRENT_AGENTS = 2

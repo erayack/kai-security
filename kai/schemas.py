@@ -945,6 +945,9 @@ class VerifierProcessOutput(BaseModel):
     error_message: Optional[str] = None
     estimated_cost: float = 0.0
     total_tokens: Dict[str, int] = Field(default_factory=dict)
+    # Agent messages for rollout saving (optional)
+    agent_messages: Optional[List[Any]] = None
+    agent_model: Optional[str] = None
 
 
 # ---------------------------

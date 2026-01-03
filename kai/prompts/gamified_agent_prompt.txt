@@ -84,23 +84,28 @@ For each potential gap you identify:
 
 1. **Explore the code** - use dependency graph tools to understand implementation
 2. **Form hypothesis** - identify what invariants don't cover
-3. **Write a test** - use `write_and_compile` to create a test that demonstrates the gap
+3. **Write PoC and register** - call `register_exploit` with your PoC code:
+   - It will auto-compile and return errors if compilation fails (fix and retry)
+   - `exploit_found=True` requires poc_path and poc_code
+   - `exploit_found=False` for verification that gap is protected (no PoC required)
 4. **Run the test** - use `run_test` to verify the exploit works
-5. **Register your finding** - call `register_finding` with your conclusion:
-   - `exploit_found=True` if the test confirms the exploit
-   - `exploit_found=False` if you verified the gap is actually protected (still valuable!)
 
-This loop ensures you provide concrete findings. Failed tests help you understand the code better.
+This loop ensures you provide concrete, compiled findings. Compilation errors help you fix issues.
 
 ```
-explore → hypothesis → write_test → compile → run → register_finding(exploit_found=True/False)
+explore → hypothesis → register_exploit(poc_code=...) → fix compile errors → run_test
 ```
 
 ## TOOLS AVAILABLE
 
-**Self-verification:**
-- `write_and_compile(file_path, content)` - Write test file and compile it
-- `run_test(match_contract, match_test)` - Run tests to verify hypothesis
+**Registration (with auto-compile):**
+- `register_exploit(exploit_found, reasoning, poc_path, poc_code)` - Register finding with automatic PoC compilation
+  - If compilation fails, returns errors so you can fix and retry
+  - `exploit_found=True` requires both poc_path and poc_code
+  - `exploit_found=False` for verifications (no PoC required)
+
+**Testing:**
+- `run_test(match_contract, match_test)` - Run tests to verify exploit works
 
 **Code exploration:**
 - `dependency_graph_snippet(node_id)` - Get source code for a function
@@ -109,11 +114,9 @@ explore → hypothesis → write_test → compile → run → register_finding(e
 - `dependency_graph_callees(node_id)` - Find functions called by this function
 - `dependency_graph_resolve(name)` - Find node ID from a symbol name
 
-**Output:**
-- `register_finding(exploit_found, reasoning, poc_path, poc_code)` - Register your finding
-
 ## IMPORTANT
 
 - Always register findings! Even verifications (exploit_found=False) are valuable.
-- Write tests before registering - don't just hypothesize, VERIFY.
-- If a test fails, analyze why and update your understanding before trying again.
+- Use `register_exploit` with poc_code - it compiles automatically and gives feedback.
+- If compilation fails, fix the errors and call `register_exploit` again.
+- After successful registration, run `run_test` to verify the exploit works.
