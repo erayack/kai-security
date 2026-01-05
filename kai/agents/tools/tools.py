@@ -1635,13 +1635,30 @@ def register_exploit(
         mission = getattr(agent, "mission", None)
         mission_id = mission.mission_id if mission else "unknown"
         worker_id = getattr(agent, "execution_id", f"agent_{id(agent)}")
+
+        # Determine invariant_id and invariant_ids from mission context
         invariant = getattr(mission, "invariant", None) if mission else None
-        invariant_id = invariant.id if invariant else "gap_exploit"
+        invariant_cluster = (
+            getattr(mission, "invariant_cluster", None) if mission else None
+        )
+
+        if invariant:
+            # State/Quant agents have a single target invariant
+            invariant_id = invariant.id
+            invariant_ids = [invariant.id]
+        elif invariant_cluster and len(invariant_cluster) > 0:
+            # Gamified agents have an invariant cluster
+            invariant_ids = [inv.id for inv in invariant_cluster]
+            invariant_id = invariant_ids[0]  # Primary is first in cluster
+        else:
+            invariant_id = "unknown"
+            invariant_ids = []
 
         exploit_candidate = ExploitCandidate(
             mission_id=mission_id,
             worker_id=worker_id,
             invariant_id=invariant_id,
+            invariant_ids=invariant_ids,
             mechanism=reasoning[:200] if len(reasoning) > 200 else reasoning,
             poc_code=poc_code or "",
             target_file=poc_path or "",

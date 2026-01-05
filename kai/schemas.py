@@ -233,7 +233,12 @@ class ExploitCandidate(BaseModel):
 
     mission_id: str
     worker_id: str
-    invariant_id: str  # Which invariant this claims to violate
+    invariant_id: (
+        str  # Primary invariant (backwards compat, use invariant_ids for clusters)
+    )
+    invariant_ids: List[str] = Field(
+        default_factory=list
+    )  # All related invariants (for clusters)
     mechanism: str  # "reentrancy", "access_control_bypass", etc.
     poc_code: str  # The exploit contract/test code
     target_file: str
@@ -321,7 +326,10 @@ class Fix(BaseModel):
 
     # References to original finding (for DB linking)
     mission_id: str
-    invariant_id: str
+    invariant_id: str  # Primary invariant (backwards compat)
+    invariant_ids: List[str] = Field(
+        default_factory=list
+    )  # All related invariants (for clusters)
     verdict_id: Optional[str] = None  # If verdicts get IDs
 
     # Fix content
