@@ -13,8 +13,10 @@ from kai.schemas import (
     ExploitCandidate,
     Fix,
     Invariant,
+    MasterContext,
     Mission,
     Observation,
+    ProtocolManifesto,
     Verdict,
     CampaignBrief,
 )
@@ -202,5 +204,33 @@ class KaiStateManager(ABC):
 
         Returns:
             Path or URI where conversation was saved, or None if failed
+        """
+        pass
+
+    @abstractmethod
+    async def save_master_context(self, master_context: MasterContext) -> bool:
+        """
+        Save the master context.
+
+        Args:
+            master_context: The MasterContext object containing repo metadata
+
+        Returns:
+            True if successful
+        """
+        pass
+
+    @abstractmethod
+    async def save_protocol_manifesto(
+        self, protocol_manifesto: ProtocolManifesto
+    ) -> bool:
+        """
+        Save the protocol manifesto.
+
+        Args:
+            protocol_manifesto: The ProtocolManifesto containing protocol metadata
+
+        Returns:
+            True if successful
         """
         pass

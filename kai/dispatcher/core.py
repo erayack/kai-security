@@ -311,9 +311,14 @@ class Dispatcher:
             self.master_context = env_output.master_context
             self.logger.info(f"MasterContext ready: {self.master_context.root_path}")
 
-            # Persist state transition
+            # Persist state transition and master context
             await self._persist(
                 self._state_manager.update_state("setup")
+                if self._state_manager
+                else None
+            )
+            await self._persist(
+                self._state_manager.save_master_context(self.master_context)
                 if self._state_manager
                 else None
             )
@@ -388,12 +393,18 @@ class Dispatcher:
             else:
                 self.logger.warning("Profiler failed, continuing without manifesto")
 
-            # Persist state transition
+            # Persist state transition and protocol manifesto
             await self._persist(
                 self._state_manager.update_state("profiler")
                 if self._state_manager
                 else None
             )
+            if self.protocol_manifesto:
+                await self._persist(
+                    self._state_manager.save_protocol_manifesto(self.protocol_manifesto)
+                    if self._state_manager
+                    else None
+                )
 
             self.logger.info("Step 5/6: Actor Analysis...")
             actor_process = ActorProcess(context=self.master_context)
