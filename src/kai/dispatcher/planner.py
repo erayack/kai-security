@@ -27,11 +27,8 @@ from kai.schemas import (
 )
 from kai.utils.dependency.graph import DependencyGraph
 from kai.utils.dependency.models import EdgeKind, NodeKind
+from kai.utils.ids import generate_id as generate_mission_id
 
-
-def generate_mission_id() -> str:
-    """Generate a 24-character hex ID (MongoDB ObjectId compatible)."""
-    return secrets.token_hex(12)
 
 
 # Agent type mapping based on invariant semantics
@@ -235,7 +232,6 @@ class MissionPlanner:
             framework = self.master_context.frameworks[0]
 
         return CampaignBrief(
-            campaign_id=f"CMP_{cluster.cluster_id}",
             mode=CampaignMode.INVARIANT_BOUNDED,
             agent_types=agent_types,
             framework=framework,
@@ -324,7 +320,6 @@ class MissionPlanner:
             framework = self.master_context.frameworks[0]
 
         campaign = CampaignBrief(
-            campaign_id="CMP_BLACKBOX_GLOBAL",
             mode=CampaignMode.EXPLORATORY,
             agent_types=[MissionAgentType.BLACKBOX],
             framework=framework,
@@ -462,7 +457,6 @@ class MissionPlanner:
             actor_roles = self._derive_actor_roles(cluster)
 
             campaign = CampaignBrief(
-                campaign_id=f"CMP_GAMIFIED_{cluster.cluster_id}",
                 mode=CampaignMode.GAME,
                 agent_types=[MissionAgentType.GAMIFIED],
                 framework=framework,

@@ -281,12 +281,13 @@ class InvariantSynthesizerProcess(
 
     def _generate_id(self, obs: Observation, target_ids: Set[str]) -> str:
         """
-        Generate a deterministic ID based on description and targets.
+        Generate a deterministic MongoDB ObjectId compatible hex ID (24 chars).
+        Based on observation description and target function IDs.
         """
         sorted_targets = sorted(list(target_ids))
         raw = f"{obs.description}|{'|'.join(sorted_targets)}"
-        h = hashlib.sha1(raw.encode()).hexdigest()[:10]
-        return f"INV_OBS_{h}"
+        h = hashlib.sha1(raw.encode()).hexdigest()[:24]
+        return h
 
     def _derive_target_var_ids(
         self, target_function_ids: List[str], engine: GraphQueryEngine

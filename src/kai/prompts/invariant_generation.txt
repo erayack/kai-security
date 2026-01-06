@@ -42,7 +42,6 @@ Respond with a JSON object containing an "invariants" array:
 {{
   "invariants": [
     {{
-      "id": "INV_UNIQUE_ID",
       "type": "ACCESS|SOLVENCY|CONSERVATION|LIVENESS|FEE_BOUND|REENTRANCY|ORDERING|OTHER",
       "rule": "Human-readable invariant statement",
       "explanation": "Why this invariant matters and how it could be violated",

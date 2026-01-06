@@ -4,6 +4,7 @@ from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 from kai.agents.settings import MAIN_DEFAULT_MODEL, SETUP_DEFAULT_MODEL, MAX_TOOL_TURNS
+from kai.utils.ids import generate_id
 
 # Adapter type literal for structured output validation
 AdapterType = Literal["solidity"]
@@ -123,7 +124,7 @@ class Invariant(BaseModel):
     Output of InvariantProcess, consumed by Dispatcher and Workers.
     """
 
-    id: str  # e.g., "INV_SUPPLY_CONSERVATION", "INV_ADMIN_UPGRADE"
+    id: str = Field(default_factory=generate_id)  # MongoDB ObjectId compatible 24-char hex
     type: InvariantType
     rule: str  # Human-readable invariant statement
     explanation: str = ""  # LLM's reasoning for this invariant
@@ -768,7 +769,7 @@ class CampaignBrief(BaseModel):
     Self-contained: agents can execute with only this + workspace.
     """
 
-    campaign_id: str
+    campaign_id: str = Field(default_factory=generate_id)  # MongoDB ObjectId compatible 24-char hex
     mode: CampaignMode = CampaignMode.INVARIANT_BOUNDED
     agent_types: List[MissionAgentType] = Field(default_factory=list)
     framework: Optional[str] = None
