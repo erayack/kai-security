@@ -17,7 +17,9 @@ from kai.agents.settings import (
 )
 from kai.schemas import ChatMessage, Role, AgentResponse
 import asyncio
-from logger import logger
+import logging
+
+logger = logging.getLogger(__name__)
 
 from collections.abc import Callable
 from typing import Any, Dict, Optional, Union
