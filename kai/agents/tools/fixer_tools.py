@@ -488,48 +488,41 @@ def register_fix(
     except Exception as e:
         compile_errors = [str(e)]
 
-    if not compiled:
-        return {
-            "registered": False,
-            "fix_id": fix_id,
-            "compiled": False,
-            "tests_passed": False,
-            "compile_errors": compile_errors,
-            "message": "Fix applied but compilation failed. Fix the errors and try again.",
-        }
+    # Step 3: Run the PoC test to verify the fix works (only if compiled)
+    if compiled:
+        # Get PoC path from exploit_candidate
+        poc_path = None
+        if ec_obj:
+            poc_path = getattr(ec_obj, "target_file", None) or getattr(
+                ec_obj, "poc_path", None
+            )
 
-    # Step 3: Run the PoC test to verify the fix works
-    # Get PoC path from exploit_candidate
-    poc_path = None
-    if ec_obj:
-        poc_path = getattr(ec_obj, "target_file", None) or getattr(
-            ec_obj, "poc_path", None
-        )
+        if poc_path:
+            # Extract test contract name from path (e.g., "test/poc/MyTest.t.sol" -> "MyTest")
+            poc_filename = Path(poc_path).stem
+            # Remove .t suffix if present
+            if poc_filename.endswith(".t"):
+                poc_filename = poc_filename[:-2]
 
-    if poc_path:
-        # Extract test contract name from path (e.g., "test/poc/MyTest.t.sol" -> "MyTest")
-        poc_filename = Path(poc_path).stem
-        # Remove .t suffix if present
-        if poc_filename.endswith(".t"):
-            poc_filename = poc_filename[:-2]
+            try:
+                test_result = run_test(match_contract=poc_filename)
+                test_output = test_result.get("raw_output", "")
 
-        try:
-            test_result = run_test(match_contract=poc_filename)
-            test_output = test_result.get("raw_output", "")
-
-            # The fix is successful if the PoC test now FAILS (the vulnerability is fixed)
-            # OR if all tests pass (the fix doesn't break anything)
-            # We consider tests_passed=True if:
-            # - The test ran successfully (success=True)
-            # - AND either: tests passed OR assertion failures (exploit no longer works)
-            if test_result.get("success"):
-                tests_passed = True
-        except Exception as e:
-            test_output = f"Test execution error: {e}"
+                # The fix is successful if the PoC test now FAILS (the vulnerability is fixed)
+                # OR if all tests pass (the fix doesn't break anything)
+                # We consider tests_passed=True if:
+                # - The test ran successfully (success=True)
+                # - AND either: tests passed OR assertion failures (exploit no longer works)
+                if test_result.get("success"):
+                    tests_passed = True
+            except Exception as e:
+                test_output = f"Test execution error: {e}"
+        else:
+            test_output = "No PoC path available - skipping test verification"
+            # Still mark as passed since we can't verify
+            tests_passed = True
     else:
-        test_output = "No PoC path available - skipping test verification"
-        # Still mark as passed since we can't verify
-        tests_passed = True
+        test_output = f"Skipped tests - compilation failed: {compile_errors}"
 
     # Step 4: Create and store the fix record
     record = {
