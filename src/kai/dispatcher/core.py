@@ -823,10 +823,6 @@ class Dispatcher:
             ):
                 candidate.invariant_id = mission.invariant.id
 
-            # Verify compiled candidates
-            if candidate.compiled and self.master_context:
-                await self._verify_candidate(candidate)
-
             self.exploit_candidates.append(candidate)
 
             # Persist exploit candidate
@@ -835,6 +831,10 @@ class Dispatcher:
                 if self._state_manager
                 else None
             )
+
+            # Verify compiled candidates
+            if candidate.compiled and self.master_context:
+                await self._verify_candidate(candidate)
 
     async def _verify_candidate(self, candidate: ExploitCandidate) -> Optional[Verdict]:
         """
@@ -1126,10 +1126,6 @@ class Dispatcher:
             # Gamified agents work on clusters, so invariant_id might be "gap_exploit"
             # or set by the register_finding tool
 
-            # Verify compiled candidates
-            if candidate.compiled and self.master_context:
-                await self._verify_candidate(candidate)
-
             self.exploit_candidates.append(candidate)
 
             # Persist exploit candidate
@@ -1138,6 +1134,10 @@ class Dispatcher:
                 if self._state_manager
                 else None
             )
+
+            # Verify compiled candidates 
+            if candidate.compiled and self.master_context:
+                await self._verify_candidate(candidate)
 
     async def _synthesize_invariant(
         self, observation: Observation
