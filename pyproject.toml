@@ -30,5 +30,3 @@ dev = [
     "ty>=0.0.1a32",
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/kai"]
