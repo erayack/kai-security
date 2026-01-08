@@ -193,6 +193,18 @@ class CMakeToolAdapter(ToolAdapter):
     def get_allowed_patch_directories(self) -> List[str]:
         return ["tests/poc", "tests\\poc"]
 
+    def get_poc_guidance(self) -> str:
+        """Get CMake/C++-specific PoC writing guidance."""
+        return """## PoC Format: CMake/C++
+Write C++ test files in tests/poc/.
+- Tests run via `ctest` after CMake build
+- Use a testing framework like Google Test, Catch2, or simple main()
+- Include REAL headers from the codebase
+- Use assert() or testing framework assertions to prove the exploit
+- A PASSING test with assertions proving vulnerability = valid exploit
+- Add test to CMakeLists.txt with add_test() or framework macros
+- Build with cmake --build build && ctest --test-dir build"""
+
 
 _CTEST_SUMMARY_RE = re.compile(
     r"(?P<pct>\d+)%\s+tests\s+passed,\s+(?P<failed>\d+)\s+tests\s+failed\s+out\s+of\s+(?P<total>\d+)",

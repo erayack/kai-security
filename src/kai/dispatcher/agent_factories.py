@@ -124,6 +124,7 @@ def create_state_agent(
     model: str = settings.MAIN_DEFAULT_MODEL,
     use_openai: bool = False,
     execution_id: Optional[str] = None,
+    extra_instructions: Optional[str] = None,
 ):
     """
     Factory function to create a properly configured StateAgent.
@@ -136,6 +137,7 @@ def create_state_agent(
         model: Model to use for inference
         use_openai: Whether to use OpenAI API directly
         execution_id: Optional execution ID for logging
+        extra_instructions: Additional instructions (e.g., CWE hints)
 
     Returns:
         Configured StateAgent ready for chat_with_tools()
@@ -163,6 +165,7 @@ def create_state_agent(
         agent.set_toolcalling_prompt(
             invariant=mission.invariant,
             actor_context=actor_context,
+            extra_instructions=extra_instructions or "",
         )
 
     return agent
@@ -177,6 +180,7 @@ def create_quant_agent(
     model: str = settings.MAIN_DEFAULT_MODEL,
     use_openai: bool = False,
     execution_id: Optional[str] = None,
+    extra_instructions: Optional[str] = None,
 ):
     """
     Factory function to create a properly configured QuantAgent.
@@ -189,6 +193,7 @@ def create_quant_agent(
         model: Model to use for inference
         use_openai: Whether to use OpenAI API directly
         execution_id: Optional execution ID for logging
+        extra_instructions: Additional instructions (e.g., CWE hints)
 
     Returns:
         Configured QuantAgent ready for chat_with_tools()
@@ -216,6 +221,7 @@ def create_quant_agent(
         agent.set_toolcalling_prompt(
             invariant=mission.invariant,
             actor_context=actor_context,
+            extra_instructions=extra_instructions or "",
         )
 
     return agent
@@ -230,6 +236,7 @@ def create_blackbox_agent(
     model: str = settings.MAIN_DEFAULT_MODEL,
     use_openai: bool = False,
     execution_id: Optional[str] = None,
+    extra_instructions: Optional[str] = None,
 ):
     """
     Factory function to create a properly configured BlackboxAgent.
@@ -283,6 +290,7 @@ def create_gamified_agent(
     model: str = settings.GAMIFIED_DEFAULT_MODEL,
     use_openai: bool = False,
     execution_id: Optional[str] = None,
+    extra_instructions: Optional[str] = None,
 ):
     """
     Factory function to create a properly configured GamifiedAgent.

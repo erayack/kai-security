@@ -127,3 +127,9 @@ Repeat as needed:
 - Casting large values to smaller types (truncation)
 - Signed to unsigned conversion (negative becomes huge positive)
 - Float to int (truncation vs rounding)
+
+## Framework-Specific PoC Guidance
+{{poc_guidance}}
+
+## Additional Instructions
+{{extra_instructions}}

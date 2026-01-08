@@ -88,3 +88,9 @@ Repeat as needed:
    - Run the test targeting your test contract.
    - A PASSING test with assertions proving bad state = valid exploit.
    - If test fails, the exploit doesn't work - do NOT register it.
+
+## Framework-Specific PoC Guidance
+{{poc_guidance}}
+
+## Additional Instructions
+{{extra_instructions}}

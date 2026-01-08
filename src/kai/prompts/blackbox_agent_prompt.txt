@@ -54,5 +54,8 @@ The runtime will provide the full, up-to-date tool list and signatures below. Us
    - After `run_test(...)` completes and returns output without tool/runtime errors (the test may still fail), call `add_observation(...)` to record what you just observed (what you ran + what happened).
    - If `run_test(...)` fails, you may record that failure as an observation (include `raw_output` in `logs`).
 
+## Framework-Specific PoC Guidance
+{{poc_guidance}}
+
 ## NOTES
-- State is preserved across turns: don’t re-submit the same finding.
+- State is preserved across turns: don't re-submit the same finding.

@@ -35,12 +35,21 @@ from pathlib import Path
 
 from .base import BaseBuilder
 from .solidity import SolidityBuilder
+from .treesitter_base import TreeSitterBuilder
+from .python import PythonBuilder
+from .javascript import JavaScriptBuilder
+from .c import CBuilder
 from ..graph import DependencyGraph
 
 __all__ = [
     "BaseBuilder",
     "SolidityBuilder",
+    "TreeSitterBuilder",
+    "PythonBuilder",
+    "JavaScriptBuilder",
+    "CBuilder",
     "build_from_slither",
+    "get_builder",
 ]
 
 
@@ -49,6 +58,12 @@ def get_builder(language: str) -> BaseBuilder:
     builders = {
         "solidity": SolidityBuilder,
         "sol": SolidityBuilder,
+        # BountyBench language builders (tree-sitter based)
+        "python": PythonBuilder,
+        "py": PythonBuilder,
+        "javascript": JavaScriptBuilder,
+        "js": JavaScriptBuilder,
+        "c": CBuilder,
     }
 
     builder_cls = builders.get(language.lower())

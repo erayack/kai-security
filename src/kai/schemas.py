@@ -7,7 +7,7 @@ from kai.agents.settings import MAIN_DEFAULT_MODEL, SETUP_DEFAULT_MODEL, MAX_TOO
 from kai.utils.ids import generate_id
 
 # Adapter type literal for structured output validation
-AdapterType = Literal["solidity"]
+AdapterType = Literal["solidity", "python", "javascript", "c"]
 
 
 class Role(str, Enum):
