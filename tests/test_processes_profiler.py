@@ -7,8 +7,7 @@ import pytest  # type: ignore[import-not-found]
 from kai.processes.profiler import ProfilerProcess
 from kai.schemas import MasterContext, ProfilerInput
 from kai.agents import settings
-from logger import logging
-from logger.mongo_adapter import MongoDBHandler
+import logging
 
 # Defaults for live profiler test; overridable via env vars
 DEFAULT_PROFILER_REPO_URL = "https://github.com/ethena-labs/bbp-public-assets.git"
@@ -23,15 +22,8 @@ def anyio_backend():
 
 @pytest.fixture(autouse=True)
 def disable_mongo_logging():
-    """Remove MongoDBHandler during tests to avoid connection errors."""
-    logger = logging.getLogger()
-    removed = []
-    for h in list(logger.handlers):
-        if isinstance(h, MongoDBHandler):
-            logger.removeHandler(h)
-            removed.append(h)
+    """No-op since MongoDBHandler is removed."""
     yield
-    # no re-adding handlers after tests
 
 
 def _load_master_context(master_context_filename: str) -> MasterContext:

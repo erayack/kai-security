@@ -311,6 +311,13 @@ class Dispatcher:
             self.master_context = env_output.master_context
             self.logger.info(f"MasterContext ready: {self.master_context.root_path}")
 
+            # Persist master context
+            await self._persist(
+                self._state_manager.save_master_context(self.master_context)
+                if self._state_manager
+                else None
+            )
+
             # Persist state transition
             await self._persist(
                 self._state_manager.update_state("setup")
@@ -384,6 +391,13 @@ class Dispatcher:
                 self.protocol_manifesto = profiler_output.protocol_manifesto
                 self.logger.info(
                     f"ProtocolManifesto ready: {self.protocol_manifesto.name}"
+                )
+                await self._persist(
+                    self._state_manager.save_protocol_manifesto(
+                        self.protocol_manifesto
+                    )
+                    if self._state_manager
+                    else None
                 )
             else:
                 self.logger.warning("Profiler failed, continuing without manifesto")
@@ -569,7 +583,7 @@ class Dispatcher:
         # Phase 0: Blackbox
         if self.config.include_exploration and self._planner:
             self.logger.info("Phase 0: Blackbox...")
-            self._queue_blackbox_missions()
+            await self._queue_blackbox_missions()
             await self._drain_mission_queue()
             self.logger.info(f"Phase 0 done: {len(self.invariants)} invariants")
 
@@ -578,7 +592,7 @@ class Dispatcher:
 
         # Phase 1: State/Quant (plan with all invariants including any from blackbox)
         self.logger.info("Phase 1: State/Quant...")
-        self._plan_state_quant_missions()
+        await self._plan_state_quant_missions()
         await self._drain_mission_queue()
         self.logger.info(f"Phase 1 done: {len(self.completed_missions)} missions")
 
@@ -588,7 +602,7 @@ class Dispatcher:
         # Phase 2: Gamified
         if self.invariants and self._planner:
             self.logger.info("Phase 2: Gamified...")
-            self._queue_gamified_missions()
+            await self._queue_gamified_missions()
             await self._drain_mission_queue()
             self.logger.info(f"Phase 2 done")
 
@@ -613,16 +627,27 @@ class Dispatcher:
 
             await asyncio.sleep(0.1)
 
-    def _queue_blackbox_missions(self) -> None:
+    async def _queue_blackbox_missions(self) -> None:
         """Queue blackbox missions (phase 0)."""
         if not self._planner:
             return
         campaign, missions = self._planner.build_blackbox_campaign()
         self.campaigns.append(campaign)
+        await self._persist(
+            self._state_manager.save_campaigns([campaign])
+            if self._state_manager
+            else None
+        )
+        if missions:
+            await self._persist(
+                self._state_manager.save_missions(missions)
+                if self._state_manager
+                else None
+            )
         for mission in missions:
             self.mission_queue.put_nowait((0, mission.mission_id, mission))
 
-    def _plan_state_quant_missions(self) -> None:
+    async def _plan_state_quant_missions(self) -> None:
         """Plan state/quant missions with all invariants (phase 1)."""
         if not self._planner or not self.invariants:
             return
@@ -630,10 +655,22 @@ class Dispatcher:
             invariants=list(self.invariants.values())
         )
         self.campaigns.extend(campaigns)
+        if campaigns:
+            await self._persist(
+                self._state_manager.save_campaigns(campaigns)
+                if self._state_manager
+                else None
+            )
+        if missions:
+            await self._persist(
+                self._state_manager.save_missions(missions)
+                if self._state_manager
+                else None
+            )
         for mission in missions:
             self.mission_queue.put_nowait((1, mission.mission_id, mission))
 
-    def _queue_gamified_missions(self) -> None:
+    async def _queue_gamified_missions(self) -> None:
         """Queue gamified missions from invariant clusters (phase 2)."""
         if not self._planner:
             return
@@ -641,6 +678,18 @@ class Dispatcher:
             list(self.invariants.values())
         )
         self.campaigns.extend(campaigns)
+        if campaigns:
+            await self._persist(
+                self._state_manager.save_campaigns(campaigns)
+                if self._state_manager
+                else None
+            )
+        if missions:
+            await self._persist(
+                self._state_manager.save_missions(missions)
+                if self._state_manager
+                else None
+            )
         for mission in missions:
             self.mission_queue.put_nowait((2, mission.mission_id, mission))
 
@@ -658,6 +707,15 @@ class Dispatcher:
         if not factory:
             self.logger.warning(f"No agent factory for type {mission.agent_type}")
             mission.status = "failed"
+            await self._persist(
+                self._state_manager.update_mission_status(
+                    mission.mission_id,
+                    "failed",
+                    error=f"No agent factory for type {mission.agent_type}",
+                )
+                if self._state_manager
+                else None
+            )
             self.active_missions.pop(mission.mission_id, None)
             self.completed_missions.append(mission)
             return
@@ -765,10 +823,6 @@ class Dispatcher:
             ):
                 candidate.invariant_id = mission.invariant.id
 
-            # Verify compiled candidates
-            if candidate.compiled and self.master_context:
-                await self._verify_candidate(candidate)
-
             self.exploit_candidates.append(candidate)
 
             # Persist exploit candidate
@@ -777,6 +831,10 @@ class Dispatcher:
                 if self._state_manager
                 else None
             )
+
+            # Verify compiled candidates
+            if candidate.compiled and self.master_context:
+                await self._verify_candidate(candidate)
 
     async def _verify_candidate(self, candidate: ExploitCandidate) -> Optional[Verdict]:
         """
@@ -1023,13 +1081,22 @@ class Dispatcher:
             else None
         )
 
+        new_invariants: List[Invariant] = []
         for obs in observations:
             # Synthesize invariant from observation
             new_inv = await self._synthesize_invariant(obs)
             if new_inv and new_inv.id not in self.invariants:
                 self.logger.info(f"New invariant discovered: {new_inv.id}")
                 self.invariants[new_inv.id] = new_inv
-                self._schedule_missions_for_invariant(new_inv)
+                new_invariants.append(new_inv)
+                await self._schedule_missions_for_invariant(new_inv)
+
+        if new_invariants:
+            await self._persist(
+                self._state_manager.save_invariants(new_invariants)
+                if self._state_manager
+                else None
+            )
 
     async def _handle_gamified_agent_result(self, mission: Mission, agent: Any) -> None:
         """
@@ -1059,10 +1126,6 @@ class Dispatcher:
             # Gamified agents work on clusters, so invariant_id might be "gap_exploit"
             # or set by the register_finding tool
 
-            # Verify compiled candidates
-            if candidate.compiled and self.master_context:
-                await self._verify_candidate(candidate)
-
             self.exploit_candidates.append(candidate)
 
             # Persist exploit candidate
@@ -1071,6 +1134,10 @@ class Dispatcher:
                 if self._state_manager
                 else None
             )
+
+            # Verify compiled candidates 
+            if candidate.compiled and self.master_context:
+                await self._verify_candidate(candidate)
 
     async def _synthesize_invariant(
         self, observation: Observation
@@ -1105,7 +1172,7 @@ class Dispatcher:
 
         return None
 
-    def _schedule_missions_for_invariant(self, invariant: Invariant) -> None:
+    async def _schedule_missions_for_invariant(self, invariant: Invariant) -> None:
         """Schedule new missions for a dynamically discovered invariant."""
         if not self._planner:
             self.logger.warning("Cannot schedule missions: planner not initialized")
@@ -1113,6 +1180,13 @@ class Dispatcher:
 
         base_id = len(self.completed_missions) + self.mission_queue.qsize()
         missions = self._planner.create_missions_for_invariant(invariant, base_id)
+
+        if missions:
+            await self._persist(
+                self._state_manager.save_missions(missions)
+                if self._state_manager
+                else None
+            )
 
         for mission in missions:
             self.mission_queue.put_nowait((1, mission.mission_id, mission))

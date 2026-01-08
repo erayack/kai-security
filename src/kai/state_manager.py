@@ -17,6 +17,8 @@ from kai.schemas import (
     Observation,
     Verdict,
     CampaignBrief,
+    MasterContext,
+    ProtocolManifesto
 )
 
 
@@ -202,5 +204,35 @@ class KaiStateManager(ABC):
 
         Returns:
             Path or URI where conversation was saved, or None if failed
+        """
+        pass
+
+    @abstractmethod
+    async def save_master_context(
+        self,
+        context: MasterContext,
+    ) -> bool:
+        """
+        Save the master context for the current execution.
+
+        Args:
+            context: The MasterContext object to save
+        Returns:
+            True if successful
+        """
+        pass
+
+    @abstractmethod
+    async def save_protocol_manifesto(
+        self,
+        manifesto: ProtocolManifesto,
+    ) -> bool:
+        """
+        Save the protocol manifesto.
+
+        Args:
+            manifesto: The ProtocolManifesto object to save
+        Returns:
+            True if successful
         """
         pass

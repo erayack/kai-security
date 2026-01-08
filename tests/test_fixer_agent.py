@@ -11,8 +11,7 @@ from tests.test_processes_profiler import _normalize_master_context_paths
 from kai.utils.dependency import DependencyGraph
 from kai.utils.tool_adapters import get_tool_adapter
 from kai.utils.workspace import get_workspace_adapter
-from logger import logging
-from logger.mongo_adapter import MongoDBHandler
+import logging
 
 
 @pytest.fixture
@@ -22,10 +21,7 @@ def anyio_backend():
 
 @pytest.fixture(autouse=True)
 def disable_mongo_logging():
-    logger = logging.getLogger()
-    for h in list(logger.handlers):
-        if isinstance(h, MongoDBHandler):
-            logger.removeHandler(h)
+    # No-op since MongoDBHandler is removed
     yield
 
 

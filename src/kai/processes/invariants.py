@@ -384,7 +384,6 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
 
                 invariants.append(
                     Invariant(
-                        id=item.get("id", f"INV_{len(invariants)}"),
                         type=inv_type,
                         rule=item.get("rule", ""),
                         explanation=item.get("explanation", ""),

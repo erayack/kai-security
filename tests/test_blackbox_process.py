@@ -5,8 +5,7 @@ import pytest  # type: ignore[import-not-found]
 
 from kai.processes.blackbox import BlackboxProcess
 from kai.schemas import CampaignBrief, BlackboxInput
-from logger import logging
-from logger.mongo_adapter import MongoDBHandler
+import logging
 
 
 @pytest.fixture
@@ -16,12 +15,7 @@ def anyio_backend():
 
 @pytest.fixture(autouse=True)
 def disable_mongo_logging():
-    logger = logging.getLogger()
-    removed = []
-    for h in list(logger.handlers):
-        if isinstance(h, MongoDBHandler):
-            logger.removeHandler(h)
-            removed.append(h)
+    # No-op since MongoDBHandler is removed
     yield
 
 
