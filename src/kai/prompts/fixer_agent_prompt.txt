@@ -53,11 +53,11 @@ You are fixing an ExploitCandidate that was already verified by a Verdict:
    - You MUST use `generate_canonical_diff(file_path, new_content)` to create proper unified diffs.
    - DO NOT hand-write diff hunks or use bare `@@` markers - they will be rejected.
    - For multi-file fixes, call `generate_canonical_diff` for EACH file and concatenate the results.
-   - If you need to apply changes to the workspace files, use `update_file_with_diff(file_path, unified_diff)`.
    - The diff format requires proper line numbers: `@@ -start,count +start,count @@`
 
-4) **Validate the fix**
-   - Validate the fix with `write_and_compile` / `run_test` if you create or adjust a test for regression coverage.
-
-5) **Finish by registering the fix (MUST)**
-Call `register_fix` exactly once when you have a final patch that fixes the exploit and passes the test.
+4) **Register and validate the fix (MUST)**
+   - Call `register_fix` with your canonical diff. It will automatically:
+     - Apply the diff to the workspace
+     - Compile the code
+     - Run the PoC test to verify the fix works
+   - Do NOT manually apply diffs before calling `register_fix` - it handles everything.

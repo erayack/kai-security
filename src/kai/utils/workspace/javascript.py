@@ -197,7 +197,11 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
             master_dir = master / src_dir
             workspace_dir = workspace / src_dir
 
-            if master_dir.exists() and master_dir.is_dir() and not workspace_dir.exists():
+            if (
+                master_dir.exists()
+                and master_dir.is_dir()
+                and not workspace_dir.exists()
+            ):
                 try:
                     rel_path = os.path.relpath(master_dir, workspace)
                     workspace_dir.symlink_to(rel_path)
@@ -232,7 +236,9 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
             if src.exists() and src.is_file():
                 shutil.copy2(src, workspace / config_file)
 
-    def _install_dependencies(self, workspace: Path, logger: Optional[Any] = None) -> None:
+    def _install_dependencies(
+        self, workspace: Path, logger: Optional[Any] = None
+    ) -> None:
         """Install dependencies using detected package manager."""
         if not (workspace / "package.json").exists():
             if logger:
@@ -244,7 +250,9 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
 
         if not manager_bin:
             if logger:
-                logger.warning(f"{manager} not found - skipping dependency installation")
+                logger.warning(
+                    f"{manager} not found - skipping dependency installation"
+                )
             return
 
         try:
@@ -263,10 +271,9 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
             if logger:
                 logger.warning(f"Failed to install dependencies: {e}")
 
-    def _copy_with_excludes(
-        self, src: Path, dst: Path, excludes: set
-    ) -> None:
+    def _copy_with_excludes(self, src: Path, dst: Path, excludes: set) -> None:
         """Copy directory tree excluding certain patterns."""
+
         def should_exclude(path: Path) -> bool:
             for exc in excludes:
                 if path.name == exc:

@@ -72,7 +72,6 @@ class VerifierProcess(BaseProcess[VerifierProcessInput, VerifierProcessOutput]):
         # Set up the toolcalling prompt
         agent.set_toolcalling_prompt()
 
-        prefix = "verifier"
         exception_msg = ""
         verdict: Optional[Verdict] = None
 
@@ -83,7 +82,6 @@ class VerifierProcess(BaseProcess[VerifierProcessInput, VerifierProcessOutput]):
             # If no verdict was submitted, nudge the agent
             verdict = agent.get_verdict()
             if verdict is None:
-                prefix = "verifier_retry"
                 retry_prompt = (
                     "FORMAT REQUIREMENT: You must call submit_verdict({...}) "
                     "with your analysis. Call it now to finish."

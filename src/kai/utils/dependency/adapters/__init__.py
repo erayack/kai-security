@@ -25,7 +25,7 @@ Usage:
     roles = get_actor_roles(graph, adapter=adapter)
 """
 
-from typing import Literal, cast
+from typing import Literal
 
 from .base import DomainAdapter
 from .solidity import SolidityAdapter

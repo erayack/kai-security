@@ -98,9 +98,7 @@ class CWorkspaceAdapter(WorkspaceAdapter):
         self._make_writable(workspace)
 
         if logger:
-            logger.debug(
-                f"Provisioned {preset.value.upper()} C workspace: {workspace}"
-            )
+            logger.debug(f"Provisioned {preset.value.upper()} C workspace: {workspace}")
         return str(workspace)
 
     def detect_remappings(self, master: Path) -> str:
@@ -122,7 +120,7 @@ class CWorkspaceAdapter(WorkspaceAdapter):
 
                 # Check for common source directory references
                 for pattern in [
-                    r'add_subdirectory\s*\(\s*(\w+)\s*\)',
+                    r"add_subdirectory\s*\(\s*(\w+)\s*\)",
                     r'set\s*\(\s*\w*SRC\w*\s+"?([^")\s]+)',
                 ]:
                     match = re.search(pattern, content)
@@ -203,7 +201,11 @@ class CWorkspaceAdapter(WorkspaceAdapter):
             master_dir = master / dir_name
             workspace_dir = workspace / dir_name
 
-            if master_dir.exists() and master_dir.is_dir() and not workspace_dir.exists():
+            if (
+                master_dir.exists()
+                and master_dir.is_dir()
+                and not workspace_dir.exists()
+            ):
                 try:
                     rel_path = os.path.relpath(master_dir, workspace)
                     workspace_dir.symlink_to(rel_path)
@@ -216,14 +218,20 @@ class CWorkspaceAdapter(WorkspaceAdapter):
             master_deps = master / deps_dir
             workspace_deps = workspace / deps_dir
 
-            if master_deps.exists() and master_deps.is_dir() and not workspace_deps.exists():
+            if (
+                master_deps.exists()
+                and master_deps.is_dir()
+                and not workspace_deps.exists()
+            ):
                 try:
                     rel_path = os.path.relpath(master_deps, workspace)
                     workspace_deps.symlink_to(rel_path)
                 except OSError:
                     pass
 
-    def _init_submodules(self, workspace: Path, master: Path, logger: Optional[Any] = None) -> None:
+    def _init_submodules(
+        self, workspace: Path, master: Path, logger: Optional[Any] = None
+    ) -> None:
         """Initialize git submodules if present."""
         gitmodules = master / ".gitmodules"
         if not gitmodules.exists():
@@ -254,10 +262,9 @@ class CWorkspaceAdapter(WorkspaceAdapter):
                 if logger:
                     logger.debug(f"Failed to initialize submodules: {e}")
 
-    def _copy_with_excludes(
-        self, src: Path, dst: Path, excludes: set
-    ) -> None:
+    def _copy_with_excludes(self, src: Path, dst: Path, excludes: set) -> None:
         """Copy directory tree excluding certain patterns."""
+
         def should_exclude(path: Path) -> bool:
             for exc in excludes:
                 if exc.startswith("*"):

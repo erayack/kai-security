@@ -23,10 +23,12 @@ def _has_tree_sitter_python() -> bool:
     """Check if tree-sitter-python is installed."""
     try:
         import tree_sitter_python
+
         return True
     except ImportError:
         try:
             import tree_sitter_languages
+
             return True
         except ImportError:
             return False
@@ -36,10 +38,12 @@ def _has_tree_sitter_javascript() -> bool:
     """Check if tree-sitter-javascript is installed."""
     try:
         import tree_sitter_javascript
+
         return True
     except ImportError:
         try:
             import tree_sitter_languages
+
             return True
         except ImportError:
             return False
@@ -49,10 +53,12 @@ def _has_tree_sitter_c() -> bool:
     """Check if tree-sitter-c is installed."""
     try:
         import tree_sitter_c
+
         return True
     except ImportError:
         try:
             import tree_sitter_languages
+
             return True
         except ImportError:
             return False
@@ -137,8 +143,7 @@ class Config:
         assert ".py" in builder.file_extensions
 
     @pytest.mark.skipif(
-        not _has_tree_sitter_python(),
-        reason="tree-sitter-python not installed"
+        not _has_tree_sitter_python(), reason="tree-sitter-python not installed"
     )
     def test_build_extracts_classes(self, builder: PythonBuilder, python_project: Path):
         """Should extract class definitions."""
@@ -152,10 +157,11 @@ class Config:
         assert "Config" in container_names
 
     @pytest.mark.skipif(
-        not _has_tree_sitter_python(),
-        reason="tree-sitter-python not installed"
+        not _has_tree_sitter_python(), reason="tree-sitter-python not installed"
     )
-    def test_build_extracts_functions(self, builder: PythonBuilder, python_project: Path):
+    def test_build_extracts_functions(
+        self, builder: PythonBuilder, python_project: Path
+    ):
         """Should extract function definitions."""
         graph = builder.build(python_project)
 
@@ -166,8 +172,7 @@ class Config:
         assert "helper_function" in unit_names or "format_name" in unit_names
 
     @pytest.mark.skipif(
-        not _has_tree_sitter_python(),
-        reason="tree-sitter-python not installed"
+        not _has_tree_sitter_python(), reason="tree-sitter-python not installed"
     )
     def test_build_extracts_methods(self, builder: PythonBuilder, python_project: Path):
         """Should extract method definitions."""
@@ -234,8 +239,7 @@ export class Config {
         assert ".js" in builder.file_extensions
 
     @pytest.mark.skipif(
-        not _has_tree_sitter_javascript(),
-        reason="tree-sitter-javascript not installed"
+        not _has_tree_sitter_javascript(), reason="tree-sitter-javascript not installed"
     )
     def test_build_extracts_classes(self, builder: JavaScriptBuilder, js_project: Path):
         """Should extract class definitions."""
@@ -248,10 +252,11 @@ export class Config {
         assert "UserService" in container_names or "Config" in container_names
 
     @pytest.mark.skipif(
-        not _has_tree_sitter_javascript(),
-        reason="tree-sitter-javascript not installed"
+        not _has_tree_sitter_javascript(), reason="tree-sitter-javascript not installed"
     )
-    def test_build_extracts_functions(self, builder: JavaScriptBuilder, js_project: Path):
+    def test_build_extracts_functions(
+        self, builder: JavaScriptBuilder, js_project: Path
+    ):
         """Should extract function definitions."""
         graph = builder.build(js_project)
 
@@ -338,10 +343,7 @@ static int helper(int x) {
         assert ".c" in builder.file_extensions
         assert ".h" in builder.file_extensions
 
-    @pytest.mark.skipif(
-        not _has_tree_sitter_c(),
-        reason="tree-sitter-c not installed"
-    )
+    @pytest.mark.skipif(not _has_tree_sitter_c(), reason="tree-sitter-c not installed")
     def test_build_extracts_functions(self, builder: CBuilder, c_project: Path):
         """Should extract function definitions."""
         graph = builder.build(c_project)
@@ -352,10 +354,7 @@ static int helper(int x) {
 
         assert "main" in unit_names or "add_user" in unit_names or "add" in unit_names
 
-    @pytest.mark.skipif(
-        not _has_tree_sitter_c(),
-        reason="tree-sitter-c not installed"
-    )
+    @pytest.mark.skipif(not _has_tree_sitter_c(), reason="tree-sitter-c not installed")
     def test_build_extracts_structs(self, builder: CBuilder, c_project: Path):
         """Should extract struct definitions."""
         graph = builder.build(c_project)
@@ -366,10 +365,7 @@ static int helper(int x) {
 
         assert "User" in container_names or "Point" in container_names
 
-    @pytest.mark.skipif(
-        not _has_tree_sitter_c(),
-        reason="tree-sitter-c not installed"
-    )
+    @pytest.mark.skipif(not _has_tree_sitter_c(), reason="tree-sitter-c not installed")
     def test_build_extracts_enums(self, builder: CBuilder, c_project: Path):
         """Should extract enum definitions."""
         graph = builder.build(c_project)
@@ -380,10 +376,7 @@ static int helper(int x) {
 
         assert "Status" in type_def_names
 
-    @pytest.mark.skipif(
-        not _has_tree_sitter_c(),
-        reason="tree-sitter-c not installed"
-    )
+    @pytest.mark.skipif(not _has_tree_sitter_c(), reason="tree-sitter-c not installed")
     def test_build_extracts_global_variables(self, builder: CBuilder, c_project: Path):
         """Should extract global variable definitions."""
         graph = builder.build(c_project)

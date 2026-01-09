@@ -557,7 +557,6 @@ __all__ = [
     "dependency_graph_snippet",
     "write_and_compile",
     "run_test",
-    "update_file_with_diff",
     "generate_canonical_diff",
     "register_fix",
 ]

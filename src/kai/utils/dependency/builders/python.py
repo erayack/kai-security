@@ -48,9 +48,7 @@ class PythonBuilder(TreeSitterBuilder):
         root = tree.root_node
 
         # Track current container for nesting
-        self._extract_module_level(
-            root, file_path, file_id, source_bytes, nodes, edges
-        )
+        self._extract_module_level(root, file_path, file_id, source_bytes, nodes, edges)
 
         return nodes, edges
 
@@ -85,7 +83,10 @@ class PythonBuilder(TreeSitterBuilder):
                     self._extract_assignment(
                         assignment, file_path, file_id, source_bytes, nodes, parent_id
                     )
-            elif child.type == "import_statement" or child.type == "import_from_statement":
+            elif (
+                child.type == "import_statement"
+                or child.type == "import_from_statement"
+            ):
                 # Track imports for edges
                 pass  # Could add IMPORTS edges here
 
@@ -300,7 +301,14 @@ class PythonBuilder(TreeSitterBuilder):
                 )
             elif child.type in ("function_definition", "async_function_definition"):
                 self._extract_function(
-                    child, file_path, file_id, source_bytes, nodes, edges, parent_id, decorators
+                    child,
+                    file_path,
+                    file_id,
+                    source_bytes,
+                    nodes,
+                    edges,
+                    parent_id,
+                    decorators,
                 )
 
     def _extract_assignment(

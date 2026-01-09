@@ -8,7 +8,6 @@ Provides Python-specific implementations for:
 - Managing virtual environments with uv
 """
 
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -113,10 +112,17 @@ class PythonToolAdapter(ToolAdapter):
         py_files = list(workspace_path.rglob("*.py"))
 
         # Skip venv and common non-source directories
-        skip_dirs = {".venv", "venv", "__pycache__", ".git", "node_modules", "build", "dist"}
+        skip_dirs = {
+            ".venv",
+            "venv",
+            "__pycache__",
+            ".git",
+            "node_modules",
+            "build",
+            "dist",
+        }
         py_files = [
-            f for f in py_files
-            if not any(skip in f.parts for skip in skip_dirs)
+            f for f in py_files if not any(skip in f.parts for skip in skip_dirs)
         ]
 
         if not py_files:
@@ -155,7 +161,9 @@ class PythonToolAdapter(ToolAdapter):
             except Exception as e:
                 errors.append(f"{py_file.name}: {str(e)}")
 
-        raw_output = "\n".join(all_output) if all_output else "All files passed syntax check"
+        raw_output = (
+            "\n".join(all_output) if all_output else "All files passed syntax check"
+        )
 
         return CompileResult(
             success=len(errors) == 0,
@@ -258,7 +266,9 @@ class PythonToolAdapter(ToolAdapter):
                             timeout=timeout,
                         )
                         output = result.stdout + result.stderr
-                        all_output.append(f"=== uv pip install -r requirements.txt ===\n{output}")
+                        all_output.append(
+                            f"=== uv pip install -r requirements.txt ===\n{output}"
+                        )
 
                         if result.returncode == 0:
                             installed.append("requirements.txt")
@@ -269,7 +279,9 @@ class PythonToolAdapter(ToolAdapter):
                     except Exception as e:
                         errors.append(f"requirements.txt: {str(e)}")
                 else:
-                    all_output.append("No dependency files found (pyproject.toml, requirements.txt)")
+                    all_output.append(
+                        "No dependency files found (pyproject.toml, requirements.txt)"
+                    )
         else:
             # Fallback to pip-based installation
             # Ensure venv exists
@@ -342,7 +354,9 @@ class PythonToolAdapter(ToolAdapter):
                             timeout=timeout,
                         )
                         output = result.stdout + result.stderr
-                        all_output.append(f"=== pip install -r requirements.txt ===\n{output}")
+                        all_output.append(
+                            f"=== pip install -r requirements.txt ===\n{output}"
+                        )
 
                         if result.returncode == 0:
                             installed.append("requirements.txt")
@@ -374,7 +388,9 @@ class PythonToolAdapter(ToolAdapter):
                     except Exception as e:
                         errors.append(f"pyproject.toml: {str(e)}")
                 else:
-                    all_output.append("No dependency files found (requirements.txt, pyproject.toml)")
+                    all_output.append(
+                        "No dependency files found (requirements.txt, pyproject.toml)"
+                    )
 
         raw_output = "\n".join(all_output)
         success = len(installed) > 0 or len(errors) == 0
@@ -450,6 +466,7 @@ class PythonToolAdapter(ToolAdapter):
         # Additional args
         if additional_args:
             import shlex
+
             cmd.extend(shlex.split(additional_args))
 
         try:
@@ -506,7 +523,7 @@ class PythonToolAdapter(ToolAdapter):
         # Strip leading test directories
         for prefix in ["tests/", "test/"]:
             if normalized.startswith(prefix):
-                normalized = normalized[len(prefix):]
+                normalized = normalized[len(prefix) :]
                 break
 
         # Ensure proper extension
@@ -517,7 +534,9 @@ class PythonToolAdapter(ToolAdapter):
         name = Path(normalized).name
         if not name.startswith("test_"):
             parent = Path(normalized).parent
-            normalized = str(parent / f"test_{name}") if str(parent) != "." else f"test_{name}"
+            normalized = (
+                str(parent / f"test_{name}") if str(parent) != "." else f"test_{name}"
+            )
 
         return workspace / "tests" / "poc" / normalized
 
@@ -632,6 +651,7 @@ Write Python test files in tests/poc/.
             # pytest summary line: "X passed, Y failed"
             if " passed" in line or " failed" in line:
                 import re
+
                 passed_match = re.search(r"(\d+) passed", line)
                 failed_match = re.search(r"(\d+) failed", line)
                 if passed_match:

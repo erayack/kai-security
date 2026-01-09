@@ -309,7 +309,9 @@ class Dispatcher:
             # Use provided MasterContext if given (BountyBench mode)
             if master_context:
                 self.master_context = master_context
-                self.logger.info(f"Using provided MasterContext: {master_context.root_path}")
+                self.logger.info(
+                    f"Using provided MasterContext: {master_context.root_path}"
+                )
             else:
                 self.logger.info("Step 1/6: Environment Setup...")
                 env_process = EnvironmentSetupProcess(
@@ -369,7 +371,9 @@ class Dispatcher:
 
             if not self.config.skip_workspace_validation:
                 self.logger.info("Step 3/6: Workspace Validation...")
-                from kai.processes.workspace_validation import WorkspaceValidationProcess
+                from kai.processes.workspace_validation import (
+                    WorkspaceValidationProcess,
+                )
                 from kai.schemas import WorkspacePreset, WorkspaceValidationInput
 
                 ws_output = await WorkspaceValidationProcess(
@@ -402,7 +406,9 @@ class Dispatcher:
 
                 self.logger.info("Workspace validation passed")
             else:
-                self.logger.info("Skipping workspace validation (config.skip_workspace_validation=True)")
+                self.logger.info(
+                    "Skipping workspace validation (config.skip_workspace_validation=True)"
+                )
 
             self.logger.info("Step 4/6: Profiler...")
             profiler_process = ProfilerProcess(context=self.master_context)
@@ -421,9 +427,7 @@ class Dispatcher:
                     f"ProtocolManifesto ready: {self.protocol_manifesto.name}"
                 )
                 await self._persist(
-                    self._state_manager.save_protocol_manifesto(
-                        self.protocol_manifesto
-                    )
+                    self._state_manager.save_protocol_manifesto(self.protocol_manifesto)
                     if self._state_manager
                     else None
                 )
@@ -632,7 +636,7 @@ class Dispatcher:
             self.logger.info("Phase 2: Gamified...")
             await self._queue_gamified_missions()
             await self._drain_mission_queue()
-            self.logger.info(f"Phase 2 done")
+            self.logger.info("Phase 2 done")
 
         self.logger.info(f"Total: {len(self.exploit_candidates)} candidates")
         await self._fix_verified_exploits()
@@ -1018,12 +1022,9 @@ class Dispatcher:
 
         from kai.agents.agent_types.fixer_agent import FixerAgent
 
-        # Get the invariant
-        # TODO: check if this is needed
-        invariant = self.invariants.get(candidate.invariant_id)
-
         self.logger.info(f"Fixing exploit: {candidate.mission_id}")
 
+        agent = None
         try:
             # Provision WRITEABLE workspace for fixer (needs to modify contracts)
             workspace_path = self._workspace_manager.provision(
@@ -1081,6 +1082,13 @@ class Dispatcher:
             return []
 
         finally:
+            # Save fixer rollout before cleanup
+            if agent is not None:
+                self._save_rollout(agent, "fixer", f"fixer_{candidate.mission_id}")
+                try:
+                    await agent.close()
+                except Exception:
+                    pass
             # Cleanup fixer workspace
             try:
                 self._workspace_manager.cleanup(f"fixer_{candidate.mission_id}")
@@ -1164,7 +1172,7 @@ class Dispatcher:
                 else None
             )
 
-            # Verify compiled candidates 
+            # Verify compiled candidates
             if candidate.compiled and self.master_context:
                 await self._verify_candidate(candidate)
 

@@ -8,7 +8,6 @@ Provides JavaScript/Node.js-specific implementations for:
 - Managing npm/yarn/pnpm dependencies
 """
 
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -59,9 +58,7 @@ class JavaScriptToolAdapter(ToolAdapter):
             if path.exists():
                 return str(path)
 
-        raise FileNotFoundError(
-            "node not found - is Node.js installed?"
-        )
+        raise FileNotFoundError("node not found - is Node.js installed?")
 
     def _detect_package_manager(self, workspace_path: Path) -> str:
         """
@@ -133,12 +130,16 @@ class JavaScriptToolAdapter(ToolAdapter):
                         success=success,
                         errors=errors,
                         warnings=[],
-                        raw_output=raw_output[:3000] if len(raw_output) > 3000 else raw_output,
+                        raw_output=raw_output[:3000]
+                        if len(raw_output) > 3000
+                        else raw_output,
                     )
                 except subprocess.TimeoutExpired:
                     return CompileResult(
                         success=False,
-                        errors=[f"TypeScript compilation timed out after {timeout} seconds"],
+                        errors=[
+                            f"TypeScript compilation timed out after {timeout} seconds"
+                        ],
                         raw_output="",
                     )
                 except Exception as e:
@@ -155,8 +156,7 @@ class JavaScriptToolAdapter(ToolAdapter):
         # Skip node_modules and common non-source directories
         skip_dirs = {"node_modules", ".git", "dist", "build", "coverage"}
         js_files = [
-            f for f in js_files
-            if not any(skip in f.parts for skip in skip_dirs)
+            f for f in js_files if not any(skip in f.parts for skip in skip_dirs)
         ]
 
         if not js_files:
@@ -189,7 +189,9 @@ class JavaScriptToolAdapter(ToolAdapter):
             except Exception as e:
                 errors.append(f"{js_file.name}: {str(e)}")
 
-        raw_output = "\n".join(all_output) if all_output else "All files passed syntax check"
+        raw_output = (
+            "\n".join(all_output) if all_output else "All files passed syntax check"
+        )
 
         return CompileResult(
             success=len(errors) == 0,
@@ -403,6 +405,7 @@ class JavaScriptToolAdapter(ToolAdapter):
         # Additional args
         if additional_args:
             import shlex
+
             cmd.extend(shlex.split(additional_args))
 
         # Framework-specific kwargs
@@ -465,11 +468,14 @@ class JavaScriptToolAdapter(ToolAdapter):
         # Strip leading test directories
         for prefix in ["tests/", "test/", "__tests__/"]:
             if normalized.startswith(prefix):
-                normalized = normalized[len(prefix):]
+                normalized = normalized[len(prefix) :]
                 break
 
         # Ensure proper extension
-        if not any(normalized.endswith(ext) for ext in [".test.js", ".test.ts", ".spec.js", ".spec.ts"]):
+        if not any(
+            normalized.endswith(ext)
+            for ext in [".test.js", ".test.ts", ".spec.js", ".spec.ts"]
+        ):
             if normalized.endswith(".js"):
                 normalized = normalized[:-3] + ".test.js"
             elif normalized.endswith(".ts"):
@@ -611,15 +617,21 @@ Write JavaScript test files in tests/poc/.
         import re
 
         # Jest format: "Tests: X passed, Y failed"
-        jest_match = re.search(r"Tests:\s*(\d+)\s*passed.*?(\d+)\s*failed", output, re.IGNORECASE)
+        jest_match = re.search(
+            r"Tests:\s*(\d+)\s*passed.*?(\d+)\s*failed", output, re.IGNORECASE
+        )
         if jest_match:
             tests_passed = int(jest_match.group(1))
             tests_failed = int(jest_match.group(2))
 
         # Also check for single passed/failed counts
         if not jest_match:
-            passed_match = re.search(r"(\d+)\s*(?:tests?\s*)?pass(?:ed|ing)?", output, re.IGNORECASE)
-            failed_match = re.search(r"(\d+)\s*(?:tests?\s*)?fail(?:ed|ing)?", output, re.IGNORECASE)
+            passed_match = re.search(
+                r"(\d+)\s*(?:tests?\s*)?pass(?:ed|ing)?", output, re.IGNORECASE
+            )
+            failed_match = re.search(
+                r"(\d+)\s*(?:tests?\s*)?fail(?:ed|ing)?", output, re.IGNORECASE
+            )
             if passed_match:
                 tests_passed = int(passed_match.group(1))
             if failed_match:

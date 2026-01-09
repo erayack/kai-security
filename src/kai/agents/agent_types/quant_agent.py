@@ -149,7 +149,10 @@ class QuantAgent(BaseAgent):
         if self.master_context:
             try:
                 from kai.utils.tool_adapters import get_tool_adapter
-                adapter_name = getattr(self.master_context, "adapter", None) or "foundry"
+
+                adapter_name = (
+                    getattr(self.master_context, "adapter", None) or "foundry"
+                )
                 tool_adapter = get_tool_adapter(adapter_name)
                 poc_guidance = tool_adapter.get_poc_guidance()
             except Exception:

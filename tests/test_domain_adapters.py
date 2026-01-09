@@ -70,8 +70,13 @@ class TestPythonAdapter:
     def test_is_library_file(self, adapter: PythonAdapter):
         """Should identify library files."""
         # Full path with site-packages
-        assert adapter.is_library_file("/some/path/site-packages/requests/api.py") is True
-        assert adapter.is_library_file("/venv/lib/python3.9/site-packages/flask/app.py") is True
+        assert (
+            adapter.is_library_file("/some/path/site-packages/requests/api.py") is True
+        )
+        assert (
+            adapter.is_library_file("/venv/lib/python3.9/site-packages/flask/app.py")
+            is True
+        )
         # Non-library files
         assert adapter.is_library_file("myapp/views.py") is False
         assert adapter.is_library_file("src/app.py") is False
@@ -110,8 +115,12 @@ class TestCAdapter:
         assert isinstance(dangerous, list)
         assert len(dangerous) > 0
         # Should include common dangerous functions
-        has_dangerous = any(f in dangerous for f in ["strcpy", "gets", "sprintf", "strcat"])
-        assert has_dangerous, f"Should have common dangerous functions, got: {dangerous}"
+        has_dangerous = any(
+            f in dangerous for f in ["strcpy", "gets", "sprintf", "strcat"]
+        )
+        assert has_dangerous, (
+            f"Should have common dangerous functions, got: {dangerous}"
+        )
 
     def test_safe_alternatives(self, adapter: CAdapter):
         """Should provide safe alternatives mapping."""
@@ -120,7 +129,9 @@ class TestCAdapter:
         assert len(alternatives) > 0
         # Should map dangerous functions to safer alternatives
         assert "strcpy" in alternatives
-        assert "strncpy" in alternatives["strcpy"] or "strlcpy" in alternatives["strcpy"]
+        assert (
+            "strncpy" in alternatives["strcpy"] or "strlcpy" in alternatives["strcpy"]
+        )
         assert "sprintf" in alternatives
         assert "snprintf" in alternatives["sprintf"]
         assert "gets" in alternatives

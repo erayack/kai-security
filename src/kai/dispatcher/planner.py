@@ -4,7 +4,6 @@ Dispatcher mission planning.
 
 from __future__ import annotations
 
-import secrets
 from collections import Counter, defaultdict
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -28,7 +27,6 @@ from kai.schemas import (
 from kai.utils.dependency.graph import DependencyGraph
 from kai.utils.dependency.models import EdgeKind, NodeKind
 from kai.utils.ids import generate_id as generate_mission_id
-
 
 
 # Agent type mapping based on invariant semantics

@@ -97,6 +97,7 @@ class TreeSitterBuilder(BaseBuilder):
         try:
             # Try tree-sitter-language-pack (preferred)
             from tree_sitter_language_pack import get_parser
+
             return get_parser(self.language)
         except ImportError:
             pass
@@ -104,6 +105,7 @@ class TreeSitterBuilder(BaseBuilder):
         try:
             # Try tree-sitter with individual language package
             import tree_sitter
+
             parser = tree_sitter.Parser()
 
             # Try to get language from individual packages
@@ -111,18 +113,21 @@ class TreeSitterBuilder(BaseBuilder):
             if self.language == "python":
                 try:
                     import tree_sitter_python
+
                     lang_module = tree_sitter_python
                 except ImportError:
                     pass
             elif self.language == "javascript":
                 try:
                     import tree_sitter_javascript
+
                     lang_module = tree_sitter_javascript
                 except ImportError:
                     pass
             elif self.language == "c":
                 try:
                     import tree_sitter_c
+
                     lang_module = tree_sitter_c
                 except ImportError:
                     pass
@@ -186,6 +191,7 @@ class TreeSitterBuilder(BaseBuilder):
             except Exception as e:
                 # Log error but continue with other files
                 import logging
+
                 logging.debug(f"Failed to parse {file_path}: {e}")
 
         return graph
@@ -222,6 +228,7 @@ class TreeSitterBuilder(BaseBuilder):
         except Exception as e:
             # Return empty on failure
             import logging
+
             logging.debug(f"Parse error for {file_path}: {e}")
             return [], []
 
@@ -254,7 +261,9 @@ class TreeSitterBuilder(BaseBuilder):
     def _get_node_text(self, node: Any, source_bytes: bytes) -> str:
         """Get the text content of a tree-sitter node."""
         try:
-            return source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+            return source_bytes[node.start_byte : node.end_byte].decode(
+                "utf-8", errors="replace"
+            )
         except Exception:
             return ""
 

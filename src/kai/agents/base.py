@@ -1,32 +1,32 @@
-from kai.inference import (
-    get_model_response_with_tools,
-    create_openai_client,
-    create_vllm_client,
-    get_model_pricing,
-)
-from kai.agents.utils import (
-    load_system_prompt,
-    AgentType,
-    generate_openai_tools,
-)
+import asyncio
+import logging
+import os
+from abc import ABC, abstractmethod
+from collections.abc import Callable
+from typing import Any, Dict, Optional, Union
+
+from bson import ObjectId
+
 from kai.agents.settings import (
     MAX_TOOL_TURNS,
     MAIN_DEFAULT_MODEL,
     VLLM_HOST,
     VLLM_PORT,
 )
-from kai.schemas import ChatMessage, Role, AgentResponse
-import asyncio
-import logging
+from kai.agents.utils import (
+    AgentType,
+    generate_openai_tools,
+    load_system_prompt,
+)
+from kai.inference import (
+    create_openai_client,
+    create_vllm_client,
+    get_model_pricing,
+    get_model_response_with_tools,
+)
+from kai.schemas import AgentResponse, ChatMessage, Role
 
 logger = logging.getLogger(__name__)
-
-from collections.abc import Callable
-from typing import Any, Dict, Optional, Union
-from abc import ABC, abstractmethod
-
-import os
-from bson import ObjectId
 
 
 class BaseAgent(ABC):
