@@ -228,6 +228,18 @@ class CargoToolAdapter(ToolAdapter):
     def get_allowed_patch_directories(self) -> List[str]:
         return ["tests/poc", "tests\\poc"]
 
+    def get_poc_guidance(self) -> str:
+        """Get Rust/Cargo-specific PoC writing guidance."""
+        return """## PoC Format: Rust/Cargo
+Write Rust test files in tests/poc/.
+- Tests run via `cargo test`
+- Use #[test] attribute for test functions
+- Import REAL modules from the codebase (use `use crate::...`)
+- Use assert!, assert_eq!, assert_ne! macros to prove the exploit
+- A PASSING test with assertions proving vulnerability = valid exploit
+- Use #[should_panic] for tests that expect panics
+- Integration tests go in tests/ directory"""
+
 
 _CARGO_TEST_SUMMARY_RE = re.compile(
     r"test result:\s+(?P<status>ok|FAILED)\.\s+"

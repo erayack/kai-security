@@ -9,12 +9,18 @@ from kai.utils.workspace.base import WorkspaceAdapter
 from kai.utils.workspace.foundry import FoundryWorkspaceAdapter
 from kai.utils.workspace.cargo import CargoWorkspaceAdapter
 from kai.utils.workspace.cmake import CMakeWorkspaceAdapter
+from kai.utils.workspace.python import PythonWorkspaceAdapter
+from kai.utils.workspace.javascript import JavaScriptWorkspaceAdapter
+from kai.utils.workspace.c import CWorkspaceAdapter
 
 __all__ = [
     "WorkspaceAdapter",
     "FoundryWorkspaceAdapter",
     "CargoWorkspaceAdapter",
     "CMakeWorkspaceAdapter",
+    "PythonWorkspaceAdapter",
+    "JavaScriptWorkspaceAdapter",
+    "CWorkspaceAdapter",
     "get_workspace_adapter",
     "get_supported_frameworks",
 ]
@@ -25,6 +31,13 @@ _ADAPTERS = {
     "forge": FoundryWorkspaceAdapter,  # Alias
     "cargo": CargoWorkspaceAdapter,
     "cmake": CMakeWorkspaceAdapter,
+    # BountyBench language adapters
+    "python": PythonWorkspaceAdapter,
+    "py": PythonWorkspaceAdapter,  # Alias
+    "javascript": JavaScriptWorkspaceAdapter,
+    "js": JavaScriptWorkspaceAdapter,  # Alias
+    "node": JavaScriptWorkspaceAdapter,  # Alias
+    "c": CWorkspaceAdapter,
 }
 
 _adapter_cache: dict = {}

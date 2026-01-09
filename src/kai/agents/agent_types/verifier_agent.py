@@ -109,6 +109,17 @@ class VerifierAgent(BaseAgent):
                 "You are VerifierAgent. Validate exploit findings and output a Verdict."
             )
 
+        # Get framework-specific PoC guidance from adapter
+        poc_guidance = ""
+        if hasattr(self, "master_context") and self.master_context:
+            try:
+                from kai.utils.tool_adapters import get_tool_adapter
+                adapter_name = getattr(self.master_context, "adapter", None) or "foundry"
+                tool_adapter = get_tool_adapter(adapter_name)
+                poc_guidance = tool_adapter.get_poc_guidance()
+            except Exception:
+                pass
+
         # Substitute template variables
         replacements = {
             "{{max_tool_turns}}": str(self.max_tool_turns),
@@ -119,6 +130,7 @@ class VerifierAgent(BaseAgent):
             "{{poc_path}}": self.exploit_candidate.target_file or "N/A",
             "{{worker_reasoning}}": self.exploit_candidate.description,
             "{{poc_code}}": self.exploit_candidate.poc_code or "No PoC code provided",
+            "{{poc_guidance}}": poc_guidance,
         }
         prompt = template
         for key, value in replacements.items():

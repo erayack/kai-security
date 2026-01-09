@@ -16,6 +16,9 @@ from kai.utils.tool_adapters.base import (
 from kai.utils.tool_adapters.foundry import FoundryToolAdapter
 from kai.utils.tool_adapters.cargo import CargoToolAdapter
 from kai.utils.tool_adapters.cmake import CMakeToolAdapter
+from kai.utils.tool_adapters.python import PythonToolAdapter
+from kai.utils.tool_adapters.javascript import JavaScriptToolAdapter
+from kai.utils.tool_adapters.c import CToolAdapter
 
 __all__ = [
     "ToolAdapter",
@@ -25,6 +28,9 @@ __all__ = [
     "FoundryToolAdapter",
     "CargoToolAdapter",
     "CMakeToolAdapter",
+    "PythonToolAdapter",
+    "JavaScriptToolAdapter",
+    "CToolAdapter",
     "get_tool_adapter",
     "get_supported_frameworks",
 ]
@@ -33,10 +39,15 @@ __all__ = [
 _ADAPTERS = {
     "foundry": FoundryToolAdapter,
     "forge": FoundryToolAdapter,  # Alias
-    # Future adapters:
-    # "hardhat": HardhatToolAdapter,
     "cargo": CargoToolAdapter,
     "cmake": CMakeToolAdapter,
+    # BountyBench language adapters
+    "python": PythonToolAdapter,
+    "py": PythonToolAdapter,  # Alias
+    "javascript": JavaScriptToolAdapter,
+    "js": JavaScriptToolAdapter,  # Alias
+    "node": JavaScriptToolAdapter,  # Alias
+    "c": CToolAdapter,
 }
 
 # Singleton cache for adapter instances

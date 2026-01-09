@@ -652,3 +652,13 @@ Example (no exploit, with verification test):
     )""",
         }
         return descriptions.get(tool_name)
+
+    def get_poc_guidance(self) -> str:
+        """Get Foundry/Solidity-specific PoC writing guidance."""
+        return """## PoC Format: Foundry/Solidity
+Write Foundry test files (.t.sol) in test/poc/.
+- Import from forge-std/Test.sol and use the Test base class
+- Deploy contracts from the REAL codebase (don't create mock/fake contracts)
+- Use setUp() to initialize state, test_*() for exploit
+- Assertions prove the exploit: assertGt, assertEq, assertTrue, etc.
+- A PASSING test with assertions proving bad state = valid exploit"""

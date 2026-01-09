@@ -124,6 +124,7 @@ class QuantAgent(BaseAgent):
         self,
         invariant: Invariant,
         actor_context: str = "No actor context available.",
+        extra_instructions: str = "",
     ):
         """
         Replace system prompt with the native toolcalling template.
@@ -134,6 +135,7 @@ class QuantAgent(BaseAgent):
         Args:
             invariant: The invariant to embed in the prompt
             actor_context: Formatted string of relevant actor roles
+            extra_instructions: Additional instructions (e.g., CWE hints)
         """
         try:
             template = TOOLCALLING_PROMPT_PATH.read_text(encoding="utf-8")
@@ -141,6 +143,17 @@ class QuantAgent(BaseAgent):
             template = (
                 "You are QuantAgent. Find numeric invariant violations and write PoCs."
             )
+
+        # Get framework-specific PoC guidance from adapter
+        poc_guidance = ""
+        if self.master_context:
+            try:
+                from kai.utils.tool_adapters import get_tool_adapter
+                adapter_name = getattr(self.master_context, "adapter", None) or "foundry"
+                tool_adapter = get_tool_adapter(adapter_name)
+                poc_guidance = tool_adapter.get_poc_guidance()
+            except Exception:
+                pass  # Fall back to empty guidance
 
         # Substitute template variables
         replacements = {
@@ -156,6 +169,8 @@ class QuantAgent(BaseAgent):
             if invariant.target_var_ids
             else "N/A",
             "{{actor_context}}": actor_context,
+            "{{poc_guidance}}": poc_guidance,
+            "{{extra_instructions}}": extra_instructions,
         }
         prompt = template
         for key, value in replacements.items():

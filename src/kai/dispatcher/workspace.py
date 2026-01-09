@@ -51,7 +51,23 @@ class WorkspaceManager:
         """
         supported = set(get_supported_frameworks())
 
-        # Check MasterContext first (pick first supported workspace framework)
+        # Check MasterContext.adapter field first (BountyBench sets this)
+        if master_context:
+            adapter = getattr(master_context, "adapter", None)
+            if adapter:
+                adapter_lower = str(adapter).lower()
+                # Map adapter names to framework names
+                adapter_map = {
+                    "solidity": "foundry",
+                    "javascript": "javascript",
+                    "python": "python",
+                    "c": "c",
+                }
+                mapped = adapter_map.get(adapter_lower, adapter_lower)
+                if mapped in supported:
+                    return mapped
+
+        # Check MasterContext.frameworks (pick first supported workspace framework)
         if master_context and master_context.frameworks:
             for fw in master_context.frameworks:
                 fw_lower = str(fw).lower()
@@ -76,6 +92,18 @@ class WorkspaceManager:
             return "hardhat"
         if (master / "truffle-config.js").exists() and "truffle" in supported:
             return "truffle"
+
+        if (master / "package.json").exists() and "javascript" in supported:
+            return "javascript"
+
+        if (
+            (master / "pyproject.toml").exists()
+            or (master / "setup.py").exists()
+            or (master / "requirements.txt").exists()
+        ) and "python" in supported:
+            return "python"
+
+        # TODO: What to do about C & Cpp
 
         # Default to foundry for Solidity projects
         return "foundry"

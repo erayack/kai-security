@@ -63,6 +63,17 @@ class DispatcherConfig:
     # Rollout saving
     save_rollouts: bool = False
     rollouts_dir: Optional[str] = None  # If None, uses workspace_dir/rollouts
+    # Setup agent settings
+    setup_model: str = settings.SETUP_DEFAULT_MODEL
+    setup_max_turns: int = settings.SETUP_MAX_TURNS
+    # Profiler agent settings
+    profiler_max_turns: int = settings.PROFILER_MAX_TURNS
+    # Disable gamified agents (useful for BountyBench)
+    disable_gamified: bool = False
+    # Extra instructions to pass to agents (e.g., CWE hints)
+    extra_instructions: Optional[str] = None
+    # Skip workspace validation (useful when context is pre-validated)
+    skip_workspace_validation: bool = False
 
 
 class Dispatcher:
@@ -267,11 +278,19 @@ class Dispatcher:
         repo_path: Optional[str] = None,
         model_name: str = settings.MAIN_DEFAULT_MODEL,
         use_openai: bool = False,
+        master_context: Optional[MasterContext] = None,
     ) -> bool:
         """
         Run preprocess chain to populate global knowledge.
 
         Chain: EnvironmentSetup - StaticAnalysis - Profiler - ActorProcess - InvariantProcess
+
+        Args:
+            repo_url: Git URL of the repository
+            repo_path: Local path to the repository (overrides repo_url)
+            model_name: Model to use for agent inference
+            use_openai: Whether to use OpenAI API directly
+            master_context: Pre-built MasterContext (BountyBench mode, skips EnvironmentSetup)
         """
         self.logger.info("Booting Dispatcher...")
 
@@ -287,28 +306,34 @@ class Dispatcher:
         )
 
         try:
-            self.logger.info("Step 1/6: Environment Setup...")
-            env_process = EnvironmentSetupProcess(
-                MasterContext(
-                    root_path="./", compile_success=True
-                )  # TODO: get path from env
-            )
-            env_input = EnvironmentSetupInput(
-                repo_url=repo_url or "",
-                num_turns=10,
-                model_name=model_name,
-                use_openai=use_openai,
-                repo_path_override=repo_path,
-            )
-            env_output = await env_process.run(env_input)
-
-            if not env_output.success or not env_output.master_context:
-                self.logger.error(
-                    f"Environment setup failed: {env_output.error_message}"
+            # Use provided MasterContext if given (BountyBench mode)
+            if master_context:
+                self.master_context = master_context
+                self.logger.info(f"Using provided MasterContext: {master_context.root_path}")
+            else:
+                self.logger.info("Step 1/6: Environment Setup...")
+                env_process = EnvironmentSetupProcess(
+                    MasterContext(
+                        root_path="./", compile_success=True
+                    )  # TODO: get path from env
                 )
-                return False
+                env_input = EnvironmentSetupInput(
+                    repo_url=repo_url or "",
+                    num_turns=self.config.setup_max_turns,
+                    model_name=self.config.setup_model,
+                    use_openai=use_openai,
+                    repo_path_override=repo_path,
+                )
+                env_output = await env_process.run(env_input)
 
-            self.master_context = env_output.master_context
+                if not env_output.success or not env_output.master_context:
+                    self.logger.error(
+                        f"Environment setup failed: {env_output.error_message}"
+                    )
+                    return False
+
+                self.master_context = env_output.master_context
+
             self.logger.info(f"MasterContext ready: {self.master_context.root_path}")
 
             # Persist master context
@@ -342,39 +367,42 @@ class Dispatcher:
                 else None
             )
 
-            self.logger.info("Step 3/6: Workspace Validation...")
-            from kai.processes.workspace_validation import WorkspaceValidationProcess
-            from kai.schemas import WorkspacePreset, WorkspaceValidationInput
+            if not self.config.skip_workspace_validation:
+                self.logger.info("Step 3/6: Workspace Validation...")
+                from kai.processes.workspace_validation import WorkspaceValidationProcess
+                from kai.schemas import WorkspacePreset, WorkspaceValidationInput
 
-            ws_output = await WorkspaceValidationProcess(
-                context=self.master_context, workspace_dir=self.config.workspace_dir
-            ).run(
-                WorkspaceValidationInput(
-                    master_context=self.master_context,
-                    presets=[
-                        WorkspacePreset.LIGHTWEIGHT,
-                        WorkspacePreset.CLEAN,
-                        WorkspacePreset.WRITEABLE,
-                        WorkspacePreset.SANDBOX,
-                    ],
-                    timeout_compile_s=120,
-                    timeout_test_s=120,
-                )
-            )
-            if not ws_output.success:
-                self.logger.error(
-                    ws_output.error_message or "Workspace validation failed"
-                )
-                # Log per-preset summary for debugging
-                for r in ws_output.results:
-                    self.logger.error(
-                        f"WorkspaceValidation {r.preset.value}: "
-                        f"compiled={r.compiled}, test_success={r.test_success}, "
-                        f"workspace={r.workspace_path}, error={r.error}"
+                ws_output = await WorkspaceValidationProcess(
+                    context=self.master_context, workspace_dir=self.config.workspace_dir
+                ).run(
+                    WorkspaceValidationInput(
+                        master_context=self.master_context,
+                        presets=[
+                            WorkspacePreset.LIGHTWEIGHT,
+                            WorkspacePreset.CLEAN,
+                            WorkspacePreset.WRITEABLE,
+                            WorkspacePreset.SANDBOX,
+                        ],
+                        timeout_compile_s=120,
+                        timeout_test_s=120,
                     )
-                return False
+                )
+                if not ws_output.success:
+                    self.logger.error(
+                        ws_output.error_message or "Workspace validation failed"
+                    )
+                    # Log per-preset summary for debugging
+                    for r in ws_output.results:
+                        self.logger.error(
+                            f"WorkspaceValidation {r.preset.value}: "
+                            f"compiled={r.compiled}, test_success={r.test_success}, "
+                            f"workspace={r.workspace_path}, error={r.error}"
+                        )
+                    return False
 
-            self.logger.info("Workspace validation passed")
+                self.logger.info("Workspace validation passed")
+            else:
+                self.logger.info("Skipping workspace validation (config.skip_workspace_validation=True)")
 
             self.logger.info("Step 4/6: Profiler...")
             profiler_process = ProfilerProcess(context=self.master_context)
@@ -735,6 +763,7 @@ class Dispatcher:
                 model=self.config.model,
                 use_openai=self.config.use_openai,
                 execution_id=mission.mission_id,
+                extra_instructions=self.config.extra_instructions,
             )
 
             self.logger.info(

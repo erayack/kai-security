@@ -17,7 +17,7 @@ VERIFIER_DEFAULT_MODEL = "anthropic/claude-opus-4.5"
 DEFAULT_MAX_TURNS = (
     32  # Default for most agents (state, quant, blackbox, gamified, fixer)
 )
-SETUP_MAX_TURNS = 24  # Setup agent needs fewer turns
+SETUP_MAX_TURNS = 32  # Setup agent
 PROFILER_MAX_TURNS = 12  # Profiler agent
 VERIFIER_MAX_TURNS = 16  # Verifier needs fewer turns
 VALIDATION_MAX_TURNS = 8  # Workspace validation is quick

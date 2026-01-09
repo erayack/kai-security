@@ -177,3 +177,6 @@ Before submitting verdict, confirm:
    - Profit motive: attacker gains value
    - Griefing motive: attacker causes harm (even at cost)
    - Neither: attack is pointless
+
+## Framework-Specific PoC Guidance
+{{poc_guidance}}

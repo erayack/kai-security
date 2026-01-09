@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Optional, List, Any
 
 from kai.agents.base import BaseAgent
@@ -6,7 +7,14 @@ from kai.schemas import (
     AgentResponse,
     BlackboxBrief,
     CampaignBrief,
+    ChatMessage,
     Observation,
+    Role,
+)
+
+# Path to toolcalling prompt template
+TOOLCALLING_PROMPT_PATH = (
+    Path(__file__).parent.parent.parent / "prompts" / "blackbox_agent_prompt.txt"
 )
 
 
@@ -65,6 +73,35 @@ class BlackboxAgent(BaseAgent):
     def get_observations(self) -> List[Observation]:
         """Get all observations recorded during blackbox exploration."""
         return self.blackbox_observations
+
+    def set_toolcalling_prompt(self):
+        """Replace system prompt with the native toolcalling template."""
+        try:
+            template = TOOLCALLING_PROMPT_PATH.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            template = "You are BlackboxAgent. Run investigations and record observations."
+
+        # Get framework-specific PoC guidance from adapter
+        poc_guidance = ""
+        if self.master_context:
+            try:
+                from kai.utils.tool_adapters import get_tool_adapter
+                adapter_name = getattr(self.master_context, "adapter", None) or "foundry"
+                tool_adapter = get_tool_adapter(adapter_name)
+                poc_guidance = tool_adapter.get_poc_guidance()
+            except Exception:
+                pass
+
+        replacements = {
+            "{{max_tool_turns}}": str(self.max_tool_turns),
+            "{{poc_guidance}}": poc_guidance,
+        }
+        prompt = template
+        for key, value in replacements.items():
+            prompt = prompt.replace(key, value)
+
+        self.system_prompt = prompt
+        self.messages = [ChatMessage(role=Role.SYSTEM, content=prompt)]
 
     @staticmethod
     def _coerce_dependency_graph(graph: Any):

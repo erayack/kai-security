@@ -1415,7 +1415,8 @@ def _get_agent_framework() -> str:
     """
     Get the tool framework from the current agent context.
 
-    Checks master_context.frameworks for supported tool frameworks (foundry, hardhat, etc.),
+    Checks master_context.adapter field first (preferred), then master_context.frameworks
+    for supported tool frameworks (foundry, hardhat, python, javascript, c, etc.),
     then falls back to agent.framework attribute if set.
 
     Returns:
@@ -1427,9 +1428,14 @@ def _get_agent_framework() -> str:
     if agent is None:
         return "foundry"
 
-    # Check master_context.frameworks for supported tool framework
+    # Check master_context.adapter field first (preferred)
     master_context = getattr(agent, "master_context", None)
     if master_context:
+        adapter = getattr(master_context, "adapter", None)
+        if adapter:
+            return adapter.lower()
+
+        # Check master_context.frameworks for supported tool framework
         frameworks = getattr(master_context, "frameworks", None) or []
         supported = set(get_supported_frameworks())
         for fw in frameworks:

@@ -114,6 +114,9 @@ explore → hypothesis → register_exploit(poc_code=...) → fix compile errors
 - `dependency_graph_callees(node_id)` - Find functions called by this function
 - `dependency_graph_resolve(name)` - Find node ID from a symbol name
 
+## Framework-Specific PoC Guidance
+{{poc_guidance}}
+
 ## IMPORTANT
 
 - Always register findings! Even verifications (exploit_found=False) are valuable.

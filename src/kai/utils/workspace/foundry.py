@@ -84,6 +84,9 @@ class FoundryWorkspaceAdapter(WorkspaceAdapter):
             "out",
             "cache",
             "artifacts",
+            "kai_workspaces",  # Never copy existing workspaces
+            ".venv",
+            "venv",
         }
 
         for item in master.iterdir():

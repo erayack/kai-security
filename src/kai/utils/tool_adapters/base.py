@@ -317,3 +317,17 @@ class ToolAdapter(ABC):
             Description string or None to use default docstring
         """
         return None
+
+    def get_poc_guidance(self) -> str:
+        """
+        Get framework-specific PoC writing guidance for agent prompts.
+
+        This guidance is injected into agent prompts to help them write
+        appropriate PoC code for the target framework/language.
+
+        Override this method to provide framework-specific instructions.
+
+        Returns:
+            Guidance string for writing PoCs in this framework
+        """
+        return ""

@@ -29,13 +29,19 @@ from typing import Literal, cast
 
 from .base import DomainAdapter
 from .solidity import SolidityAdapter
+from .python import PythonAdapter
+from .javascript import JavaScriptAdapter
+from .c import CAdapter
 
 # Literal type for structured output validation
-AdapterType = Literal["solidity"]
+AdapterType = Literal["solidity", "python", "javascript", "c"]
 
 # Registry mapping adapter names to classes
-ADAPTER_REGISTRY: dict[AdapterType, type[DomainAdapter]] = {
+ADAPTER_REGISTRY: dict[str, type[DomainAdapter]] = {
     "solidity": SolidityAdapter,
+    "python": PythonAdapter,
+    "javascript": JavaScriptAdapter,
+    "c": CAdapter,
 }
 
 
@@ -44,7 +50,7 @@ def get_adapter(name: str) -> DomainAdapter:
     Get an adapter instance by name.
 
     Args:
-        name: Adapter name (e.g., "solidity")
+        name: Adapter name (e.g., "solidity", "python", "javascript", "c")
 
     Returns:
         Instantiated adapter
@@ -56,8 +62,7 @@ def get_adapter(name: str) -> DomainAdapter:
     if name_lower not in ADAPTER_REGISTRY:
         available = list(ADAPTER_REGISTRY.keys())
         raise ValueError(f"Unknown adapter '{name}'. Available: {available}")
-    adapter_type = cast(AdapterType, name_lower)
-    return ADAPTER_REGISTRY[adapter_type]()
+    return ADAPTER_REGISTRY[name_lower]()
 
 
 __all__ = [
@@ -69,4 +74,7 @@ __all__ = [
     "get_adapter",
     # Concrete adapters
     "SolidityAdapter",
+    "PythonAdapter",
+    "JavaScriptAdapter",
+    "CAdapter",
 ]
