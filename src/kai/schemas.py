@@ -124,7 +124,9 @@ class Invariant(BaseModel):
     Output of InvariantProcess, consumed by Dispatcher and Workers.
     """
 
-    id: str = Field(default_factory=generate_id)  # MongoDB ObjectId compatible 24-char hex
+    id: str = Field(
+        default_factory=generate_id
+    )  # MongoDB ObjectId compatible 24-char hex
     type: InvariantType
     rule: str  # Human-readable invariant statement
     explanation: str = ""  # LLM's reasoning for this invariant
@@ -769,7 +771,9 @@ class CampaignBrief(BaseModel):
     Self-contained: agents can execute with only this + workspace.
     """
 
-    campaign_id: str = Field(default_factory=generate_id)  # MongoDB ObjectId compatible 24-char hex
+    campaign_id: str = Field(
+        default_factory=generate_id
+    )  # MongoDB ObjectId compatible 24-char hex
     mode: CampaignMode = CampaignMode.INVARIANT_BOUNDED
     agent_types: List[MissionAgentType] = Field(default_factory=list)
     framework: Optional[str] = None

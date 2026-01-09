@@ -79,14 +79,19 @@ class BlackboxAgent(BaseAgent):
         try:
             template = TOOLCALLING_PROMPT_PATH.read_text(encoding="utf-8")
         except FileNotFoundError:
-            template = "You are BlackboxAgent. Run investigations and record observations."
+            template = (
+                "You are BlackboxAgent. Run investigations and record observations."
+            )
 
         # Get framework-specific PoC guidance from adapter
         poc_guidance = ""
         if self.master_context:
             try:
                 from kai.utils.tool_adapters import get_tool_adapter
-                adapter_name = getattr(self.master_context, "adapter", None) or "foundry"
+
+                adapter_name = (
+                    getattr(self.master_context, "adapter", None) or "foundry"
+                )
                 tool_adapter = get_tool_adapter(adapter_name)
                 poc_guidance = tool_adapter.get_poc_guidance()
             except Exception:

@@ -65,8 +65,14 @@ class JavaScriptAdapter(DomainAdapter):
 
         # Check for route handler patterns
         route_patterns = {
-            "get", "post", "put", "delete", "patch",
-            "use", "all", "route",
+            "get",
+            "post",
+            "put",
+            "delete",
+            "patch",
+            "use",
+            "all",
+            "route",
         }
         if name.lower() in route_patterns:
             return True

@@ -46,9 +46,7 @@ class JavaScriptBuilder(TreeSitterBuilder):
         file_id = str(file_path)
         root = tree.root_node
 
-        self._extract_program(
-            root, file_path, file_id, source_bytes, nodes, edges
-        )
+        self._extract_program(root, file_path, file_id, source_bytes, nodes, edges)
 
         return nodes, edges
 
@@ -91,9 +89,7 @@ class JavaScriptBuilder(TreeSitterBuilder):
                 node, file_path, file_id, source_bytes, nodes, edges, parent_id
             )
         elif node.type == "export_statement":
-            self._extract_export(
-                node, file_path, file_id, source_bytes, nodes, edges
-            )
+            self._extract_export(node, file_path, file_id, source_bytes, nodes, edges)
         elif node.type == "expression_statement":
             # Check for assignments or function expressions
             expr = node.children[0] if node.children else None
@@ -228,9 +224,7 @@ class JavaScriptBuilder(TreeSitterBuilder):
                         params.append(self._get_node_text(name, source_bytes))
 
         # Check if async
-        is_async = is_async or any(
-            c.type == "async" for c in node.children
-        )
+        is_async = is_async or any(c.type == "async" for c in node.children)
 
         func_node = Node(
             id=func_id,
@@ -406,8 +400,15 @@ class JavaScriptBuilder(TreeSitterBuilder):
                 if value:
                     # It's a function - create UNIT instead of VARIABLE
                     self._extract_function_expression(
-                        child, var_name, file_path, file_id, source_bytes,
-                        nodes, edges, parent_id, is_exported
+                        child,
+                        var_name,
+                        file_path,
+                        file_id,
+                        source_bytes,
+                        nodes,
+                        edges,
+                        parent_id,
+                        is_exported,
                     )
                 else:
                     # Regular variable
@@ -536,7 +537,14 @@ class JavaScriptBuilder(TreeSitterBuilder):
                 right = node.children[-1] if len(node.children) > 1 else None
                 if right and right.type == "class":
                     self._extract_class(
-                        right, file_path, file_id, source_bytes, nodes, edges, None, True
+                        right,
+                        file_path,
+                        file_id,
+                        source_bytes,
+                        nodes,
+                        edges,
+                        None,
+                        True,
                     )
 
     def _extract_calls(

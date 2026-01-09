@@ -124,7 +124,9 @@ def test_hello():
         assert "pytest" in guidance.lower() or "python" in guidance.lower()
         assert len(guidance) > 0
 
-    def test_compile_syntax_check(self, adapter: PythonToolAdapter, python_project: Path):
+    def test_compile_syntax_check(
+        self, adapter: PythonToolAdapter, python_project: Path
+    ):
         """Compile should perform syntax check."""
         result = adapter.compile(python_project)
         # Should succeed for valid Python if uv/Python is available
@@ -173,7 +175,11 @@ module.exports = { hello };
         """Should normalize test paths correctly."""
         # With .test.js extension
         result = adapter.normalize_test_path("foo.test.js", tmp_path)
-        assert ".test.js" in str(result) or ".spec.js" in str(result) or ".js" in str(result)
+        assert (
+            ".test.js" in str(result)
+            or ".spec.js" in str(result)
+            or ".js" in str(result)
+        )
 
         # Without extension
         result = adapter.normalize_test_path("foo", tmp_path)
@@ -182,22 +188,32 @@ module.exports = { hello };
     def test_get_poc_guidance(self, adapter: JavaScriptToolAdapter):
         """Should return JavaScript-specific PoC guidance."""
         guidance = adapter.get_poc_guidance()
-        assert "jest" in guidance.lower() or "javascript" in guidance.lower() or "node" in guidance.lower()
+        assert (
+            "jest" in guidance.lower()
+            or "javascript" in guidance.lower()
+            or "node" in guidance.lower()
+        )
         assert len(guidance) > 0
 
-    def test_detect_package_manager_npm(self, adapter: JavaScriptToolAdapter, tmp_path: Path):
+    def test_detect_package_manager_npm(
+        self, adapter: JavaScriptToolAdapter, tmp_path: Path
+    ):
         """Should detect npm as package manager."""
         (tmp_path / "package-lock.json").write_text("{}")
         manager = adapter._detect_package_manager(tmp_path)
         assert manager == "npm"
 
-    def test_detect_package_manager_yarn(self, adapter: JavaScriptToolAdapter, tmp_path: Path):
+    def test_detect_package_manager_yarn(
+        self, adapter: JavaScriptToolAdapter, tmp_path: Path
+    ):
         """Should detect yarn as package manager."""
         (tmp_path / "yarn.lock").write_text("")
         manager = adapter._detect_package_manager(tmp_path)
         assert manager == "yarn"
 
-    def test_detect_package_manager_pnpm(self, adapter: JavaScriptToolAdapter, tmp_path: Path):
+    def test_detect_package_manager_pnpm(
+        self, adapter: JavaScriptToolAdapter, tmp_path: Path
+    ):
         """Should detect pnpm as package manager."""
         (tmp_path / "pnpm-lock.yaml").write_text("")
         manager = adapter._detect_package_manager(tmp_path)
@@ -253,7 +269,11 @@ int main() {
     def test_get_poc_guidance(self, adapter: CToolAdapter):
         """Should return C-specific PoC guidance."""
         guidance = adapter.get_poc_guidance()
-        assert "c" in guidance.lower() or "gcc" in guidance.lower() or "make" in guidance.lower()
+        assert (
+            "c" in guidance.lower()
+            or "gcc" in guidance.lower()
+            or "make" in guidance.lower()
+        )
         assert len(guidance) > 0
 
     def test_detect_build_system_cmake(self, adapter: CToolAdapter, tmp_path: Path):
@@ -297,24 +317,50 @@ class TestToolAdapterPoCGuidance:
 
         # Python guidance should mention pytest or python
         python_guidance = python_adapter.get_poc_guidance().lower()
-        assert "python" in python_guidance or "pytest" in python_guidance or "test" in python_guidance
+        assert (
+            "python" in python_guidance
+            or "pytest" in python_guidance
+            or "test" in python_guidance
+        )
 
         # JavaScript guidance should mention npm, node, or test framework
         js_guidance = js_adapter.get_poc_guidance().lower()
-        assert "javascript" in js_guidance or "node" in js_guidance or "jest" in js_guidance or "test" in js_guidance
+        assert (
+            "javascript" in js_guidance
+            or "node" in js_guidance
+            or "jest" in js_guidance
+            or "test" in js_guidance
+        )
 
         # C guidance should mention compilation or testing
         c_guidance = c_adapter.get_poc_guidance().lower()
-        assert "c" in c_guidance or "gcc" in c_guidance or "make" in c_guidance or "test" in c_guidance
+        assert (
+            "c" in c_guidance
+            or "gcc" in c_guidance
+            or "make" in c_guidance
+            or "test" in c_guidance
+        )
 
         # Foundry guidance should mention solidity or forge
         foundry_guidance = foundry_adapter.get_poc_guidance().lower()
-        assert "solidity" in foundry_guidance or "forge" in foundry_guidance or "foundry" in foundry_guidance
+        assert (
+            "solidity" in foundry_guidance
+            or "forge" in foundry_guidance
+            or "foundry" in foundry_guidance
+        )
 
         # Cargo guidance should mention rust or cargo
         cargo_guidance = cargo_adapter.get_poc_guidance().lower()
-        assert "rust" in cargo_guidance or "cargo" in cargo_guidance or "test" in cargo_guidance
+        assert (
+            "rust" in cargo_guidance
+            or "cargo" in cargo_guidance
+            or "test" in cargo_guidance
+        )
 
         # CMake guidance should mention cmake or ctest
         cmake_guidance = cmake_adapter.get_poc_guidance().lower()
-        assert "cmake" in cmake_guidance or "ctest" in cmake_guidance or "test" in cmake_guidance
+        assert (
+            "cmake" in cmake_guidance
+            or "ctest" in cmake_guidance
+            or "test" in cmake_guidance
+        )

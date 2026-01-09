@@ -10,7 +10,7 @@ Extracts:
 
 from __future__ import annotations
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Tuple
 
 from .treesitter_base import TreeSitterBuilder
 from ..models import Node, SourceSpan, NodeKind, EdgeKind
@@ -85,9 +85,7 @@ class CBuilder(TreeSitterBuilder):
                     child, file_path, file_id, source_bytes, nodes, edges
                 )
             elif child.type == "preproc_function_def":
-                self._extract_macro(
-                    child, file_path, file_id, source_bytes, nodes
-                )
+                self._extract_macro(child, file_path, file_id, source_bytes, nodes)
             elif child.type == "type_definition":
                 self._extract_typedef(
                     child, file_path, file_id, source_bytes, nodes, edges
@@ -109,7 +107,9 @@ class CBuilder(TreeSitterBuilder):
             # Try pointer_declarator for functions returning pointers
             pointer_decl = self._find_child_by_type(node, "pointer_declarator")
             if pointer_decl:
-                declarator = self._find_child_by_type(pointer_decl, "function_declarator")
+                declarator = self._find_child_by_type(
+                    pointer_decl, "function_declarator"
+                )
 
         if not declarator:
             return
@@ -133,7 +133,11 @@ class CBuilder(TreeSitterBuilder):
         # Extract return type
         return_type = ""
         for child in node.children:
-            if child.type in ("primitive_type", "type_identifier", "sized_type_specifier"):
+            if child.type in (
+                "primitive_type",
+                "type_identifier",
+                "sized_type_specifier",
+            ):
                 return_type = self._get_node_text(child, source_bytes)
                 break
 
@@ -149,7 +153,8 @@ class CBuilder(TreeSitterBuilder):
 
         # Check if static (file-local)
         is_static = any(
-            c.type == "storage_class_specifier" and self._get_node_text(c, source_bytes) == "static"
+            c.type == "storage_class_specifier"
+            and self._get_node_text(c, source_bytes) == "static"
             for c in node.children
         )
 
@@ -196,13 +201,19 @@ class CBuilder(TreeSitterBuilder):
         # Check for struct/union/enum definitions within declaration
         for child in node.children:
             if child.type == "struct_specifier":
-                self._extract_struct(child, file_path, file_id, source_bytes, nodes, edges)
+                self._extract_struct(
+                    child, file_path, file_id, source_bytes, nodes, edges
+                )
                 return
             elif child.type == "union_specifier":
-                self._extract_union(child, file_path, file_id, source_bytes, nodes, edges)
+                self._extract_union(
+                    child, file_path, file_id, source_bytes, nodes, edges
+                )
                 return
             elif child.type == "enum_specifier":
-                self._extract_enum(child, file_path, file_id, source_bytes, nodes, edges)
+                self._extract_enum(
+                    child, file_path, file_id, source_bytes, nodes, edges
+                )
                 return
 
         # Regular variable declaration
@@ -229,17 +240,23 @@ class CBuilder(TreeSitterBuilder):
         # Get type
         var_type = ""
         for child in node.children:
-            if child.type in ("primitive_type", "type_identifier", "sized_type_specifier"):
+            if child.type in (
+                "primitive_type",
+                "type_identifier",
+                "sized_type_specifier",
+            ):
                 var_type = self._get_node_text(child, source_bytes)
                 break
 
         # Check if static or extern
         is_static = any(
-            c.type == "storage_class_specifier" and self._get_node_text(c, source_bytes) == "static"
+            c.type == "storage_class_specifier"
+            and self._get_node_text(c, source_bytes) == "static"
             for c in node.children
         )
         is_extern = any(
-            c.type == "storage_class_specifier" and self._get_node_text(c, source_bytes) == "extern"
+            c.type == "storage_class_specifier"
+            and self._get_node_text(c, source_bytes) == "extern"
             for c in node.children
         )
 
@@ -461,11 +478,17 @@ class CBuilder(TreeSitterBuilder):
         # Check for struct/union inside typedef
         for child in node.children:
             if child.type == "struct_specifier":
-                self._extract_struct(child, file_path, file_id, source_bytes, nodes, edges)
+                self._extract_struct(
+                    child, file_path, file_id, source_bytes, nodes, edges
+                )
             elif child.type == "union_specifier":
-                self._extract_union(child, file_path, file_id, source_bytes, nodes, edges)
+                self._extract_union(
+                    child, file_path, file_id, source_bytes, nodes, edges
+                )
             elif child.type == "enum_specifier":
-                self._extract_enum(child, file_path, file_id, source_bytes, nodes, edges)
+                self._extract_enum(
+                    child, file_path, file_id, source_bytes, nodes, edges
+                )
 
         # Get typedef name
         declarator = self._find_child_by_type(node, "type_identifier")

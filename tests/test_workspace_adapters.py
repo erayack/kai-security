@@ -112,18 +112,24 @@ def test_hello():
         """Should return python as framework name."""
         assert adapter.framework_name == "python"
 
-    def test_infer_src_path(self, adapter: PythonWorkspaceAdapter, python_project: Path):
+    def test_infer_src_path(
+        self, adapter: PythonWorkspaceAdapter, python_project: Path
+    ):
         """Should infer src path correctly."""
         src_path = adapter.infer_src_path(python_project)
         assert src_path.name == "src"
 
-    def test_infer_src_path_no_src(self, adapter: PythonWorkspaceAdapter, tmp_path: Path):
+    def test_infer_src_path_no_src(
+        self, adapter: PythonWorkspaceAdapter, tmp_path: Path
+    ):
         """Should return root if no src directory."""
         (tmp_path / "app.py").write_text("x = 1")
         src_path = adapter.infer_src_path(tmp_path)
         assert src_path == tmp_path
 
-    def test_provision_lightweight(self, adapter: PythonWorkspaceAdapter, python_project: Path, tmp_path: Path):
+    def test_provision_lightweight(
+        self, adapter: PythonWorkspaceAdapter, python_project: Path, tmp_path: Path
+    ):
         """Should provision lightweight workspace."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -139,7 +145,9 @@ def test_hello():
         # Should create tests directory
         assert (workspace / "tests").exists()
 
-    def test_provision_full_sandbox(self, adapter: PythonWorkspaceAdapter, python_project: Path, tmp_path: Path):
+    def test_provision_full_sandbox(
+        self, adapter: PythonWorkspaceAdapter, python_project: Path, tmp_path: Path
+    ):
         """Should provision full sandbox workspace."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -150,10 +158,16 @@ def test_hello():
             src_path=str(python_project / "src"),
         )
 
-        result = adapter.provision_full(workspace, python_project, mc, WorkspacePreset.SANDBOX)
+        result = adapter.provision_full(
+            workspace, python_project, mc, WorkspacePreset.SANDBOX
+        )
         assert Path(result).exists()
         # Should copy source files
-        assert (workspace / "src").exists() or (workspace / "app.py").exists() or (workspace / "pyproject.toml").exists()
+        assert (
+            (workspace / "src").exists()
+            or (workspace / "app.py").exists()
+            or (workspace / "pyproject.toml").exists()
+        )
 
 
 class TestJavaScriptWorkspaceAdapter:
@@ -195,24 +209,32 @@ module.exports.foo = function() { return 42; };
         """Should return javascript as framework name."""
         assert adapter.framework_name == "javascript"
 
-    def test_infer_src_path(self, adapter: JavaScriptWorkspaceAdapter, js_project: Path):
+    def test_infer_src_path(
+        self, adapter: JavaScriptWorkspaceAdapter, js_project: Path
+    ):
         """Should infer src path correctly."""
         src_path = adapter.infer_src_path(js_project)
         assert src_path.name == "src"
 
-    def test_detect_package_manager_npm(self, adapter: JavaScriptWorkspaceAdapter, tmp_path: Path):
+    def test_detect_package_manager_npm(
+        self, adapter: JavaScriptWorkspaceAdapter, tmp_path: Path
+    ):
         """Should detect npm as package manager."""
         (tmp_path / "package-lock.json").write_text("{}")
         manager = adapter._detect_package_manager(tmp_path)
         assert manager == "npm"
 
-    def test_detect_package_manager_yarn(self, adapter: JavaScriptWorkspaceAdapter, tmp_path: Path):
+    def test_detect_package_manager_yarn(
+        self, adapter: JavaScriptWorkspaceAdapter, tmp_path: Path
+    ):
         """Should detect yarn as package manager."""
         (tmp_path / "yarn.lock").write_text("")
         manager = adapter._detect_package_manager(tmp_path)
         assert manager == "yarn"
 
-    def test_provision_lightweight(self, adapter: JavaScriptWorkspaceAdapter, js_project: Path, tmp_path: Path):
+    def test_provision_lightweight(
+        self, adapter: JavaScriptWorkspaceAdapter, js_project: Path, tmp_path: Path
+    ):
         """Should provision lightweight workspace."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -226,7 +248,9 @@ module.exports.foo = function() { return 42; };
         result = adapter.provision_lightweight(workspace, js_project, mc)
         assert Path(result).exists()
 
-    def test_provision_full_sandbox(self, adapter: JavaScriptWorkspaceAdapter, js_project: Path, tmp_path: Path):
+    def test_provision_full_sandbox(
+        self, adapter: JavaScriptWorkspaceAdapter, js_project: Path, tmp_path: Path
+    ):
         """Should provision full sandbox workspace."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -237,7 +261,9 @@ module.exports.foo = function() { return 42; };
             src_path=str(js_project / "src"),
         )
 
-        result = adapter.provision_full(workspace, js_project, mc, WorkspacePreset.SANDBOX)
+        result = adapter.provision_full(
+            workspace, js_project, mc, WorkspacePreset.SANDBOX
+        )
         assert Path(result).exists()
 
 
@@ -294,7 +320,9 @@ int add(int a, int b);
         src_path = adapter.infer_src_path(c_project)
         assert src_path.name == "src"
 
-    def test_detect_build_system_cmake(self, adapter: CWorkspaceAdapter, tmp_path: Path):
+    def test_detect_build_system_cmake(
+        self, adapter: CWorkspaceAdapter, tmp_path: Path
+    ):
         """Should detect CMake build system."""
         (tmp_path / "CMakeLists.txt").write_text("cmake_minimum_required(VERSION 3.10)")
         system = adapter._detect_build_system(tmp_path)
@@ -306,7 +334,9 @@ int add(int a, int b);
         system = adapter._detect_build_system(tmp_path)
         assert system == "make"
 
-    def test_provision_lightweight(self, adapter: CWorkspaceAdapter, c_project: Path, tmp_path: Path):
+    def test_provision_lightweight(
+        self, adapter: CWorkspaceAdapter, c_project: Path, tmp_path: Path
+    ):
         """Should provision lightweight workspace."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -320,7 +350,9 @@ int add(int a, int b);
         result = adapter.provision_lightweight(workspace, c_project, mc)
         assert Path(result).exists()
 
-    def test_provision_full_sandbox(self, adapter: CWorkspaceAdapter, c_project: Path, tmp_path: Path):
+    def test_provision_full_sandbox(
+        self, adapter: CWorkspaceAdapter, c_project: Path, tmp_path: Path
+    ):
         """Should provision full sandbox workspace."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -331,7 +363,9 @@ int add(int a, int b);
             src_path=str(c_project / "src"),
         )
 
-        result = adapter.provision_full(workspace, c_project, mc, WorkspacePreset.SANDBOX)
+        result = adapter.provision_full(
+            workspace, c_project, mc, WorkspacePreset.SANDBOX
+        )
         assert Path(result).exists()
 
 

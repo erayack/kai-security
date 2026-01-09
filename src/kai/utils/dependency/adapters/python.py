@@ -70,14 +70,25 @@ class PythonAdapter(DomainAdapter):
         decorators = node.meta.get("decorators", [])
         route_decorators = {
             # Flask
-            "route", "get", "post", "put", "delete", "patch",
-            "app.route", "blueprint.route",
+            "route",
+            "get",
+            "post",
+            "put",
+            "delete",
+            "patch",
+            "app.route",
+            "blueprint.route",
             # FastAPI
-            "api_route", "router.get", "router.post",
+            "api_route",
+            "router.get",
+            "router.post",
             # Django
-            "api_view", "action",
+            "api_view",
+            "action",
             # Click/CLI
-            "command", "group", "click.command",
+            "command",
+            "group",
+            "click.command",
         }
         for dec in decorators:
             dec_lower = dec.lower()

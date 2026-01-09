@@ -126,6 +126,7 @@ class PythonWorkspaceAdapter(WorkspaceAdapter):
         if pyproject.exists():
             try:
                 import tomllib
+
                 data = tomllib.loads(pyproject.read_text())
 
                 # Check [tool.setuptools] packages
@@ -207,7 +208,11 @@ class PythonWorkspaceAdapter(WorkspaceAdapter):
             master_dir = master / src_dir
             workspace_dir = workspace / src_dir
 
-            if master_dir.exists() and master_dir.is_dir() and not workspace_dir.exists():
+            if (
+                master_dir.exists()
+                and master_dir.is_dir()
+                and not workspace_dir.exists()
+            ):
                 try:
                     rel_path = os.path.relpath(master_dir, workspace)
                     workspace_dir.symlink_to(rel_path)
@@ -243,7 +248,9 @@ class PythonWorkspaceAdapter(WorkspaceAdapter):
             if src.exists() and src.is_file():
                 shutil.copy2(src, workspace / config_file)
 
-    def _install_dependencies(self, workspace: Path, logger: Optional[Any] = None) -> None:
+    def _install_dependencies(
+        self, workspace: Path, logger: Optional[Any] = None
+    ) -> None:
         """Install dependencies into the workspace venv."""
         venv_path = workspace / ".venv"
         pip_bin = venv_path / "bin" / "pip"
@@ -324,10 +331,9 @@ sys.path.insert(0, str(_workspace))
         conftest_path.parent.mkdir(parents=True, exist_ok=True)
         conftest_path.write_text(conftest_content)
 
-    def _copy_with_excludes(
-        self, src: Path, dst: Path, excludes: set
-    ) -> None:
+    def _copy_with_excludes(self, src: Path, dst: Path, excludes: set) -> None:
         """Copy directory tree excluding certain patterns."""
+
         def should_exclude(path: Path) -> bool:
             for exc in excludes:
                 if exc.startswith("*"):

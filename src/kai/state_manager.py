@@ -18,7 +18,7 @@ from kai.schemas import (
     Verdict,
     CampaignBrief,
     MasterContext,
-    ProtocolManifesto
+    ProtocolManifesto,
 )
 
 

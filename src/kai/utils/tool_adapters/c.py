@@ -54,9 +54,7 @@ class CToolAdapter(ToolAdapter):
             if compiler_path:
                 return compiler_path
 
-        raise FileNotFoundError(
-            "C compiler not found - install gcc, clang, or cmake"
-        )
+        raise FileNotFoundError("C compiler not found - install gcc, clang, or cmake")
 
     def _detect_build_system(self, workspace_path: Path) -> str:
         """
@@ -68,7 +66,9 @@ class CToolAdapter(ToolAdapter):
             return "cmake"
         if (workspace_path / "Makefile").exists():
             return "make"
-        if (workspace_path / "configure").exists() or (workspace_path / "configure.ac").exists():
+        if (workspace_path / "configure").exists() or (
+            workspace_path / "configure.ac"
+        ).exists():
             return "autoconf"
         if (workspace_path / "meson.build").exists():
             return "meson"
@@ -133,7 +133,9 @@ class CToolAdapter(ToolAdapter):
                 text=True,
                 timeout=timeout // 2,
             )
-            all_output.append(f"=== cmake configure ===\n{result.stdout}{result.stderr}")
+            all_output.append(
+                f"=== cmake configure ===\n{result.stdout}{result.stderr}"
+            )
 
             if result.returncode != 0:
                 return CompileResult(
@@ -162,7 +164,9 @@ class CToolAdapter(ToolAdapter):
             raw_output = "\n".join(all_output)
             return CompileResult(
                 success=result.returncode == 0,
-                errors=self.parse_compile_errors(result.stderr) if result.returncode != 0 else [],
+                errors=self.parse_compile_errors(result.stderr)
+                if result.returncode != 0
+                else [],
                 warnings=self.parse_compile_warnings(result.stdout + result.stderr),
                 raw_output=raw_output[:3000] if len(raw_output) > 3000 else raw_output,
             )
@@ -195,7 +199,9 @@ class CToolAdapter(ToolAdapter):
             raw_output = result.stdout + result.stderr
             return CompileResult(
                 success=result.returncode == 0,
-                errors=self.parse_compile_errors(raw_output) if result.returncode != 0 else [],
+                errors=self.parse_compile_errors(raw_output)
+                if result.returncode != 0
+                else [],
                 warnings=self.parse_compile_warnings(raw_output),
                 raw_output=raw_output[:3000] if len(raw_output) > 3000 else raw_output,
             )
@@ -231,7 +237,9 @@ class CToolAdapter(ToolAdapter):
                     text=True,
                     timeout=timeout // 2,
                 )
-                all_output.append(f"=== meson setup ===\n{result.stdout}{result.stderr}")
+                all_output.append(
+                    f"=== meson setup ===\n{result.stdout}{result.stderr}"
+                )
 
                 if result.returncode != 0:
                     return CompileResult(
@@ -247,7 +255,9 @@ class CToolAdapter(ToolAdapter):
                 )
 
         # Compile
-        compile_cmd = [ninja_bin] if ninja_bin else [meson_bin, "compile", "-C", "build"]
+        compile_cmd = (
+            [ninja_bin] if ninja_bin else [meson_bin, "compile", "-C", "build"]
+        )
         try:
             result = subprocess.run(
                 compile_cmd,
@@ -261,7 +271,9 @@ class CToolAdapter(ToolAdapter):
             raw_output = "\n".join(all_output)
             return CompileResult(
                 success=result.returncode == 0,
-                errors=self.parse_compile_errors(result.stderr) if result.returncode != 0 else [],
+                errors=self.parse_compile_errors(result.stderr)
+                if result.returncode != 0
+                else [],
                 warnings=self.parse_compile_warnings(result.stdout + result.stderr),
                 raw_output=raw_output[:3000] if len(raw_output) > 3000 else raw_output,
             )
@@ -350,7 +362,9 @@ class CToolAdapter(ToolAdapter):
             except Exception as e:
                 errors.append(f"{c_file.name}: {str(e)}")
 
-        raw_output = "\n".join(all_output) if all_output else "All files passed syntax check"
+        raw_output = (
+            "\n".join(all_output) if all_output else "All files passed syntax check"
+        )
 
         return CompileResult(
             success=len(errors) == 0,
@@ -415,7 +429,9 @@ class CToolAdapter(ToolAdapter):
                 for package in packages:
                     try:
                         # Extract repo name from URL
-                        repo_name = package.rstrip("/").split("/")[-1].replace(".git", "")
+                        repo_name = (
+                            package.rstrip("/").split("/")[-1].replace(".git", "")
+                        )
                         target_dir = deps_dir / repo_name
 
                         if target_dir.exists():
@@ -423,7 +439,14 @@ class CToolAdapter(ToolAdapter):
                             continue
 
                         result = subprocess.run(
-                            [git_bin, "clone", "--depth", "1", package, str(target_dir)],
+                            [
+                                git_bin,
+                                "clone",
+                                "--depth",
+                                "1",
+                                package,
+                                str(target_dir),
+                            ],
                             cwd=str(workspace_path),
                             capture_output=True,
                             text=True,
@@ -441,7 +464,9 @@ class CToolAdapter(ToolAdapter):
                     except Exception as e:
                         errors.append(f"{package}: {str(e)}")
 
-        raw_output = "\n".join(all_output) if all_output else "No dependencies to install"
+        raw_output = (
+            "\n".join(all_output) if all_output else "No dependencies to install"
+        )
         success = len(installed) > 0 or len(errors) == 0
 
         return InstallResult(
@@ -487,7 +512,9 @@ class CToolAdapter(ToolAdapter):
         else:
             return self._run_direct_test(workspace_path, match_contract, timeout)
 
-    def _run_ctest(self, workspace_path: Path, match_test: Optional[str], timeout: int) -> TestResult:
+    def _run_ctest(
+        self, workspace_path: Path, match_test: Optional[str], timeout: int
+    ) -> TestResult:
         """Run tests using ctest."""
         ctest_bin = shutil.which("ctest")
         if not ctest_bin:
@@ -495,7 +522,9 @@ class CToolAdapter(ToolAdapter):
 
         build_dir = workspace_path / "build"
         if not build_dir.exists():
-            return TestResult(success=False, error="build directory not found - run compile first")
+            return TestResult(
+                success=False, error="build directory not found - run compile first"
+            )
 
         cmd = [ctest_bin, "--output-on-failure"]
         if match_test:
@@ -595,7 +624,9 @@ class CToolAdapter(ToolAdapter):
         except Exception as e:
             return TestResult(success=False, error=str(e))
 
-    def _run_direct_test(self, workspace_path: Path, test_executable: Optional[str], timeout: int) -> TestResult:
+    def _run_direct_test(
+        self, workspace_path: Path, test_executable: Optional[str], timeout: int
+    ) -> TestResult:
         """Run test executables directly."""
         # Find test executables
         test_paths = []
@@ -690,7 +721,7 @@ class CToolAdapter(ToolAdapter):
         # Strip leading test directories
         for prefix in ["tests/", "test/"]:
             if normalized.startswith(prefix):
-                normalized = normalized[len(prefix):]
+                normalized = normalized[len(prefix) :]
                 break
 
         # Ensure proper extension
@@ -701,7 +732,9 @@ class CToolAdapter(ToolAdapter):
         name = Path(normalized).name
         if not name.startswith("test_"):
             parent = Path(normalized).parent
-            normalized = str(parent / f"test_{name}") if str(parent) != "." else f"test_{name}"
+            normalized = (
+                str(parent / f"test_{name}") if str(parent) != "." else f"test_{name}"
+            )
 
         return workspace / "tests" / "poc" / normalized
 
@@ -846,7 +879,9 @@ Write C test files in tests/poc/.
         parsed_results: dict = {}
 
         # CTest summary: "X% tests passed, Y tests failed out of Z"
-        summary_match = re.search(r"(\d+)% tests passed.*?(\d+) tests failed out of (\d+)", output)
+        summary_match = re.search(
+            r"(\d+)% tests passed.*?(\d+) tests failed out of (\d+)", output
+        )
         if summary_match:
             failed = int(summary_match.group(2))
             total = int(summary_match.group(3))

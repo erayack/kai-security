@@ -33,10 +33,12 @@ Output:
     output/playground/{repo}_{timestamp}/
     ├── results.json      # Full report with campaigns, missions, verdicts
     ├── fixes.json        # Generated fixes (if any)
+    ├── invariants.json   # Generated invariants (if --save-rollouts)
     ├── workspaces/       # Agent workspaces
     └── rollouts/         # Agent conversations (if --save-rollouts)
         ├── missions/     # State/Quant/Blackbox/Gamified agents
-        └── verifier/     # Verifier agent conversations
+        ├── verifier/     # Verifier agent conversations
+        └── fixer/        # Fixer agent conversations
 """
 
 import asyncio
@@ -149,6 +151,18 @@ async def run_dispatcher_demo(
             print(f"        {rule_preview}")
         if len(dispatcher.invariants) > 5:
             print(f"    ... and {len(dispatcher.invariants) - 5} more")
+
+    # Save invariants if rollouts enabled
+    if save_rollouts and dispatcher.invariants:
+        invariants_path = output_dir / "invariants.json"
+        with open(invariants_path, "w") as f:
+            json.dump(
+                [inv.model_dump() for inv in dispatcher.invariants.values()],
+                f,
+                indent=2,
+                default=str,
+            )
+        print(f"\n  Invariants saved to: {invariants_path}")
 
     # =========================================================================
     # PHASE 2: RUN LOOP (includes inline verification + post-loop fixing)
