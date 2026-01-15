@@ -209,94 +209,10 @@ class SolidityAdapter(DomainAdapter):
 
         return valid_parents
 
-    def get_entrypoint_visibility(self) -> List[str]:
-        """Return visibility levels that indicate public entrypoints."""
-        return ["public", "external"]
-
-    def get_role_patterns(self) -> Dict[str, List[str]]:
-        """Return modifier patterns that indicate roles."""
-        return {
-            "Owner": ["onlyOwner", "onlyAdmin"],
-            "Admin": ["onlyAdmin", "onlyRole"],
-            "Operator": ["onlyOperator", "onlyKeeper"],
-            "Minter": ["onlyMinter"],
-            "Pauser": ["whenNotPaused", "onlyPauser"],
-            "Guardian": ["onlyGuardian"],
-        }
-
-    def get_guard_patterns(self) -> List[str]:
-        """Return common guard/modifier patterns (both auth and non-auth)."""
-        return [
-            "onlyOwner",
-            "onlyAdmin",
-            "onlyRole",
-            "whenNotPaused",
-            "nonReentrant",
-            "initializer",
-            "onlyProxy",
-        ]
-
-    def get_non_auth_guards(self) -> List[str]:
-        """
-        Return guard patterns that are NOT access control (don't indicate a role).
-
-        These protect against reentrancy, pausing, initialization, etc.
-        but don't restrict WHO can call the function.
-        """
-        return [
-            "nonReentrant",
-            "noReentrancy",
-            "whenNotPaused",
-            "whenPaused",
-            "initializer",
-            "reinitializer",
-            "onlyInitializing",
-            "onlyProxy",
-            "onlyDelegateCall",
-            "noDelegateCall",
-        ]
-
     def is_non_auth_guard(self, modifier_name: str) -> bool:
         """Check if a modifier is a non-auth guard (reentrancy, pause, etc.)."""
         non_auth = self.get_non_auth_guards()
         return modifier_name in non_auth
-
-    def get_trust_for_modifiers(self, modifier_names: List[str]) -> str:
-        """
-        Deterministically assign trust level based on modifier patterns.
-
-        Returns: "high", "medium", "low", "none", "review_required"
-        """
-        if not modifier_names:
-            return "none"
-
-        # High trust patterns (full admin control)
-        high_trust = {"onlyOwner", "onlyAdmin", "requiresAuth", "auth"}
-        # Medium trust patterns (operational roles)
-        medium_trust = {
-            "onlyRole",
-            "onlyKeeper",
-            "onlyOperator",
-            "onlyMinter",
-            "onlyGuardian",
-        }
-        # Low trust patterns
-        low_trust = {"onlyWhitelisted", "onlyAllowed"}
-
-        for mod in modifier_names:
-            if mod in high_trust:
-                return "high"
-
-        for mod in modifier_names:
-            if mod in medium_trust:
-                return "medium"
-
-        for mod in modifier_names:
-            if mod in low_trust:
-                return "low"
-
-        # Unknown modifier pattern - needs review
-        return "review_required"
 
     # =========================================================================
     # Lens-based invariant generation
@@ -441,11 +357,23 @@ Identify potential deadlock scenarios:
 - What if a required condition can never be met?
 - Example: "What if no one claims before gracePeriod expires?"
 - Generate invariant for each potential deadlock
+
+### Time-Gated Actions (CRITICAL - often missed)
+For EACH function that should only work during a specific time window:
+- Generate LIVENESS invariant: "Function X must revert after [deadline/expiry]"
+- Check: Does the function verify the time window is still open?
+- Common bug: Function remains callable AFTER the window should have closed
+- Example patterns to check:
+  - `claimThrone` should fail after grace period expires (game ended)
+  - `bid` should fail after auction ends
+  - `deposit` should fail after funding period closes
+- The bug: Code allows actions that should be blocked once deadline passes
 """,
                 checklist=[
                     "Critical functions have LIVENESS invariants",
                     "Protocol can reach terminal state from any valid state",
                     "No deadlock states identified (or invariants for prevention)",
+                    "Time-gated functions checked for proper deadline enforcement",
                 ],
             ),
             LensDefinition(
@@ -467,6 +395,20 @@ For EACH public view function that computes and returns a value:
   - `getRemainingTime` returns wrong value due to arithmetic order
   - `getBalance` doesn't account for pending withdrawals
   - Comparison uses >= when > is correct for boundary
+
+### Arithmetic Boundary Conditions (CRITICAL for timing functions)
+For EACH view function doing time arithmetic (deadline - block.timestamp):
+- Generate invariant for EACH boundary case:
+  - "getRemainingTime must return 0 when deadline has passed (not underflow)"
+  - "getRemainingTime must return correct value at exact deadline moment"
+- Check subtraction order: `deadline - now` underflows if `now > deadline`
+- Check boundary comparisons:
+  - `>=` vs `>` matters at exact boundary!
+  - Example: `if (now >= deadline)` vs `if (now > deadline)` - one off-by-one
+- Common bugs:
+  - Missing check for "deadline already passed" returns garbage/reverts
+  - Returns (deadline - now) when now > deadline causing underflow
+  - Wrong comparison operator at exact deadline second
 
 ### View Function Analysis (for sensitive data)
 For EACH public view function that returns sensitive data:
