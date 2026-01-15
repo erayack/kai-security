@@ -378,6 +378,13 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
             temperature=0.2,
         )
 
+        # Handle API errors where choices is None or empty
+        if not response.choices:
+            raise RuntimeError(
+                f"LLM API returned no choices for lens '{lens.name}'. "
+                "This may be due to rate limiting, content filtering, or an API error."
+            )
+
         content = response.choices[0].message.content or ""
 
         # Parse response
