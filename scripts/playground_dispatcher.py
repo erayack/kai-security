@@ -28,6 +28,7 @@ Options:
     --max-turns       Max turns per agent (default: settings.MAX_TOOL_TURNS)
     --exploration     Enable Blackbox/Gamified exploration phases
     --save-rollouts   Save agent conversation rollouts to output/rollouts/
+    --no-fixer        Disable fixer agent to reduce costs during debugging
 
 Output:
     output/playground/{repo}_{timestamp}/
@@ -72,6 +73,7 @@ async def run_dispatcher_demo(
     max_turns: int = settings.MAX_TOOL_TURNS,
     include_exploration: bool = False,
     save_rollouts: bool = False,
+    disable_fixer: bool = False,
 ) -> None:
     """
     Run the full dispatcher pipeline and print results.
@@ -95,6 +97,7 @@ async def run_dispatcher_demo(
     print(f"  Verifier:           {settings.VERIFIER_DEFAULT_MODEL}")
     print(f"  Gamified:           {settings.GAMIFIED_DEFAULT_MODEL}")
     print(f"\nExploration: {'enabled' if include_exploration else 'disabled'}")
+    print(f"Fixer: {'disabled' if disable_fixer else 'enabled'}")
     print(f"Save rollouts: {'enabled' if save_rollouts else 'disabled'}")
     print(f"{'=' * 70}\n")
 
@@ -115,6 +118,7 @@ async def run_dispatcher_demo(
         use_openai=False,
         save_rollouts=save_rollouts,
         rollouts_dir=str(output_dir / "rollouts") if save_rollouts else None,
+        disable_fixer=disable_fixer,
     )
 
     # Create dispatcher (no state manager for simplicity)
@@ -310,6 +314,11 @@ def main():
         action="store_true",
         help="Save agent conversation rollouts for debugging (default: disabled)",
     )
+    parser.add_argument(
+        "--no-fixer",
+        action="store_true",
+        help="Disable fixer agent to reduce costs during debugging (default: enabled)",
+    )
 
     args = parser.parse_args()
 
@@ -330,6 +339,7 @@ def main():
             max_turns=args.max_turns,
             include_exploration=args.exploration,
             save_rollouts=args.save_rollouts,
+            disable_fixer=args.no_fixer,
         )
     )
 
