@@ -41,6 +41,8 @@ INVARIANT_TO_AGENTS: Dict[InvariantType, List[MissionAgentType]] = {
     InvariantType.FEE_BOUND: [MissionAgentType.QUANT],
     InvariantType.REENTRANCY: [MissionAgentType.STATE],
     InvariantType.ORDERING: [MissionAgentType.STATE],
+    InvariantType.VALUE_FLOW: [MissionAgentType.QUANT, MissionAgentType.STATE],
+    InvariantType.ECONOMIC: [MissionAgentType.QUANT],
     InvariantType.OTHER: [MissionAgentType.STATE, MissionAgentType.QUANT],
 }
 
