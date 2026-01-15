@@ -113,6 +113,8 @@ class InvariantType(str, Enum):
     FEE_BOUND = "fee_bound"  # Fee constraints
     REENTRANCY = "reentrancy"  # No reentrant state corruption
     ORDERING = "ordering"  # State transition ordering
+    VALUE_FLOW = "value_flow"  # Correct variable used in value calculations
+    ECONOMIC = "economic"  # Economic correctness (distribution, basis)
     OTHER = "other"  # Anything else
 
 
@@ -192,7 +194,6 @@ class InvariantProcessInput(BaseModel):
     protocol_manifesto: Optional["ProtocolManifesto"] = None
     model_name: str = MAIN_DEFAULT_MODEL
     use_openai: bool = False
-    max_chunk_functions: int = 25  # Max functions per chunk
 
 
 class InvariantProcessOutput(BaseModel):
