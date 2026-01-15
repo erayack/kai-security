@@ -3,7 +3,7 @@ kai/analysis/engine.py
 """
 
 from collections import deque
-from typing import List, Dict, Any, Optional, Literal
+from typing import List, Dict, Any, Optional, Literal, Callable
 from .models import NodeRef, ContextSlice, EvidencePack
 from ..models import EdgeKind
 from ..adapters.base import DomainAdapter
@@ -118,6 +118,73 @@ class GraphQueryEngine:
                 continue
 
             results.append(self._to_ref(node))
+
+        return results
+
+    def get_functions_with_metadata(
+        self,
+        metadata_extractors: Optional[Dict[str, Callable]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all protocol entrypoints with graph-derived metadata.
+
+        Returns a list of dicts containing:
+        - Identity: id, name, container, file, signature
+        - Graph metrics: callers_count, callees_count, callee_ids
+        - State access: reads, writes, state_access_count
+        - Raw node metadata: meta
+        - Any fields populated by metadata_extractors
+
+        Args:
+            metadata_extractors: Optional dict of field_name -> callable(node, graph) -> value
+                                 These populate domain-specific metadata fields.
+
+        Returns:
+            List of function info dicts
+        """
+        metadata_extractors = metadata_extractors or {}
+        entrypoints = self.protocol_entrypoints()
+        results = []
+
+        for ep in entrypoints:
+            node = self.graph.node(ep.id)
+
+            # Get call relationships
+            callers = self.callers(ep.id)
+            callees = self.callees(ep.id)
+
+            # Get state access
+            reads = self.neighbors(ep.id, [EdgeKind.READS], "out")
+            writes = self.neighbors(ep.id, [EdgeKind.WRITES], "out")
+
+            # Build base function info
+            func_info = {
+                # Identity
+                "id": ep.id,
+                "name": ep.name,
+                "container": ep.container,
+                "file": ep.file,
+                "signature": ep.signature,
+                # Graph metrics
+                "callers_count": len(callers),
+                "callees_count": len(callees),
+                "callee_ids": [c.id for c in callees],
+                # State access
+                "reads": [r.name for r in reads],
+                "writes": [w.name for w in writes],
+                "state_access_count": len(reads) + len(writes),
+                # Raw metadata
+                "meta": node.meta or {},
+            }
+
+            # Apply domain-specific metadata extractors
+            for field_name, extractor in metadata_extractors.items():
+                try:
+                    func_info[field_name] = extractor(node, self.graph)
+                except Exception:
+                    func_info[field_name] = None
+
+            results.append(func_info)
 
         return results
 
