@@ -96,7 +96,7 @@ class TreeSitterBuilder(BaseBuilder):
         """
         try:
             # Try tree-sitter-language-pack (preferred)
-            from tree_sitter_language_pack import get_parser
+            from tree_sitter_language_pack import get_parser  # type: ignore[import-not-found]
 
             return get_parser(self.language)
         except ImportError:
@@ -144,18 +144,18 @@ class TreeSitterBuilder(BaseBuilder):
             f"Install tree-sitter-language-pack or tree-sitter-{self.language}"
         )
 
-    def build(self, project_root: Any, **kwargs) -> DependencyGraph:
+    def build(self, source: Any, **kwargs) -> DependencyGraph:
         """
         Build a dependency graph from the project.
 
         Args:
-            project_root: Path to project root directory
+            source: Path to project root directory
             **kwargs: Builder-specific options
 
         Returns:
             Populated DependencyGraph
         """
-        root = Path(project_root).resolve()
+        root = Path(source).resolve()
         graph = DependencyGraph(root)
 
         # Find all source files

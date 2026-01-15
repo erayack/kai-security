@@ -220,7 +220,7 @@ class EnvironmentSetupProcess(
                 pass
             return
 
-        def _onerror(func, p, _exc_info):  # type: ignore[no-untyped-def]
+        def _onerror(func, p, _exc_info):
             try:
                 pp = Path(p)
 

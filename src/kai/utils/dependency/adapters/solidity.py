@@ -209,6 +209,26 @@ class SolidityAdapter(DomainAdapter):
 
         return valid_parents
 
+    def get_non_auth_guards(self) -> List[str]:
+        """
+        Return guard patterns that are NOT access control (don't indicate a role).
+
+        These protect against reentrancy, pausing, initialization, etc.
+        but don't restrict WHO can call the function.
+        """
+        return [
+            "nonReentrant",
+            "noReentrancy",
+            "whenNotPaused",
+            "whenPaused",
+            "initializer",
+            "reinitializer",
+            "onlyInitializing",
+            "onlyProxy",
+            "onlyDelegateCall",
+            "noDelegateCall",
+        ]
+
     def is_non_auth_guard(self, modifier_name: str) -> bool:
         """Check if a modifier is a non-auth guard (reentrancy, pause, etc.)."""
         non_auth = self.get_non_auth_guards()
