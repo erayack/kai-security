@@ -234,6 +234,69 @@ class SolidityAdapter(DomainAdapter):
         non_auth = self.get_non_auth_guards()
         return modifier_name in non_auth
 
+    def get_trust_for_modifiers(self, modifier_names: List[str]) -> str:
+        """
+        Determine trust level based on Solidity modifier patterns.
+
+        Returns: "high", "medium", "low", "none", or "review_required"
+        """
+        if not modifier_names:
+            return "none"
+
+        # Filter out non-auth guards (reentrancy, pause, etc.)
+        auth_modifiers = [m for m in modifier_names if not self.is_non_auth_guard(m)]
+        if not auth_modifiers:
+            return "none"
+
+        # High trust patterns (owner/admin only)
+        high_trust = {
+            "onlyowner",
+            "onlyadmin",
+            "onlygovernance",
+            "onlyguardian",
+            "onlydao",
+            "onlymultisig",
+            "requiresauth",
+            "onlytimelock",
+        }
+
+        # Medium trust patterns (role-based or operator)
+        medium_trust = {
+            "onlyrole",
+            "onlyoperator",
+            "onlyminter",
+            "onlyburner",
+            "onlykeeper",
+            "onlyrelayer",
+            "onlyvalidator",
+            "hasrole",
+            "auth",
+        }
+
+        # Low trust patterns (basic checks)
+        low_trust = {
+            "onlyeoa",
+            "onlycontract",
+        }
+
+        for mod in auth_modifiers:
+            mod_lower = mod.lower()
+            if any(ht in mod_lower for ht in high_trust):
+                return "high"
+
+        for mod in auth_modifiers:
+            mod_lower = mod.lower()
+            if any(mt in mod_lower for mt in medium_trust):
+                return "medium"
+
+        for mod in auth_modifiers:
+            mod_lower = mod.lower()
+            if any(lt in mod_lower for lt in low_trust):
+                return "low"
+
+        # Unknown modifier pattern - needs review
+        return "review_required"
+
     # =========================================================================
     # Lens-based invariant generation
     # =========================================================================
