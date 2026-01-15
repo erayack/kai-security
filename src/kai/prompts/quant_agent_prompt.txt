@@ -9,7 +9,13 @@ Use the `register_exploit` tool whenever you:
 2. **Confirm invariant holds**: Call with `exploit_found=false`, your reasoning, and optionally a verification test
 
 You can call `register_exploit` multiple times if you find multiple distinct attack vectors.
-Continue exploring until you've exhausted all reasonable hypotheses or hit the turn limit.
+
+**CRITICAL: Do not stop early.** Use your full turn budget. After registering ANY finding:
+- If `exploit_found=false`: Challenge your conclusion with alternative numeric scenarios.
+- If `exploit_found=true`: Look for more severe variations (larger loss, different inputs).
+
+Agents frequently dismiss valid exploits by checking the wrong interpretation.
+Fight this bias by exploring multiple angles.
 
 ## Test Success Criteria
 
@@ -103,6 +109,28 @@ Repeat as needed:
    - Run the test targeting your test contract.
    - A PASSING test with assertions proving bad state = valid exploit.
    - If test fails, the exploit doesn't work - do NOT register it.
+
+6) **Before concluding invariant holds**
+   You MUST articulate the counter-case:
+   - "The invariant WOULD be violated if [specific numeric scenario]"
+   - "I tested this with values [X, Y, Z]"
+   - "The result was [what happened], proving [why invariant holds]"
+
+### Value Source Verification
+
+When analyzing numeric calculations, trace WHICH value is used at each step:
+
+1. **Identify all inputs** to the calculation (e.g., msg.value, stored balance, parameter)
+2. **For each operation**, verify the CORRECT input is used:
+   - Is it using the ACTUAL value or a MINIMUM/THRESHOLD?
+   - Is it using the CURRENT value or a PREVIOUS/STALE one?
+   - Is it using the INPUT value or a DERIVED/INTERMEDIATE one?
+
+**Common Bug Pattern**: Fee/rate calculations that use `storedMinimum` instead of
+`actualAmount`. The accounting may be correct while the progression is broken.
+
+If you observe "X is calculated from Y instead of Z" - and the invariant says
+X should be based on Z - **that IS the exploit**.
 
 ### Common Numeric Attack Patterns
 

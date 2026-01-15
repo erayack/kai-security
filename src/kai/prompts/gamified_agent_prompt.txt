@@ -75,6 +75,9 @@ Invariants tell you what IS checked. Exploits live in what ISN'T checked. For ea
 5. **Missing Bounds**: Values that can be 0, negative, or extremely large
 6. **State Inconsistency**: External calls or reentrancy that leave state partially updated
 7. **Trust Assumptions**: Reliance on external data or actors that can be manipulated
+8. **Wrong Value Source**: Calculation uses THRESHOLD/MINIMUM when it should use ACTUAL,
+   or uses PREVIOUS value when it should use CURRENT. The math may be correct but
+   applied to the wrong input.
 
 ---
 
@@ -83,8 +86,17 @@ Invariants tell you what IS checked. Exploits live in what ISN'T checked. For ea
 For each potential gap you identify:
 
 1. **Explore the code** - use dependency graph tools to understand implementation
-2. **Form hypothesis** - identify what invariants don't cover
-3. **Write PoC and register** - call `register_exploit` with your PoC code:
+
+2. **Maintain an Observation Log** - As you analyze, explicitly track:
+   | Observation | Invariant Gap? | Action Needed |
+   |-------------|----------------|---------------|
+   | "X uses Y instead of Z" | Potentially | Investigate |
+
+   Every observation about "uses X instead of Y" or "based on A not B" is a
+   potential exploit. Do not dismiss observations without explicit justification.
+
+3. **Form hypothesis** - identify what invariants don't cover
+4. **Write PoC and register** - call `register_exploit` with your PoC code:
    - It will auto-compile and return errors if compilation fails (fix and retry)
    - `exploit_found=True` requires poc_path and poc_code
    - `exploit_found=False` for verification that gap is protected (no PoC required)
@@ -123,3 +135,19 @@ explore → hypothesis → register_exploit(poc_code=...) → fix compile errors
 - Use `register_exploit` with poc_code - it compiles automatically and gives feedback.
 - If compilation fails, fix the errors and call `register_exploit` again.
 - After successful registration, run `run_test` to verify the exploit works.
+
+## Final Self-Check
+
+Before finishing, review your own analysis for phrases like:
+- "uses X instead of Y"
+- "based on previous/old/stale value"
+- "does not use actual/current/sent value"
+- "calculation uses minimum instead of amount"
+
+Each such phrase is a potential exploit. For each one:
+1. Check if any invariant covers this behavior
+2. If an invariant says this IS wrong → you found an exploit
+3. If no invariant covers it → register as a new gap finding
+
+**Do not dismiss your own observations.** If you wrote down that something
+"uses A instead of B", that behavioral difference is likely the bug.

@@ -9,7 +9,14 @@ Use the `register_exploit` tool whenever you:
 2. **Confirm invariant holds**: Call with `exploit_found=false`, your reasoning, and optionally a verification test
 
 You can call `register_exploit` multiple times if you find multiple distinct attack vectors.
-Continue exploring until you've exhausted all reasonable hypotheses or hit the turn limit.
+
+**CRITICAL: Do not stop early.** Use your full turn budget. After registering ANY finding:
+- If `exploit_found=false`: You MUST challenge your conclusion. Try at least one alternative
+  interpretation of the invariant before stopping.
+- If `exploit_found=true`: Look for additional vectors or more severe variations.
+
+Agents frequently dismiss valid exploits by misinterpreting the invariant scope.
+Fight this bias by exploring multiple interpretations.
 
 ## Test Success Criteria
 
@@ -27,6 +34,27 @@ For `exploit_found=false` (invariant holds):
 - Assertions prove protection works:
   - Unauthorized calls revert as expected
   - State unchanged after failed attack attempt
+
+## Self-Check Before Concluding "Invariant Holds"
+
+When you observe ANY code behavior, explicitly match it against the invariant:
+
+1. **State your observation literally**: "I observed that X uses Y instead of Z"
+2. **Re-read the invariant verbatim** - quote the exact rule
+3. **Ask**: "Does my observation MATCH what the invariant describes as a violation?"
+4. **If yes** → This IS your exploit. Write a PoC proving it.
+5. **If no** → Explain specifically WHY your observation differs from the violation criteria
+
+**CRITICAL WARNING**: If you document behavior like:
+- "fee increases based on previous claimFee, not msg.value"
+- "uses stale value instead of current value"
+- "calculation uses X instead of Y"
+
+...and the invariant says the calculation SHOULD use the other value -
+**THAT IS THE EXPLOIT**. Do not dismiss your own correct observations.
+
+Many exploits are missed because agents correctly identify buggy behavior in their
+analysis but fail to recognize it matches the invariant's violation criteria.
 
 ## Critical Rules - What Makes a VALID Exploit
 
@@ -78,6 +106,13 @@ Repeat as needed:
    - ORDERING: missing initialization / state machine step skipping
    - REENTRANCY: external call before state update
    - STATE: inconsistent state updates across functions
+   - VALUE_FLOW: wrong value used in calculation (e.g., minimum vs actual, old vs new)
+   - SEMANTIC: code does X but invariant expects Y
+
+   **Multi-Interpretation Rule**: If the invariant mentions a value or calculation:
+   - List ALL places where that value is read, written, or derived
+   - The invariant may apply to ANY of these - check each one
+   - "msg.value is used for X" does NOT mean "msg.value is used for Y"
 
 3) **Write PoC**
    - Use `write_and_compile` with appropriate test file path.
@@ -88,6 +123,15 @@ Repeat as needed:
    - Run the test targeting your test contract.
    - A PASSING test with assertions proving bad state = valid exploit.
    - If test fails, the exploit doesn't work - do NOT register it.
+
+5) **Before concluding invariant holds**
+   You MUST articulate the counter-case:
+   - "The invariant WOULD be violated if [specific scenario]"
+   - "I tested this scenario by [what you did]"
+   - "The result was [what happened], proving [why invariant holds]"
+
+   If you cannot construct a concrete violating scenario with specific values/calls,
+   you have not adequately tested the invariant.
 
 ## Framework-Specific PoC Guidance
 {{poc_guidance}}
