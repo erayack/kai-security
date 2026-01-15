@@ -9,9 +9,10 @@ load_dotenv()
 
 # Agent model settings
 SETUP_DEFAULT_MODEL = "google/gemini-3-flash-preview"
-MAIN_DEFAULT_MODEL = "openai/gpt-5.2"
-GAMIFIED_DEFAULT_MODEL = "anthropic/claude-opus-4.5"
-VERIFIER_DEFAULT_MODEL = "anthropic/claude-opus-4.5"
+MAIN_DEFAULT_MODEL = "google/gemini-3-flash-preview"
+GAMIFIED_DEFAULT_MODEL = "google/gemini-3-flash-preview"
+VERIFIER_DEFAULT_MODEL = "google/gemini-3-pro-preview"  # "anthropic/claude-opus-4.5"
+INVARIANT_DEFAULT_MODEL = "google/gemini-3-pro-preview"
 
 # Agent turn limits (centralized)
 DEFAULT_MAX_TURNS = (
@@ -59,6 +60,7 @@ WORKSPACE_VALIDATION_AGENT_PROMPT_PATH = (
 )
 FIXER_AGENT_PROMPT_PATH = PROMPTS_DIR / "fixer_agent_prompt.txt"
 GAMIFIED_AGENT_PROMPT_PATH = PROMPTS_DIR / "gamified_agent_prompt.txt"
+BUCKETING_AGENT_PROMPT_PATH = PROMPTS_DIR / "bucketing_agent_prompt.txt"
 
 # Conversation defaults
 SAVE_CONVERSATION_PATH = "output/conversations/"
