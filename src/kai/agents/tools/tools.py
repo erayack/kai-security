@@ -1447,7 +1447,6 @@ def _get_agent_framework() -> str:
 
     return "foundry"
 
-
 def _get_adapter():
     """Get the tool adapter for the current agent's framework."""
     from kai.utils.tool_adapters import get_tool_adapter
