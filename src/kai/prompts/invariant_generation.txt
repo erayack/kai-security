@@ -34,6 +34,10 @@ Think about (pick the relevant ones for this system):
 - Concurrency/Reentrancy/Races: No state corruption from interleaving or repeated calls
 - Data integrity: Derived fields match sources, totals equal sums, monotonic counters behave
 - Liveness/Availability: Critical operations remain callable under expected conditions
+- Value flow: Calculations use the correct input variables (e.g., actual payment vs minimum threshold)
+- Economic correctness: Funds are properly distributed and accounted for
+
+{invariant_hints}
 
 ## OUTPUT FORMAT
 
@@ -42,7 +46,7 @@ Respond with a JSON object containing an "invariants" array:
 {{
   "invariants": [
     {{
-      "type": "ACCESS|SOLVENCY|CONSERVATION|LIVENESS|FEE_BOUND|REENTRANCY|ORDERING|OTHER",
+      "type": "ACCESS|SOLVENCY|CONSERVATION|LIVENESS|FEE_BOUND|REENTRANCY|ORDERING|VALUE_FLOW|ECONOMIC|OTHER",
       "rule": "Human-readable invariant statement",
       "explanation": "Why this invariant matters and how it could be violated",
       "target_function_ids": ["exact_function_id_from_vocab"],

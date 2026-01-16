@@ -23,6 +23,7 @@ class AgentType(Enum):
     WORKSPACE_VALIDATION = settings.WORKSPACE_VALIDATION_AGENT_PROMPT_PATH
     FIXER = settings.FIXER_AGENT_PROMPT_PATH
     GAMIFIED = settings.GAMIFIED_AGENT_PROMPT_PATH
+    BUCKETING = settings.BUCKETING_AGENT_PROMPT_PATH
 
 
 def agent_type_to_kind(agent_type: AgentType) -> str:
@@ -47,6 +48,8 @@ def agent_type_to_kind(agent_type: AgentType) -> str:
         return "fixer"
     if agent_type == AgentType.GAMIFIED:
         return "gamified"
+    if agent_type == AgentType.BUCKETING:
+        return "bucketing"
     return "unknown"
 
 
@@ -73,6 +76,7 @@ def load_system_prompt(
         AgentType.WORKSPACE_VALIDATION,
         AgentType.FIXER,
         AgentType.GAMIFIED,
+        AgentType.BUCKETING,
     }:
         raise ValueError(f"Unsupported agent type for Kai v2 scope: {agent_type}")
 

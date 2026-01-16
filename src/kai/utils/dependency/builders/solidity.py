@@ -117,7 +117,7 @@ class SolidityBuilder(BaseBuilder):
         `forge build` fail when it tries to overwrite them. We chmod on failure and retry.
         """
 
-        def _onerror(func, p, _exc_info):  # type: ignore[no-untyped-def]
+        def _onerror(func, p, _exc_info):
             try:
                 pp = Path(p)
 

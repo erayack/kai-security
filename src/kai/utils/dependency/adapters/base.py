@@ -1,9 +1,32 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional, TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional, Callable, TYPE_CHECKING
+
 from ..models import Node
 
 if TYPE_CHECKING:
     from ..graph import DependencyGraph
+
+
+@dataclass
+class LensDefinition:
+    """
+    Domain-agnostic lens definition for invariant generation.
+
+    Each lens focuses on a specific security concern. The LLM uses
+    the description and prompt_template to categorize functions and
+    generate focused invariants.
+    """
+
+    name: str
+    description: str
+    invariant_types: List[str]
+
+    # Lens-specific prompt template for LLM invariant generation
+    prompt_template: str = ""
+
+    # Mandatory checklist items - used for coverage verification
+    checklist: List[str] = field(default_factory=list)
 
 
 class DomainAdapter(ABC):
@@ -75,5 +98,50 @@ class DomainAdapter(ABC):
         """
         Determine trust level based on modifier patterns.
         Returns: "high", "medium", "low", "none", or "review_required"
+        """
+        pass
+
+    # =========================================================================
+    # Lens-based invariant generation methods
+    # =========================================================================
+
+    @abstractmethod
+    def get_lens_definitions(self) -> List[LensDefinition]:
+        """
+        Return lens definitions for this domain.
+
+        Each lens defines a focused security concern with:
+        - name: Identifier for the lens
+        - description: What security concerns this lens covers
+        - invariant_types: Which InvariantType values this lens generates
+        - prompt_template: Lens-specific LLM prompt
+        - checklist: Mandatory coverage items
+
+        The LLM uses these definitions to:
+        1. Categorize functions into lens buckets
+        2. Generate focused invariants per lens
+
+        Returns:
+            List of LensDefinition for this domain
+        """
+        pass
+
+    @abstractmethod
+    def get_function_metadata_extractors(self) -> Dict[str, Callable]:
+        """
+        Return extractors for function metadata.
+
+        Each extractor populates domain-specific metadata on functions.
+        This metadata is passed to the LLM to help with bucketing and
+        invariant generation.
+
+        Returns:
+            Dict mapping field_name -> callable(node, graph) -> value
+
+        Example for Solidity:
+            {
+                "is_payable": lambda node, graph: node.meta.get("is_payable", False),
+                "visibility": lambda node, graph: node.meta.get("visibility", ""),
+            }
         """
         pass

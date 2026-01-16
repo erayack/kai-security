@@ -16,6 +16,7 @@ from kai.schemas import (
     Verdict,
     VerifierProcessInput,
     VerifierProcessOutput,
+    WorkspacePreset,
 )
 
 
@@ -50,6 +51,7 @@ class VerifierProcess(BaseProcess[VerifierProcessInput, VerifierProcessOutput]):
         workspace_path = workspace_manager.provision(
             workspace_id=workspace_id,
             master_path=repo_path,
+            preset=WorkspacePreset.CLEAN,  # Use CLEAN to match analysis workspace structure
             master_context=ctx,
         )
 

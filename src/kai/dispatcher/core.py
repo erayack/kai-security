@@ -59,6 +59,7 @@ class DispatcherConfig:
     # Model settings for agents
     model: str = settings.MAIN_DEFAULT_MODEL
     verifier_model: str = settings.VERIFIER_DEFAULT_MODEL
+    invariant_model: str = settings.INVARIANT_DEFAULT_MODEL
     use_openai: bool = False
     # Rollout saving
     save_rollouts: bool = False
@@ -70,6 +71,8 @@ class DispatcherConfig:
     profiler_max_turns: int = settings.PROFILER_MAX_TURNS
     # Disable gamified agents (useful for BountyBench)
     disable_gamified: bool = False
+    # Disable fixer agent (useful for debugging to reduce costs)
+    disable_fixer: bool = False
     # Extra instructions to pass to agents (e.g., CWE hints)
     extra_instructions: Optional[str] = None
     # Skip workspace validation (useful when context is pre-validated)
@@ -475,7 +478,7 @@ class Dispatcher:
                 dependency_graph=self.dependency_graph,
                 actor_matrix=self.actor_matrix,
                 protocol_manifesto=self.protocol_manifesto,
-                model_name=model_name,
+                model_name=self.config.invariant_model,
                 use_openai=use_openai,
             )
             inv_output = await inv_process.run(inv_input)
@@ -962,6 +965,12 @@ class Dispatcher:
         Called after all missions complete. Iterates over verdicts with is_valid=True
         and runs FixerAgent on each.
         """
+        if self.config.disable_fixer:
+            self.logger.info(
+                "Fixer disabled (config.disable_fixer=True), skipping fix generation"
+            )
+            return
+
         valid_verdicts = [v for v in self.verdicts if v.is_valid]
 
         if not valid_verdicts:

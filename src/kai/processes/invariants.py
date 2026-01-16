@@ -1,12 +1,13 @@
 """
-InvariantProcess: Grounded invariant generation from ActorMatrix + DependencyGraph.
+InvariantProcess: Lens-based invariant generation from ActorMatrix + DependencyGraph.
 
 This process generates invariants by:
 1. Building vocab tables from the graph (functions, vars, files)
-2. Chunking vocab to fit LLM context
-3. Per-chunk LLM invariant generation with strict ID constraints
-4. Validation to ensure all IDs exist in vocab
-5. Merging/deduplication across chunks
+2. Getting function metadata for bucketing
+3. Using BucketingAgent to categorize functions into lens buckets
+4. Per-lens LLM invariant generation with focused prompts
+5. Validation to ensure all IDs exist in vocab
+6. Merging/deduplication across lenses
 
 LLM can only reference IDs from the provided vocabulary - cannot hallucinate locations.
 """
@@ -16,6 +17,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from kai.agents.agent_types.bucketing_agent import BucketingAgent
 from kai.inference import create_openai_client, get_model_pricing
 from kai.processes.base import BaseProcess
 from kai.schemas import (
@@ -28,22 +30,23 @@ from kai.schemas import (
     InvariantType,
     ProtocolManifesto,
     VarVocabEntry,
-    VocabChunk,
 )
 from kai.utils.dependency.adapters import DomainAdapter, get_adapter
+from kai.utils.dependency.adapters.base import LensDefinition
 from kai.utils.dependency.analysis import FileSourceLoader, GraphQueryEngine
 from kai.utils.dependency.models import EdgeKind
 
-# Load prompt template
+# Load base prompt template
 PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "invariant_generation.txt"
-INVARIANT_PROMPT = PROMPT_PATH.read_text() if PROMPT_PATH.exists() else ""
+BASE_INVARIANT_PROMPT = PROMPT_PATH.read_text() if PROMPT_PATH.exists() else ""
 
 
 class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput]):
     """
-    Process to generate grounded invariants from ActorMatrix + DependencyGraph.
+    Process to generate grounded invariants using lens-based generation.
 
-    Uses vocab tables to constrain LLM to valid IDs only.
+    Uses BucketingAgent to categorize functions, then generates focused
+    invariants per lens using lens-specific prompts.
     """
 
     async def execute(
@@ -96,36 +99,69 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
                     },
                 )
 
-            # Step 2: Chunk vocab
-            chunks = self._chunk_vocab(vocab, input_data.max_chunk_functions)
-            self.logger.info(f"Created {len(chunks)} chunks")
+            # Step 2: Get function metadata for bucketing
+            self.logger.info("Getting function metadata...")
+            metadata_extractors = self.adapter.get_function_metadata_extractors()
+            functions_with_metadata = engine.get_functions_with_metadata(
+                metadata_extractors=metadata_extractors
+            )
+            self.logger.info(
+                f"Got metadata for {len(functions_with_metadata)} functions"
+            )
 
-            # Step 3: Per-chunk LLM generation
+            # Step 3: Run BucketingAgent
+            self.logger.info("Running BucketingAgent to categorize functions...")
+            lens_definitions = self.adapter.get_lens_definitions()
+            self.logger.info(f"Lenses: {[l.name for l in lens_definitions]}")
+            buckets = await self._run_bucketing_agent(
+                functions=functions_with_metadata,
+                lens_definitions=lens_definitions,
+                model_name=input_data.model_name,
+                use_openai=input_data.use_openai,
+            )
+
+            self.logger.info(
+                f"Bucketing complete: {', '.join(f'{k}={len(v)}' for k, v in buckets.items())}"
+            )
+
+            # Step 4: Per-lens invariant generation
             raw_invariants: List[Invariant] = []
             total_cost = 0.0
             total_tokens: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
 
-            for chunk in chunks:
-                chunk_invs, cost, tokens = await self._generate_invariants_for_chunk(
-                    chunk=chunk,
+            for lens in lens_definitions:
+                lens_function_ids = buckets.get(lens.name, [])
+                if not lens_function_ids:
+                    self.logger.info(f"Skipping lens '{lens.name}' - no functions")
+                    continue
+
+                self.logger.info(
+                    f"Generating invariants for lens '{lens.name}' ({len(lens_function_ids)} functions)..."
+                )
+
+                lens_invs, cost, tokens = await self._generate_invariants_for_lens(
+                    lens=lens,
+                    function_ids=lens_function_ids,
+                    vocab=vocab,
                     manifesto=manifesto,
                     actor_matrix=actor_matrix,
                     model_name=input_data.model_name,
                     use_openai=input_data.use_openai,
                 )
-                raw_invariants.extend(chunk_invs)
+
+                raw_invariants.extend(lens_invs)
                 total_cost += cost
                 total_tokens["prompt_tokens"] += tokens.get("prompt_tokens", 0)
                 total_tokens["completion_tokens"] += tokens.get("completion_tokens", 0)
 
             self.logger.info(f"Generated {len(raw_invariants)} raw invariants")
 
-            # Step 4: Validate
+            # Step 5: Validate
             valid_set = self._build_valid_id_sets(vocab)
             validated, dropped = self._validate_invariants(raw_invariants, valid_set)
             self.logger.info(f"Validated: {len(validated)}, Dropped: {dropped}")
 
-            # Step 5: Merge/dedupe
+            # Step 6: Merge/dedupe
             final_invariants = self._merge_invariants(validated)
             merged_count = len(validated) - len(final_invariants)
             self.logger.info(
@@ -151,6 +187,50 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
                 success=False,
                 error_message=str(e),
             )
+
+    async def _run_bucketing_agent(
+        self,
+        functions: List[Dict[str, Any]],
+        lens_definitions: List[LensDefinition],
+        model_name: str,
+        use_openai: bool,
+    ) -> Dict[str, List[str]]:
+        """
+        Run the BucketingAgent to categorize functions into lens buckets.
+
+        Returns: {lens_name: [function_ids]}
+        """
+        self.logger.info(f"Creating BucketingAgent for {len(functions)} functions")
+
+        agent = BucketingAgent(
+            functions=functions,
+            lens_definitions=lens_definitions,
+            model=model_name,
+            use_openai=use_openai,
+        )
+
+        self.logger.info(f"BucketingAgent max_tool_turns: {agent.max_tool_turns}")
+
+        try:
+            task_message = agent.build_task_message()
+            self.logger.info(f"Task message length: {len(task_message)} chars")
+            self.logger.info("Starting BucketingAgent chat_with_tools...")
+
+            # Run with progress logging
+            await agent.chat_with_tools(task_message)
+
+            # Log final results
+            self.logger.info("BucketingAgent finished")
+            self.logger.info(
+                f"  Assigned: {len(agent.assigned_functions)}/{len(agent.all_function_ids)}"
+            )
+            self.logger.info(f"  Skipped: {len(agent.skipped_functions)}")
+            for lens_name, func_ids in agent.buckets.items():
+                self.logger.info(f"  {lens_name}: {len(func_ids)} functions")
+
+            return agent.get_buckets()
+        finally:
+            await agent.close()
 
     def _build_vocab(
         self,
@@ -229,76 +309,41 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
             "files": files,
         }
 
-    def _chunk_vocab(
+    async def _generate_invariants_for_lens(
         self,
+        lens: LensDefinition,
+        function_ids: List[str],
         vocab: Dict[str, List[Any]],
-        max_functions: int,
-    ) -> List[VocabChunk]:
-        """
-        Split vocab into chunks, each with at most max_functions functions.
-
-        Includes related vars and files for each chunk.
-        """
-        functions = vocab["functions"]
-        vars_by_id = {v.id: v for v in vocab["vars"]}
-        files_by_id = {f.id: f for f in vocab["files"]}
-
-        chunks: List[VocabChunk] = []
-
-        for i in range(0, len(functions), max_functions):
-            chunk_funcs = functions[i : i + max_functions]
-            chunk_id = f"chunk_{i // max_functions}"
-
-            # Collect related vars
-            var_ids_needed: Set[str] = set()
-            file_ids_needed: Set[str] = set()
-
-            for func in chunk_funcs:
-                # Find var IDs from reads/writes (need to look up by name)
-                for var in vocab["vars"]:
-                    if var.name in func.reads or var.name in func.writes:
-                        var_ids_needed.add(var.id)
-
-                if func.file:
-                    file_ids_needed.add(func.file)
-
-            chunk_vars = [
-                vars_by_id[vid] for vid in var_ids_needed if vid in vars_by_id
-            ]
-            chunk_files = [
-                files_by_id[fid] for fid in file_ids_needed if fid in files_by_id
-            ]
-
-            chunks.append(
-                VocabChunk(
-                    chunk_id=chunk_id,
-                    functions=chunk_funcs,
-                    vars=chunk_vars,
-                    files=chunk_files,
-                )
-            )
-
-        return chunks
-
-    async def _generate_invariants_for_chunk(
-        self,
-        chunk: VocabChunk,
         manifesto: Optional[ProtocolManifesto],
         actor_matrix: ActorMatrix,
         model_name: str,
         use_openai: bool,
     ) -> Tuple[List[Invariant], float, Dict[str, int]]:
         """
-        Generate invariants for a single vocab chunk.
+        Generate invariants for a single lens.
 
         Returns: (invariants, cost, tokens)
         """
+        # Filter vocab to only functions in this lens
+        func_id_set = set(function_ids)
+        lens_functions = [f for f in vocab["functions"] if f.id in func_id_set]
+
+        # Get related vars
+        var_names_needed: Set[str] = set()
+        file_ids_needed: Set[str] = set()
+        for func in lens_functions:
+            var_names_needed.update(func.reads)
+            var_names_needed.update(func.writes)
+            if func.file:
+                file_ids_needed.add(func.file)
+
+        lens_vars = [v for v in vocab["vars"] if v.name in var_names_needed]
+        lens_files = [f for f in vocab["files"] if f.id in file_ids_needed]
+
         # Format vocab for prompt
-        functions_vocab = json.dumps(
-            [f.model_dump() for f in chunk.functions], indent=2
-        )
-        vars_vocab = json.dumps([v.model_dump() for v in chunk.vars], indent=2)
-        files_vocab = json.dumps([f.model_dump() for f in chunk.files], indent=2)
+        functions_vocab = json.dumps([f.model_dump() for f in lens_functions], indent=2)
+        vars_vocab = json.dumps([v.model_dump() for v in lens_vars], indent=2)
+        files_vocab = json.dumps([f.model_dump() for f in lens_files], indent=2)
 
         # Actor matrix summary
         actor_summary_lines = []
@@ -311,41 +356,12 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
             )
         actor_matrix_summary = "\n".join(actor_summary_lines)
 
-        # Minimal, language-agnostic protocol context
-        protocol_context = ""
-        if manifesto:
-            lines: List[str] = []
-            if getattr(manifesto, "name", None):
-                lines.append(f"Protocol: {manifesto.name}")
-            if getattr(manifesto, "purpose", None):
-                purpose = manifesto.purpose or ""
-                lines.append(f"Purpose: {purpose[:160]}")
-            if getattr(manifesto, "domain", None):
-                dom = manifesto.domain
-                if dom:
-                    lines.append(f"Domain: {dom}")
-            # Summarize without heavy details
-            users = list(getattr(manifesto, "intended_users", []) or [])
-            if users:
-                lines.append("Users: " + ", ".join(users[:3]))
-            concepts = list((getattr(manifesto, "key_concepts", {}) or {}).keys())
-            if concepts:
-                lines.append("Key Concepts: " + ", ".join(concepts[:3]))
-            features = [
-                getattr(f, "name", "")
-                for f in (getattr(manifesto, "key_features", []) or [])
-            ]
-            features = [f for f in features if f]
-            if features:
-                lines.append("Features: " + ", ".join(features[:2]))
-            # Languages are informational only; keep very short
-            langs = list(getattr(manifesto, "programming_languages", []) or [])
-            if langs:
-                lines.append("Languages: " + ", ".join(langs[:2]))
-            protocol_context = "\n".join(lines)
+        # Protocol context
+        protocol_context = self._build_protocol_context(manifesto)
 
-        # Format prompt
-        prompt = INVARIANT_PROMPT.format(
+        # Build lens-specific prompt
+        prompt = self._build_lens_prompt(
+            lens=lens,
             protocol_context=protocol_context,
             functions_vocab=functions_vocab,
             vars_vocab=vars_vocab,
@@ -359,12 +375,137 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
         response = await client.chat.completions.create(
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,  # Slight creativity but mostly deterministic
+            temperature=0.2,
         )
+
+        # Handle API errors where choices is None or empty
+        if not response.choices:
+            raise RuntimeError(
+                f"LLM API returned no choices for lens '{lens.name}'. "
+                "This may be due to rate limiting, content filtering, or an API error."
+            )
 
         content = response.choices[0].message.content or ""
 
         # Parse response
+        invariants = self._parse_invariants_response(content, lens.name)
+
+        # Calculate tokens and cost
+        usage = response.usage
+        tokens = {
+            "prompt_tokens": usage.prompt_tokens if usage else 0,
+            "completion_tokens": usage.completion_tokens if usage else 0,
+        }
+
+        pricing = get_model_pricing(model_name, use_openai)
+        cost = (
+            tokens["prompt_tokens"] * pricing["prompt"]
+            + tokens["completion_tokens"] * pricing["completion"]
+        )
+
+        return invariants, cost, tokens
+
+    def _build_protocol_context(self, manifesto: Optional[ProtocolManifesto]) -> str:
+        """Build minimal protocol context string."""
+        if not manifesto:
+            return ""
+
+        lines: List[str] = []
+        if getattr(manifesto, "name", None):
+            lines.append(f"Protocol: {manifesto.name}")
+        if getattr(manifesto, "purpose", None):
+            purpose = manifesto.purpose or ""
+            lines.append(f"Purpose: {purpose[:160]}")
+        if getattr(manifesto, "domain", None):
+            dom = manifesto.domain
+            if dom:
+                lines.append(f"Domain: {dom}")
+
+        users = list(getattr(manifesto, "intended_users", []) or [])
+        if users:
+            lines.append("Users: " + ", ".join(users[:3]))
+
+        concepts = list((getattr(manifesto, "key_concepts", {}) or {}).keys())
+        if concepts:
+            lines.append("Key Concepts: " + ", ".join(concepts[:3]))
+
+        return "\n".join(lines)
+
+    def _build_lens_prompt(
+        self,
+        lens: LensDefinition,
+        protocol_context: str,
+        functions_vocab: str,
+        vars_vocab: str,
+        files_vocab: str,
+        actor_matrix_summary: str,
+    ) -> str:
+        """Build the full prompt for a lens."""
+        # Combine base prompt structure with lens-specific guidance
+        prompt = f"""You are a security auditor generating {lens.name.upper()} invariants.
+
+## LENS FOCUS: {lens.name.upper()}
+{lens.description}
+
+## TARGET INVARIANT TYPES
+{", ".join(lens.invariant_types)}
+
+{lens.prompt_template}
+
+## MANDATORY CHECKLIST
+Before finishing, verify you have addressed:
+{chr(10).join(f"- [ ] {item}" for item in lens.checklist)}
+
+## PROJECT CONTEXT
+{protocol_context}
+
+## VOCABULARY
+
+You may ONLY reference IDs from this vocabulary. Do NOT invent new IDs.
+
+### Functions
+{functions_vocab}
+
+### State Variables
+{vars_vocab}
+
+### Files
+{files_vocab}
+
+## ACTOR MATRIX SUMMARY
+{actor_matrix_summary}
+
+## OUTPUT FORMAT
+
+Respond with a JSON object containing an "invariants" array:
+```json
+{{
+  "invariants": [
+    {{
+      "type": "{lens.invariant_types[0] if lens.invariant_types else "OTHER"}",
+      "rule": "Human-readable invariant statement",
+      "explanation": "Why this invariant matters and how it could be violated",
+      "target_function_ids": ["exact_function_id_from_vocab"],
+      "target_var_ids": ["exact_var_id_from_vocab"],
+      "target_file_ids": ["exact_file_path_from_vocab"],
+      "confidence": 0.0-1.0
+    }}
+  ]
+}}
+```
+
+IMPORTANT:
+- Every ID in target_*_ids MUST exist in the vocabulary above
+- Focus ONLY on {lens.name} concerns for this pass
+- Generate focused, high-quality invariants (prefer quality over quantity)
+- Do NOT include IDs that aren't in the vocabulary
+"""
+        return prompt
+
+    def _parse_invariants_response(
+        self, content: str, lens_name: str
+    ) -> List[Invariant]:
+        """Parse LLM response into Invariant objects."""
         json_str = content
         if "```json" in content:
             json_str = content.split("```json")[1].split("```")[0].strip()
@@ -392,27 +533,13 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
                         target_file_ids=item.get("target_file_ids", []),
                         confidence=item.get("confidence", 0.5),
                         source="llm",
-                        chunk_id=chunk.chunk_id,
+                        chunk_id=f"lens_{lens_name}",
                     )
                 )
         except json.JSONDecodeError:
-            self.logger.warning(f"Failed to parse LLM response for {chunk.chunk_id}")
+            self.logger.warning(f"Failed to parse LLM response for lens {lens_name}")
 
-        # Calculate tokens and cost
-        usage = response.usage
-        tokens = {
-            "prompt_tokens": usage.prompt_tokens if usage else 0,
-            "completion_tokens": usage.completion_tokens if usage else 0,
-        }
-
-        # Get pricing and calculate cost
-        pricing = get_model_pricing(model_name, use_openai)
-        cost = (
-            tokens["prompt_tokens"] * pricing["prompt"]
-            + tokens["completion_tokens"] * pricing["completion"]
-        )
-
-        return invariants, cost, tokens
+        return invariants
 
     def _build_valid_id_sets(
         self,
@@ -486,21 +613,17 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
 
         Simple approach: group by normalized rule + target set, keep highest confidence.
         """
-        # Group by (normalized_rule, frozenset of targets)
         groups: Dict[Tuple[str, frozenset], List[Invariant]] = defaultdict(list)
 
         for inv in invariants:
-            # Normalize rule for comparison
             norm_rule = inv.rule.lower().strip()
             target_key = frozenset(
                 inv.target_function_ids + inv.target_var_ids + inv.target_file_ids
             )
             groups[(norm_rule, target_key)].append(inv)
 
-        # Keep best from each group
         merged: List[Invariant] = []
         for group in groups.values():
-            # Sort by confidence descending, take first
             group.sort(key=lambda x: -x.confidence)
             merged.append(group[0])
 

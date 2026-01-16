@@ -2,9 +2,9 @@
 Solidity-specific domain adapter for the GraphQueryEngine.
 """
 
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
-from .base import DomainAdapter
+from .base import DomainAdapter, LensDefinition
 from ..models import Node, NodeKind
 
 if TYPE_CHECKING:
@@ -209,33 +209,6 @@ class SolidityAdapter(DomainAdapter):
 
         return valid_parents
 
-    def get_entrypoint_visibility(self) -> List[str]:
-        """Return visibility levels that indicate public entrypoints."""
-        return ["public", "external"]
-
-    def get_role_patterns(self) -> Dict[str, List[str]]:
-        """Return modifier patterns that indicate roles."""
-        return {
-            "Owner": ["onlyOwner", "onlyAdmin"],
-            "Admin": ["onlyAdmin", "onlyRole"],
-            "Operator": ["onlyOperator", "onlyKeeper"],
-            "Minter": ["onlyMinter"],
-            "Pauser": ["whenNotPaused", "onlyPauser"],
-            "Guardian": ["onlyGuardian"],
-        }
-
-    def get_guard_patterns(self) -> List[str]:
-        """Return common guard/modifier patterns (both auth and non-auth)."""
-        return [
-            "onlyOwner",
-            "onlyAdmin",
-            "onlyRole",
-            "whenNotPaused",
-            "nonReentrant",
-            "initializer",
-            "onlyProxy",
-        ]
-
     def get_non_auth_guards(self) -> List[str]:
         """
         Return guard patterns that are NOT access control (don't indicate a role).
@@ -263,37 +236,406 @@ class SolidityAdapter(DomainAdapter):
 
     def get_trust_for_modifiers(self, modifier_names: List[str]) -> str:
         """
-        Deterministically assign trust level based on modifier patterns.
+        Determine trust level based on Solidity modifier patterns.
 
-        Returns: "high", "medium", "low", "none", "review_required"
+        Returns: "high", "medium", "low", "none", or "review_required"
         """
         if not modifier_names:
             return "none"
 
-        # High trust patterns (full admin control)
-        high_trust = {"onlyOwner", "onlyAdmin", "requiresAuth", "auth"}
-        # Medium trust patterns (operational roles)
-        medium_trust = {
-            "onlyRole",
-            "onlyKeeper",
-            "onlyOperator",
-            "onlyMinter",
-            "onlyGuardian",
-        }
-        # Low trust patterns
-        low_trust = {"onlyWhitelisted", "onlyAllowed"}
+        # Filter out non-auth guards (reentrancy, pause, etc.)
+        auth_modifiers = [m for m in modifier_names if not self.is_non_auth_guard(m)]
+        if not auth_modifiers:
+            return "none"
 
-        for mod in modifier_names:
-            if mod in high_trust:
+        # High trust patterns (owner/admin only)
+        high_trust = {
+            "onlyowner",
+            "onlyadmin",
+            "onlygovernance",
+            "onlyguardian",
+            "onlydao",
+            "onlymultisig",
+            "requiresauth",
+            "onlytimelock",
+        }
+
+        # Medium trust patterns (role-based or operator)
+        medium_trust = {
+            "onlyrole",
+            "onlyoperator",
+            "onlyminter",
+            "onlyburner",
+            "onlykeeper",
+            "onlyrelayer",
+            "onlyvalidator",
+            "hasrole",
+            "auth",
+        }
+
+        # Low trust patterns (basic checks)
+        low_trust = {
+            "onlyeoa",
+            "onlycontract",
+        }
+
+        for mod in auth_modifiers:
+            mod_lower = mod.lower()
+            if any(ht in mod_lower for ht in high_trust):
                 return "high"
 
-        for mod in modifier_names:
-            if mod in medium_trust:
+        for mod in auth_modifiers:
+            mod_lower = mod.lower()
+            if any(mt in mod_lower for mt in medium_trust):
                 return "medium"
 
-        for mod in modifier_names:
-            if mod in low_trust:
+        for mod in auth_modifiers:
+            mod_lower = mod.lower()
+            if any(lt in mod_lower for lt in low_trust):
                 return "low"
 
         # Unknown modifier pattern - needs review
         return "review_required"
+
+    # =========================================================================
+    # Lens-based invariant generation
+    # =========================================================================
+
+    def get_lens_definitions(self) -> List[LensDefinition]:
+        """Solidity/DeFi-specific lens definitions."""
+        return [
+            LensDefinition(
+                name="safety",
+                description="Access control, reentrancy, authorization",
+                invariant_types=["ACCESS", "REENTRANCY", "SOLVENCY"],
+                prompt_template="""
+## SAFETY LENS - Solidity
+
+Focus on access control, reentrancy protection, and solvency.
+
+### Access Control (REQUIRED for privileged functions)
+For EACH function with access modifiers (onlyOwner, onlyAdmin, onlyRole):
+- Generate ACCESS invariant: "Only [ROLE] can call [FUNCTION]"
+- CRITICAL: Watch for INVERTED checks (== vs !=) - common bug pattern
+- Example bug: `require(msg.sender != owner)` instead of `== owner`
+
+### Reentrancy (REQUIRED for external calls)
+For EACH function making external calls (.call, .transfer, .send, token transfers):
+- Verify CEI pattern: Checks-Effects-Interactions
+- State updates MUST happen BEFORE external calls
+- Or verify nonReentrant modifier is present
+
+### Solvency (REQUIRED if contract holds value)
+Generate at least one invariant:
+- "Contract balance >= sum of all pending obligations"
+- List all obligation variables (pendingWithdrawals, userBalances, etc.)
+""",
+                checklist=[
+                    "Every onlyOwner/onlyAdmin function has ACCESS invariant",
+                    "Every external call verified for CEI pattern or nonReentrant",
+                    "Solvency invariant generated if contract holds ETH/tokens",
+                ],
+            ),
+            LensDefinition(
+                name="economic",
+                description="Value transfers, fee calculations, economic flows",
+                invariant_types=["VALUE_FLOW", "FEE_BOUND", "ECONOMIC"],
+                prompt_template="""
+## ECONOMIC LENS - Solidity/DeFi
+
+Focus on value flow correctness and fee calculations.
+
+### Value Flow (CRITICAL - common bug source)
+For EACH payable function or function handling value:
+- Identify: Does it use msg.value or a stored threshold variable?
+- Generate VALUE_FLOW invariant: "Calculation X must use [correct variable]"
+- Common bug: fee increase using stored `minFee` instead of actual `msg.value`
+- Example: `claimFee` (threshold) vs `msg.value` (actual payment) - which is used?
+
+### State Progression (CRITICAL - often missed)
+For EACH state variable that updates over time (fees, rates, counters):
+- Check the UPDATE FORMULA: What value is used as the base?
+- Generate VALUE_FLOW invariant for the progression formula itself
+- Common bug pattern: `newFee = oldFee + (oldFee * percentage)` when it should
+  use the actual transaction value: `newFee = msg.value + (msg.value * percentage)`
+- Ask: "When this value increases, should it grow based on what was REQUIRED
+  or what was actually PAID/SENT?"
+
+### Fee Bounds (REQUIRED for percentage parameters)
+For EACH fee/percentage parameter:
+- Generate FEE_BOUND invariant: "feePercentage must be < 100"
+- 100% fee = all value extracted, nothing for users
+- Check boundary: `<= 100` allows 100% which may be unintended
+
+### Distribution Completeness (REQUIRED for payment functions)
+For EACH function receiving ETH:
+- Generate ECONOMIC invariant: "platformFee + userPayout + reserve == msg.value"
+- Verify no ETH is silently dropped or stuck
+- Check: what happens to excess if user overpays?
+""",
+                checklist=[
+                    "Every msg.value usage has VALUE_FLOW invariant specifying correct variable",
+                    "Every fee percentage has FEE_BOUND invariant (< 100)",
+                    "Payment distribution sums verified (no ETH lost)",
+                    "State progression formulas checked (fee/rate updates use correct base value)",
+                ],
+            ),
+            LensDefinition(
+                name="precision",
+                description="Arithmetic precision, rounding, overflow",
+                invariant_types=["PRECISION"],
+                prompt_template="""
+## PRECISION LENS - Solidity
+
+Focus on arithmetic precision and rounding behavior.
+
+### Division Operations (REQUIRED for each division)
+For EACH division operation found:
+- Rounding direction: Solidity truncates toward zero (floor for positive)
+- Generate PRECISION invariant: "Division at [location] rounds [direction]"
+- Maximum precision loss per operation (in wei)
+- Who benefits from rounding: protocol or user?
+
+### Operation Ordering
+Check for precision-losing patterns:
+- BAD: (a / b) * c  - divides first, loses precision
+- GOOD: (a * c) / b - multiplies first, preserves precision
+- Generate invariant if bad pattern found
+
+### Cumulative Effects
+If multiple operations in a flow:
+- Can precision loss be exploited via many small transactions?
+- Generate invariant for acceptable cumulative loss bounds
+""",
+                checklist=[
+                    "Every division operation has PRECISION invariant",
+                    "Division ordering checked for precision loss",
+                    "Cumulative rounding bounds specified if applicable",
+                ],
+            ),
+            LensDefinition(
+                name="liveness",
+                description="State transitions, protocol progression, DoS prevention",
+                invariant_types=["LIVENESS", "REACHABILITY"],
+                prompt_template="""
+## LIVENESS LENS - Solidity
+
+Focus on protocol liveness and state reachability.
+
+### Function Availability (LIVENESS)
+For EACH critical state-changing function:
+- Generate LIVENESS invariant: "Function X remains callable when [conditions]"
+- Check: Can it be permanently DoS'd?
+- Check: Are there conditions that brick the function forever?
+
+### State Reachability (REACHABILITY)
+Analyze the protocol state machine:
+- Generate REACHABILITY invariant: "Terminal state is reachable from initial state"
+- Check: What if no one interacts for a long time?
+- Check: Can admin reset/recover if needed?
+
+### Deadlock Detection
+Identify potential deadlock scenarios:
+- What if expected actor never acts?
+- What if a required condition can never be met?
+- Example: "What if no one claims before gracePeriod expires?"
+- Generate invariant for each potential deadlock
+
+### Time-Gated Actions (CRITICAL - often missed)
+For EACH function that should only work during a specific time window:
+- Generate LIVENESS invariant: "Function X must revert after [deadline/expiry]"
+- Check: Does the function verify the time window is still open?
+- Common bug: Function remains callable AFTER the window should have closed
+- Example patterns to check:
+  - `claimThrone` should fail after grace period expires (game ended)
+  - `bid` should fail after auction ends
+  - `deposit` should fail after funding period closes
+- The bug: Code allows actions that should be blocked once deadline passes
+""",
+                checklist=[
+                    "Critical functions have LIVENESS invariants",
+                    "Protocol can reach terminal state from any valid state",
+                    "No deadlock states identified (or invariants for prevention)",
+                    "Time-gated functions checked for proper deadline enforcement",
+                ],
+            ),
+            LensDefinition(
+                name="information",
+                description="Information exposure, MEV, timing attacks",
+                invariant_types=["INFORMATION"],
+                prompt_template="""
+## INFORMATION LENS - Solidity/DeFi
+
+Focus on information exposure, view function correctness, and timing attacks.
+
+### View Function Correctness (REQUIRED)
+For EACH public view function that computes and returns a value:
+- Generate invariant: "Function X must return accurate [description]"
+- Check arithmetic: can `lastClaimTime + gracePeriod` overflow?
+- Check edge cases: what happens when denominator is 0?
+- Check consistency: does returned value match what state-changing functions use?
+- Example bugs:
+  - `getRemainingTime` returns wrong value due to arithmetic order
+  - `getBalance` doesn't account for pending withdrawals
+  - Comparison uses >= when > is correct for boundary
+
+### Arithmetic Boundary Conditions (CRITICAL for timing functions)
+For EACH view function doing time arithmetic (deadline - block.timestamp):
+- Generate invariant for EACH boundary case:
+  - "getRemainingTime must return 0 when deadline has passed (not underflow)"
+  - "getRemainingTime must return correct value at exact deadline moment"
+- Check subtraction order: `deadline - now` underflows if `now > deadline`
+- Check boundary comparisons:
+  - `>=` vs `>` matters at exact boundary!
+  - Example: `if (now >= deadline)` vs `if (now > deadline)` - one off-by-one
+- Common bugs:
+  - Missing check for "deadline already passed" returns garbage/reverts
+  - Returns (deadline - now) when now > deadline causing underflow
+  - Wrong comparison operator at exact deadline second
+
+### View Function Analysis (for sensitive data)
+For EACH public view function that returns sensitive data:
+- Does it expose timing that enables front-running?
+- Does it expose state that creates unfair advantage for bots?
+- Is the information asymmetry intentional?
+
+### MEV Considerations
+Check for MEV-enabling patterns:
+- Predictable deadlines or timing
+- Observable pending state
+- Deterministic ordering benefits
+
+### Timing Attacks
+For time-based mechanics:
+- Can deadline be precisely calculated externally?
+- Can bots snipe at exact moments humans cannot?
+
+Note: This lens FLAGS concerns for human review.
+Not all findings are bugs - some are design tradeoffs.
+
+Generate INFORMATION invariant for each concern found.
+""",
+                checklist=[
+                    "Every view function computing values has correctness invariant",
+                    "Arithmetic edge cases checked (overflow, div-by-zero, boundaries)",
+                    "Timing-sensitive view functions flagged for MEV",
+                    "Information asymmetry concerns noted",
+                ],
+            ),
+        ]
+
+    def get_function_metadata_extractors(self) -> Dict[str, Callable]:
+        """
+        Solidity-specific metadata extractors.
+
+        These are called for each function to populate metadata used for bucketing.
+        """
+
+        def extract_is_payable(node: Node, graph: "DependencyGraph") -> bool:
+            return node.meta.get("is_payable", False)
+
+        def extract_has_access_modifier(node: Node, graph: "DependencyGraph") -> bool:
+            modifiers = node.meta.get("modifiers", [])
+            access_patterns = {
+                "onlyOwner",
+                "onlyAdmin",
+                "onlyRole",
+                "requiresAuth",
+                "auth",
+                "onlyGuardian",
+                "onlyOperator",
+                "onlyMinter",
+            }
+            return bool(set(modifiers) & access_patterns)
+
+        def extract_has_external_call(node: Node, graph: "DependencyGraph") -> bool:
+            return node.meta.get("has_external_call", False)
+
+        def extract_has_division(node: Node, graph: "DependencyGraph") -> bool:
+            return node.meta.get("has_division", False)
+
+        def extract_has_percentage_calc(node: Node, graph: "DependencyGraph") -> bool:
+            name_lower = node.name.lower()
+            return any(p in name_lower for p in ["percent", "fee", "rate", "ratio"])
+
+        def extract_is_view_function(node: Node, graph: "DependencyGraph") -> bool:
+            mutability = node.meta.get("state_mutability", "")
+            visibility = node.meta.get("visibility", "")
+            return mutability in ["view", "pure"] and visibility in [
+                "public",
+                "external",
+            ]
+
+        def extract_returns_timing(node: Node, graph: "DependencyGraph") -> bool:
+            name_lower = node.name.lower()
+            timing_patterns = [
+                "time",
+                "remaining",
+                "deadline",
+                "block",
+                "timestamp",
+                "duration",
+            ]
+            return any(p in name_lower for p in timing_patterns)
+
+        def extract_touches_value_state(node: Node, graph: "DependencyGraph") -> bool:
+            writes = node.meta.get("writes", [])
+            reads = node.meta.get("reads", [])
+            all_vars = [
+                v.lower() if isinstance(v, str) else str(v).lower()
+                for v in writes + reads
+            ]
+            value_patterns = [
+                "balance",
+                "amount",
+                "fee",
+                "value",
+                "price",
+                "pot",
+                "stake",
+                "reward",
+            ]
+            return any(p in var for var in all_vars for p in value_patterns)
+
+        def extract_modifies_game_state(node: Node, graph: "DependencyGraph") -> bool:
+            writes = node.meta.get("writes", [])
+            writes_lower = [
+                w.lower() if isinstance(w, str) else str(w).lower() for w in writes
+            ]
+            state_patterns = [
+                "ended",
+                "active",
+                "paused",
+                "state",
+                "phase",
+                "round",
+                "winner",
+                "started",
+            ]
+            return any(p in w for w in writes_lower for p in state_patterns)
+
+        def extract_is_state_transition(node: Node, graph: "DependencyGraph") -> bool:
+            name_lower = node.name.lower()
+            transition_patterns = [
+                "start",
+                "end",
+                "reset",
+                "finalize",
+                "declare",
+                "conclude",
+                "initialize",
+            ]
+            return any(p in name_lower for p in transition_patterns)
+
+        return {
+            "is_payable": extract_is_payable,
+            "has_access_modifier": extract_has_access_modifier,
+            "has_external_call": extract_has_external_call,
+            "has_division": extract_has_division,
+            "has_percentage_calc": extract_has_percentage_calc,
+            "is_view_function": extract_is_view_function,
+            "returns_timing": extract_returns_timing,
+            "touches_value_state": extract_touches_value_state,
+            "modifies_game_state": extract_modifies_game_state,
+            "is_state_transition": extract_is_state_transition,
+        }

@@ -661,4 +661,45 @@ Write Foundry test files (.t.sol) in test/poc/.
 - Deploy contracts from the REAL codebase (don't create mock/fake contracts)
 - Use setUp() to initialize state, test_*() for exploit
 - Assertions prove the exploit: assertGt, assertEq, assertTrue, etc.
-- A PASSING test with assertions proving bad state = valid exploit"""
+- A PASSING test with assertions proving bad state = valid exploit
+
+## Solidity-Specific Negative-Space Patterns
+
+### Missing Setters for State Flags
+Look for boolean/enum state set in constructors or create functions with no public setter:
+```solidity
+// VULNERABLE: isActive set at creation, no setActive() exists
+constructor(bool _isActive) { isActive = _isActive; }
+function doSomething() external { require(isActive, "Not active"); }  // Permanently locked if false
+```
+Check: Search for state variables assigned in constructor/create but never in other functions.
+
+### View Functions Missing Existence Checks
+Look for view functions that return data without validating the entity exists:
+```solidity
+// VULNERABLE: Returns URI even if tokenId was never minted
+function uri(uint256 tokenId) public view returns (string memory) {
+    return string(abi.encodePacked(baseUri, tokenId.toString()));  // No existence check!
+}
+```
+Check: View functions returning entity data should verify entity was created/minted first.
+
+### ERC1155/ERC721 Token Existence
+For NFT contracts, `uri()` and metadata functions should validate:
+- Token was actually minted (check supply, ownership, or explicit existence mapping)
+- Collection exists and item ID is within minted range
+
+### Interface Event Mismatches
+Compare interface event declarations with actual emit statements:
+```solidity
+// Interface promises: event FundsWithdrawn(address indexed to, uint256 amount);
+// But implementation never emits it - information leak / audit trail gap
+function withdraw(address to) external { payable(to).transfer(balance); }  // Missing emit!
+```
+
+### Irrecoverable Admin States
+Flag admin-controlled states that can brick the contract:
+- Pause without unpause
+- Blacklist without whitelist removal
+- Fee set to 100% with no cap
+- Owner renounced but admin functions still needed"""

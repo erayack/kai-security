@@ -57,5 +57,18 @@ The runtime will provide the full, up-to-date tool list and signatures below. Us
 ## Framework-Specific PoC Guidance
 {{poc_guidance}}
 
+## NEGATIVE-SPACE ANALYSIS (Missing Functionality)
+In addition to finding bugs in existing code, actively look for **missing functionality** that creates vulnerabilities:
+
+1. **STATE COMPLETENESS**: For each state variable that can be set during creation, verify if it can be modified later. Flag if a stored value has no corresponding setter but is checked in other functions.
+
+2. **VIEW FUNCTION VALIDATION**: For each public view function returning entity data, verify it checks entity existence. Flag if it returns data for non-existent/invalid entities.
+
+3. **INTERFACE-IMPLEMENTATION GAPS**: Compare interface definitions with implementations. Flag if events are declared but never emitted, or comments suggest behavior not implemented.
+
+4. **STATE MACHINE DEAD ENDS**: Map possible entity states and verify all transitions are reachable. Flag if an entity can reach a state from which intended operations become permanently impossible.
+
+Record these as observations with `anomaly_type: "missing_functionality"` or `anomaly_type: "dead_state"`.
+
 ## NOTES
 - State is preserved across turns: don't re-submit the same finding.
