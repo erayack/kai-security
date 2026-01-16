@@ -100,6 +100,105 @@ def _as_dict(msg: Union[ChatMessage, dict]) -> dict:
     return msg if isinstance(msg, dict) else msg.model_dump()
 
 
+async def get_structured_response(
+    message: str,
+    response_model: Any,
+    model: str = MAIN_DEFAULT_MODEL,
+    client: Optional[AsyncOpenAI] = None,
+    use_openai: bool = False,
+    system_prompt: Optional[str] = None,
+) -> Tuple[Any, Dict[str, int]]:
+    """
+    Get a structured response from a model using Pydantic model parsing.
+
+    For OpenAI, uses the beta structured output API. For other providers (OpenRouter),
+    falls back to regular chat completion with JSON mode and manual parsing.
+
+    Args:
+        message: The user message/prompt.
+        response_model: Pydantic BaseModel class defining the expected response.
+        model: The model to use.
+        client: Optional AsyncOpenAI client to use.
+        use_openai: Whether to use OpenAI API directly.
+        system_prompt: Optional system prompt.
+
+    Returns:
+        Tuple of (parsed_response_model_instance, usage_dict)
+    """
+    if client is None:
+        client = create_openai_client(use_openai=use_openai)
+
+    messages_payload = []
+    if system_prompt:
+        messages_payload.append({"role": "system", "content": system_prompt})
+    messages_payload.append({"role": "user", "content": message})
+
+    # Try OpenAI's beta structured output API first (works for OpenAI direct)
+    if use_openai:
+        try:
+            completion = await client.beta.chat.completions.parse(
+                model=model,
+                messages=messages_payload,
+                response_format=response_model,
+            )
+
+            parsed = completion.choices[0].message.parsed
+
+            usage = completion.usage
+            usage_dict = {
+                "prompt_tokens": usage.prompt_tokens if usage else 0,
+                "completion_tokens": usage.completion_tokens if usage else 0,
+                "total_tokens": usage.total_tokens if usage else 0,
+            }
+
+            return parsed, usage_dict
+
+        except Exception as e:
+            raise Exception(f"Structured response failed: {e}")
+
+    # Fallback for OpenRouter and other providers: use JSON mode + manual parsing
+    # Add JSON schema hint to the prompt
+    schema = response_model.model_json_schema()
+    enhanced_message = f"{message}\n\nRespond with valid JSON matching this schema:\n{json.dumps(schema, indent=2)}"
+    messages_payload[-1]["content"] = enhanced_message
+
+    try:
+        completion = await client.chat.completions.create(
+            model=model,
+            messages=messages_payload,
+            response_format={"type": "json_object"},
+        )
+
+        response_text = completion.choices[0].message.content
+
+        # Parse and validate with Pydantic
+        response_text = response_text.strip()
+        if response_text.startswith("```"):
+            # Handle markdown code blocks
+            lines = response_text.split("\n")
+            response_text = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
+            response_text = response_text.strip()
+
+        parsed_dict = json.loads(response_text)
+        parsed = response_model.model_validate(parsed_dict)
+
+        usage = completion.usage
+        usage_dict = {
+            "prompt_tokens": usage.prompt_tokens if usage else 0,
+            "completion_tokens": usage.completion_tokens if usage else 0,
+            "total_tokens": usage.total_tokens if usage else 0,
+        }
+
+        return parsed, usage_dict
+
+    except json.JSONDecodeError as e:
+        raise Exception(
+            f"Failed to parse JSON response: {e}\nResponse: {response_text[:500]}"
+        )
+    except Exception as e:
+        raise Exception(f"Structured response failed: {e}")
+
+
 async def get_model_response(
     messages: Optional[list[ChatMessage]] = None,
     message: Optional[str] = None,
