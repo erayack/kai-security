@@ -11,8 +11,10 @@ load_dotenv()
 SETUP_DEFAULT_MODEL = "google/gemini-3-flash-preview"
 MAIN_DEFAULT_MODEL = "google/gemini-3-flash-preview"
 GAMIFIED_DEFAULT_MODEL = "google/gemini-3-flash-preview"
-VERIFIER_DEFAULT_MODEL = "openai/gpt-5.2-codex"  # "anthropic/claude-opus-4.5"
+VERIFIER_DEFAULT_MODEL = "openai/gpt-5.2-codex"
 INVARIANT_DEFAULT_MODEL = "openai/gpt-5.2-codex"
+DEDUPE_DEFAULT_MODEL = "openai/gpt-5.2-codex"
+FIXER_DEFAULT_MODEL = "openai/gpt-5.2-codex"
 
 # Agent turn limits (centralized)
 DEFAULT_MAX_TURNS = (

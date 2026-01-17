@@ -3,9 +3,30 @@ Dispatcher: Mission control for Kai v2.
 """
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+
+from kai.inference import get_structured_response
+
+from pydantic import BaseModel
+
+# Load dedupe prompt template
+DEDUPE_PROMPT_PATH = (
+    Path(__file__).parent.parent / "prompts" / "dedupe_exploits_prompt.txt"
+)
+DEDUPE_EXPLOITS_PROMPT = (
+    DEDUPE_PROMPT_PATH.read_text() if DEDUPE_PROMPT_PATH.exists() else ""
+)
+
+
+class DedupeResponse(BaseModel):
+    """Response schema for exploit deduplication LLM call."""
+
+    representative_mission_ids: List[str]
+
 
 from kai.agents import settings
 from kai.state_manager import KaiStateManager
@@ -77,6 +98,11 @@ class DispatcherConfig:
     extra_instructions: Optional[str] = None
     # Skip workspace validation (useful when context is pre-validated)
     skip_workspace_validation: bool = False
+    # Deduplication settings (cluster verified exploits by root cause before fixing)
+    enable_deduplication: bool = True
+    dedupe_model: str = settings.DEDUPE_DEFAULT_MODEL
+    # Fixer agent settings
+    fixer_model: str = settings.FIXER_DEFAULT_MODEL
 
 
 class Dispatcher:
@@ -958,12 +984,94 @@ class Dispatcher:
             self.logger.error(f"Verification failed for {candidate.mission_id}: {e}")
             return None
 
+    async def _dedupe_verified_exploits(self, verdicts: List[Verdict]) -> List[Verdict]:
+        """
+        Deduplicate verified exploits by clustering them by root cause using LLM.
+
+        Multiple verdicts may describe the same underlying vulnerability discovered
+        through different paths. Uses structured output to get representative mission_ids.
+
+        Args:
+            verdicts: List of verified (is_valid=True) verdicts
+
+        Returns:
+            Deduplicated list of verdicts (one per unique root cause)
+        """
+        if len(verdicts) <= 1:
+            return verdicts
+
+        if not DEDUPE_EXPLOITS_PROMPT:
+            self.logger.warning("Dedupe prompt not found, skipping deduplication")
+            return verdicts
+
+        # Build candidate lookup for enriching verdict info
+        candidate_map = {
+            (c.mission_id, c.invariant_id): c for c in self.exploit_candidates
+        }
+
+        # Prepare finding summaries for LLM
+        findings = []
+        for v in verdicts:
+            candidate = candidate_map.get((v.mission_id, v.invariant_id))
+            findings.append(
+                {
+                    "mission_id": v.mission_id,
+                    "vulnerability_class": v.vulnerability_class or "unknown",
+                    "severity": v.severity.value if v.severity else "unknown",
+                    "target_file": candidate.target_file if candidate else "",
+                    "target_function": candidate.target_function if candidate else "",
+                    "description": (
+                        candidate.description[:500]
+                        if candidate and candidate.description
+                        else ""
+                    ),
+                    "mechanism": (
+                        candidate.mechanism[:300]
+                        if candidate and candidate.mechanism
+                        else ""
+                    ),
+                }
+            )
+
+        # Build prompt from template
+        prompt = DEDUPE_EXPLOITS_PROMPT.replace(
+            "{{num_findings}}", str(len(findings))
+        ).replace("{{findings_json}}", json.dumps(findings, indent=2))
+
+        try:
+            result, _ = await get_structured_response(
+                message=prompt,
+                response_model=DedupeResponse,
+                model=self.config.dedupe_model,
+                use_openai=self.config.use_openai,
+            )
+
+            rep_ids = set(result.representative_mission_ids)
+
+            if not rep_ids:
+                self.logger.warning(
+                    "Deduplication returned empty representatives, keeping all"
+                )
+                return verdicts
+
+            deduped = [v for v in verdicts if v.mission_id in rep_ids]
+
+            self.logger.info(
+                f"Deduplication: {len(verdicts)} verdicts -> {len(deduped)} unique root causes"
+            )
+
+            return deduped
+
+        except Exception as e:
+            self.logger.warning(f"Deduplication failed ({e}), keeping all verdicts")
+            return verdicts
+
     async def _fix_verified_exploits(self) -> None:
         """
         Generate fixes for all verified exploits.
 
-        Called after all missions complete. Iterates over verdicts with is_valid=True
-        and runs FixerAgent on each.
+        Called after all missions complete. Deduplicates by root cause, then
+        runs FixerAgent on each unique exploit.
         """
         if self.config.disable_fixer:
             self.logger.info(
@@ -976,6 +1084,10 @@ class Dispatcher:
         if not valid_verdicts:
             self.logger.info("No verified exploits to fix")
             return
+
+        # Deduplicate by root cause before fixing (if enabled)
+        if self.config.enable_deduplication:
+            valid_verdicts = await self._dedupe_verified_exploits(valid_verdicts)
 
         self.logger.info(
             f"Generating fixes for {len(valid_verdicts)} verified exploit(s)..."
@@ -1049,7 +1161,7 @@ class Dispatcher:
                 repo_path=workspace_path,
                 dependency_graph=self.dependency_graph,
                 max_tool_turns=settings.DEFAULT_MAX_TURNS,
-                model=self.config.model,
+                model=self.config.fixer_model,
                 use_openai=self.config.use_openai,
             )
 
