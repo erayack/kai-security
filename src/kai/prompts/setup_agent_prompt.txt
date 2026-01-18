@@ -35,7 +35,17 @@ class MasterContext(BaseModel):
     build_script: str | None = None
     test_script_path: str | None = None
     test_script: str | None = None
+    adapter: str | None = None  # One of: "solidity", "python", "javascript", "typescript", "c"
 ```
+
+**IMPORTANT**: The `adapter` field tells downstream agents which dependency analysis builder to use.
+- For Foundry/Solidity projects: `adapter: "solidity"`
+- For Python projects (pyproject.toml, setup.py): `adapter: "python"`
+- For JavaScript projects (package.json): `adapter: "javascript"`
+- For TypeScript projects (tsconfig.json): `adapter: "typescript"`
+- For C/CMake projects: `adapter: "c"`
+
+If you don't set the adapter, it defaults to "solidity" which will cause errors for non-Solidity projects!
 
 ## Recommended Setup Workflow
 

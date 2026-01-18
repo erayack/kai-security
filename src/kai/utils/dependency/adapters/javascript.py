@@ -7,9 +7,9 @@ Provides domain knowledge for JavaScript/Node.js security analysis:
 - Trust level patterns
 """
 
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
-from .base import DomainAdapter
+from .base import DomainAdapter, LensDefinition
 from ..models import Node, NodeKind
 
 if TYPE_CHECKING:
@@ -289,3 +289,376 @@ class JavaScriptAdapter(DomainAdapter):
             "jwt",
             "rateLimit",
         ]
+
+    # =========================================================================
+    # Lens-based invariant generation
+    # =========================================================================
+
+    def get_lens_definitions(self) -> List[LensDefinition]:
+        """JavaScript/TypeScript-specific lens definitions for security analysis."""
+        return [
+            LensDefinition(
+                name="security",
+                description="XSS, prototype pollution, injection attacks",
+                invariant_types=["ACCESS", "OTHER"],
+                prompt_template="""
+## SECURITY LENS - JavaScript/TypeScript
+
+Focus on XSS, prototype pollution, and injection vulnerabilities.
+
+### Cross-Site Scripting (XSS) - CRITICAL
+For EACH function that outputs user data to DOM:
+- Check for innerHTML, outerHTML usage with user data
+  - BAD: `element.innerHTML = userInput`
+  - GOOD: `element.textContent = userInput`
+- Check for document.write() with user data
+- Check React: dangerouslySetInnerHTML usage
+- Check template literals in HTML context
+- Generate ACCESS invariant: "User data in X is sanitized"
+
+### Prototype Pollution - CRITICAL
+For EACH function that merges objects:
+- Check for unsafe merge patterns
+  - BAD: `Object.assign(target, untrustedSource)`
+  - BAD: Recursive merge without __proto__ check
+- Check for bracket notation with user keys
+  - BAD: `obj[userKey] = value`
+- Verify lodash/underscore merge is updated
+- Generate invariant: "Object merge in X blocks __proto__"
+
+### Injection Attacks
+For EACH function executing dynamic code:
+- eval() - NEVER with user input
+- new Function() - dangerous with user input
+- setTimeout/setInterval with string args
+- SQL queries (if using Node.js backends)
+- Command injection via child_process
+""",
+                checklist=[
+                    "No innerHTML with unsanitized user data",
+                    "Object merges check for __proto__",
+                    "No eval/Function with user input",
+                    "Template literals escaped in HTML context",
+                ],
+            ),
+            LensDefinition(
+                name="resource",
+                description="Event loop blocking, memory leaks, resource exhaustion",
+                invariant_types=["LIVENESS", "OTHER"],
+                prompt_template="""
+## RESOURCE LENS - JavaScript
+
+Focus on event loop health and resource management.
+
+### Event Loop Blocking (LIVENESS)
+For EACH synchronous operation:
+- Check for sync file operations (fs.readFileSync in request handlers)
+- Check for CPU-intensive loops in main thread
+- Check for blocking crypto operations
+- Generate LIVENESS invariant: "Function X completes in bounded time"
+
+### Memory Leaks
+For EACH event listener or subscription:
+- Verify cleanup in component unmount/destroy
+- Check for closures holding large objects
+- Verify timer cleanup (clearInterval, clearTimeout)
+- Check for DOM node references after removal
+
+### Resource Limits
+For EACH user-controlled operation:
+- Check for unbounded array/string operations
+- Verify limits on uploaded data
+- Check WebSocket message size limits
+- Check for ReDoS patterns in regex
+""",
+                checklist=[
+                    "No sync operations in request handlers",
+                    "Event listeners cleaned up",
+                    "Timers cleared on cleanup",
+                    "User input bounded in loops",
+                ],
+            ),
+            LensDefinition(
+                name="data",
+                description="Input validation, JSON parsing safety, type coercion",
+                invariant_types=["VALUE_FLOW", "OTHER"],
+                prompt_template="""
+## DATA LENS - JavaScript
+
+Focus on input validation and type safety issues.
+
+### Input Validation (REQUIRED)
+For EACH function accepting external input:
+- Verify type checking before use
+- Check for null/undefined handling
+- Verify array bounds checking
+- Generate VALUE_FLOW invariant: "Input X validated before use"
+
+### JSON Parsing Safety
+For EACH JSON.parse call:
+- Verify error handling (try/catch)
+- Check for prototype pollution in parsed data
+- Verify schema validation after parse
+- Check reviver function if used
+
+### Type Coercion Bugs
+Check for dangerous coercion:
+- `==` vs `===` comparisons
+- Array/object in boolean context
+- String to number implicit conversion
+- parseInt without radix
+""",
+                checklist=[
+                    "All inputs type-checked",
+                    "JSON.parse wrapped in try/catch",
+                    "Strict equality (===) used",
+                    "parseInt uses radix parameter",
+                ],
+            ),
+            LensDefinition(
+                name="external",
+                description="HTTP requests, file system, environment variables",
+                invariant_types=["ACCESS", "LIVENESS", "OTHER"],
+                prompt_template="""
+## EXTERNAL LENS - JavaScript/Node.js
+
+Focus on external interactions and API security.
+
+### HTTP Requests (LIVENESS)
+For EACH HTTP request:
+- Verify timeout configuration
+- Check for SSRF (user-controlled URLs)
+- Verify SSL certificate validation
+- Generate LIVENESS invariant: "Request X has timeout"
+
+### File System (Node.js)
+For EACH file operation:
+- Check for path traversal
+  - Use path.resolve and verify prefix
+- Verify async operations preferred
+- Check file permissions on creation
+- Generate ACCESS invariant: "File path X validated"
+
+### Environment Variables
+For security-sensitive code:
+- Verify secrets from env, not hardcoded
+- Check for default values on missing env
+- Verify NODE_ENV checks are correct
+""",
+                checklist=[
+                    "HTTP requests have timeouts",
+                    "File paths validated against traversal",
+                    "Secrets loaded from environment",
+                    "SSL verification enabled",
+                ],
+            ),
+            LensDefinition(
+                name="async",
+                description="Promise handling, callbacks, async race conditions",
+                invariant_types=["ORDERING", "OTHER"],
+                prompt_template="""
+## ASYNC LENS - JavaScript
+
+Focus on async/await correctness and promise handling.
+
+### Promise Handling (ORDERING)
+For EACH async function:
+- Verify all promises are awaited or handled
+- Check for unhandled rejection
+- Verify Promise.all error handling
+- Generate ORDERING invariant: "Async operations complete correctly"
+
+### Race Conditions
+Check for async race patterns:
+- Check-then-act without atomicity
+- Concurrent state modifications
+- Parallel requests with shared state
+- Generate invariant for each race condition
+
+### Callback Safety
+For EACH callback pattern:
+- Verify callback error handling (error-first)
+- Check for callback called multiple times
+- Verify cleanup on error paths
+""",
+                checklist=[
+                    "All promises have error handling",
+                    "No unhandled rejections",
+                    "Race conditions in shared state identified",
+                    "Callbacks handle errors properly",
+                ],
+            ),
+            LensDefinition(
+                name="web",
+                description="CORS, security headers, authentication middleware",
+                invariant_types=["ACCESS", "VALUE_FLOW", "OTHER"],
+                prompt_template="""
+## WEB LENS - Express/Koa/Fastify
+
+Focus on web framework security configuration.
+
+### CORS Configuration
+For EACH CORS setup:
+- Verify origin whitelist (not *)
+- Check credentials handling
+- Verify allowed methods restricted
+- Generate ACCESS invariant: "CORS allows only [origins]"
+
+### Authentication Middleware
+For EACH protected route:
+- Verify auth middleware is applied
+- Check middleware order (auth before handler)
+- Verify session/token validation
+- Generate ACCESS invariant: "Route X requires auth"
+
+### Security Headers
+Check for security middleware:
+- helmet or manual headers
+- Content-Security-Policy
+- X-Frame-Options
+- X-Content-Type-Options
+
+### Cookie Security
+For EACH cookie operation:
+- Verify HttpOnly flag
+- Verify Secure flag (HTTPS)
+- Verify SameSite attribute
+- Check cookie expiration
+""",
+                checklist=[
+                    "CORS origin whitelist configured",
+                    "Auth middleware on protected routes",
+                    "Security headers set (helmet)",
+                    "Cookies have security flags",
+                ],
+            ),
+        ]
+
+    def get_function_metadata_extractors(self) -> Dict[str, Callable]:
+        """
+        JavaScript-specific metadata extractors.
+
+        These are called for each function to populate metadata used for bucketing.
+        """
+
+        def extract_is_async(node: Node, graph: "DependencyGraph") -> bool:
+            """Check if function is async."""
+            return node.meta.get("is_async", False) or node.meta.get("async", False)
+
+        def extract_is_exported(node: Node, graph: "DependencyGraph") -> bool:
+            """Check if function is exported."""
+            return node.meta.get("exported", False) or node.meta.get(
+                "is_exported", False
+            )
+
+        def extract_is_arrow_function(node: Node, graph: "DependencyGraph") -> bool:
+            """Check if function is arrow function."""
+            func_type = node.meta.get("type", "")
+            return "arrow" in func_type.lower() or node.meta.get(
+                "is_arrow_function", False
+            )
+
+        def extract_is_static_method(node: Node, graph: "DependencyGraph") -> bool:
+            """Check if method is static."""
+            return node.meta.get("is_static", False) or node.meta.get("static", False)
+
+        def extract_is_route_handler(node: Node, graph: "DependencyGraph") -> bool:
+            """Check if function is a route handler."""
+            name_lower = node.name.lower()
+            route_patterns = ["get", "post", "put", "delete", "patch", "use", "all"]
+            # Check name patterns
+            if name_lower in route_patterns:
+                return True
+            # Check if called on app/router
+            calls = node.meta.get("calls", [])
+            for call in calls:
+                if isinstance(call, str) and any(
+                    p in call.lower() for p in route_patterns
+                ):
+                    return True
+            return False
+
+        def extract_takes_request(node: Node, graph: "DependencyGraph") -> bool:
+            """Check if function takes request parameter."""
+            params = node.meta.get("parameters", [])
+            request_patterns = {"req", "request", "ctx", "context"}
+            for param in params:
+                param_lower = param.lower() if isinstance(param, str) else ""
+                if param_lower in request_patterns:
+                    return True
+            return False
+
+        def extract_is_middleware(node: Node, graph: "DependencyGraph") -> bool:
+            """Check if function is middleware (req, res, next signature)."""
+            params = node.meta.get("parameters", [])
+            if len(params) >= 3:
+                params_lower = [p.lower() if isinstance(p, str) else "" for p in params]
+                has_req = any(p in ["req", "request"] for p in params_lower)
+                has_res = any(p in ["res", "response"] for p in params_lower)
+                has_next = "next" in params_lower
+                return has_req and has_res and has_next
+            return False
+
+        def extract_handles_dom(node: Node, graph: "DependencyGraph") -> bool:
+            """Check if function handles DOM operations."""
+            name_lower = node.name.lower()
+            dom_patterns = [
+                "render",
+                "html",
+                "element",
+                "dom",
+                "component",
+                "view",
+                "template",
+            ]
+            calls = node.meta.get("calls", [])
+            calls_lower = [c.lower() for c in calls if isinstance(c, str)]
+            return any(p in name_lower for p in dom_patterns) or any(
+                p in c for c in calls_lower for p in dom_patterns
+            )
+
+        def extract_calls_external(node: Node, graph: "DependencyGraph") -> bool:
+            """Check if function makes external calls."""
+            name_lower = node.name.lower()
+            external_patterns = [
+                "fetch",
+                "axios",
+                "http",
+                "request",
+                "api",
+                "ajax",
+                "xhr",
+            ]
+            calls = node.meta.get("calls", [])
+            calls_lower = [c.lower() for c in calls if isinstance(c, str)]
+            return any(p in name_lower for p in external_patterns) or any(
+                p in c for c in calls_lower for p in external_patterns
+            )
+
+        def extract_modifies_state(node: Node, graph: "DependencyGraph") -> bool:
+            """Check if function modifies state."""
+            name_lower = node.name.lower()
+            state_patterns = [
+                "set",
+                "update",
+                "dispatch",
+                "commit",
+                "mutate",
+                "save",
+                "delete",
+                "remove",
+            ]
+            return any(p in name_lower for p in state_patterns)
+
+        return {
+            "is_async": extract_is_async,
+            "is_exported": extract_is_exported,
+            "is_arrow_function": extract_is_arrow_function,
+            "is_static_method": extract_is_static_method,
+            "is_route_handler": extract_is_route_handler,
+            "takes_request": extract_takes_request,
+            "is_middleware": extract_is_middleware,
+            "handles_dom": extract_handles_dom,
+            "calls_external": extract_calls_external,
+            "modifies_state": extract_modifies_state,
+        }

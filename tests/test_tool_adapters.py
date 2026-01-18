@@ -181,9 +181,9 @@ module.exports = { hello };
             or ".js" in str(result)
         )
 
-        # Without extension
+        # Without extension - defaults to .mjs for framework-agnostic PoC files
         result = adapter.normalize_test_path("foo", tmp_path)
-        assert result.suffix == ".js"
+        assert result.suffix == ".mjs"
 
     def test_get_poc_guidance(self, adapter: JavaScriptToolAdapter):
         """Should return JavaScript-specific PoC guidance."""

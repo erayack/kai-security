@@ -80,15 +80,36 @@ class PythonToolAdapter(ToolAdapter):
         """Check if the binary is uv."""
         return "uv" in Path(binary).name
 
+    def _get_venv_python(self, workspace_path: Path) -> Optional[Path]:
+        """
+        Get the venv python binary path.
+
+        Args:
+            workspace_path: Path to the workspace directory
+
+        Returns:
+            Path to the venv python binary, or None if not found
+        """
+        # Unix path
+        venv_python = workspace_path / ".venv" / "bin" / "python"
+        if venv_python.exists():
+            return venv_python
+        # Windows path
+        venv_python = workspace_path / ".venv" / "Scripts" / "python.exe"
+        if venv_python.exists():
+            return venv_python
+        return None
+
     def compile(
         self,
         workspace_path: Path,
         timeout: int = 120,
     ) -> CompileResult:
         """
-        Check Python syntax using py_compile on all .py files.
+        Check Python syntax using compileall on the entire workspace.
 
-        Uses uv if available, otherwise falls back to direct Python.
+        Uses compileall for efficient batch syntax checking of all .py files
+        in a single subprocess call.
 
         Args:
             workspace_path: Path to the workspace directory
@@ -97,80 +118,77 @@ class PythonToolAdapter(ToolAdapter):
         Returns:
             CompileResult with success status and parsed errors
         """
-        try:
-            binary = self.find_binary(workspace_path)
-        except FileNotFoundError as e:
+        # Resolve to absolute path to avoid path doubling when using cwd
+        workspace_path = Path(workspace_path).resolve()
+
+        # Use workspace venv python directly - avoids uv project sync
+        venv_python = self._get_venv_python(workspace_path)
+        if venv_python is None:
             return CompileResult(
                 success=False,
-                errors=[str(e)],
+                errors=[f"No venv python found at {workspace_path}/.venv - workspace not properly provisioned"],
                 raw_output="",
             )
 
-        is_uv = self._is_uv(binary)
-
-        # Find all .py files
-        py_files = list(workspace_path.rglob("*.py"))
-
-        # Skip venv and common non-source directories
-        skip_dirs = {
-            ".venv",
-            "venv",
-            "__pycache__",
-            ".git",
-            "node_modules",
-            "build",
-            "dist",
-        }
-        py_files = [
-            f for f in py_files if not any(skip in f.parts for skip in skip_dirs)
+        # Use compileall to check all Python files in one subprocess call
+        exclude_pattern = r"\.venv|__pycache__|\.git|build|dist|node_modules|venv"
+        cmd = [
+            str(venv_python),
+            "-m",
+            "compileall",
+            "-q",  # Quiet mode - only show errors
+            "-x",
+            exclude_pattern,
+            str(workspace_path),
         ]
 
-        if not py_files:
-            return CompileResult(
-                success=True,
-                errors=[],
-                raw_output="No Python files found to check",
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=str(workspace_path),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
             )
 
-        errors = []
-        all_output = []
+            raw_output = (result.stderr + result.stdout).strip()
 
-        for py_file in py_files[:50]:  # Limit to first 50 files
-            try:
-                # Build command based on whether we're using uv
-                if is_uv:
-                    cmd = [binary, "run", "python", "-m", "py_compile", str(py_file)]
-                else:
-                    cmd = [binary, "-m", "py_compile", str(py_file)]
-
-                result = subprocess.run(
-                    cmd,
-                    cwd=str(workspace_path),
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout // max(len(py_files), 1),
+            if result.returncode == 0:
+                return CompileResult(
+                    success=True,
+                    errors=[],
+                    warnings=[],
+                    raw_output=raw_output or "All files passed syntax check",
                 )
 
-                if result.returncode != 0:
-                    error_msg = result.stderr.strip() or result.stdout.strip()
-                    errors.append(f"{py_file.name}: {error_msg}")
-                    all_output.append(f"=== {py_file} ===\n{error_msg}")
+            # Parse errors from compileall output
+            errors = []
+            for line in raw_output.split("\n"):
+                line = line.strip()
+                if line and ("SyntaxError" in line or "Error" in line or "Invalid" in line):
+                    errors.append(line[:200])
 
-            except subprocess.TimeoutExpired:
-                errors.append(f"{py_file.name}: Syntax check timed out")
-            except Exception as e:
-                errors.append(f"{py_file.name}: {str(e)}")
+            return CompileResult(
+                success=False,
+                errors=errors[:10] if errors else ["Syntax check failed - see raw_output"],
+                warnings=[],
+                raw_output=raw_output[:3000] if len(raw_output) > 3000 else raw_output,
+            )
 
-        raw_output = (
-            "\n".join(all_output) if all_output else "All files passed syntax check"
-        )
-
-        return CompileResult(
-            success=len(errors) == 0,
-            errors=errors[:10],
-            warnings=[],
-            raw_output=raw_output[:3000] if len(raw_output) > 3000 else raw_output,
-        )
+        except subprocess.TimeoutExpired:
+            return CompileResult(
+                success=False,
+                errors=[f"Syntax check timed out after {timeout}s"],
+                warnings=[],
+                raw_output="",
+            )
+        except Exception as e:
+            return CompileResult(
+                success=False,
+                errors=[str(e)],
+                warnings=[],
+                raw_output="",
+            )
 
     def install_dependencies(
         self,
@@ -192,6 +210,9 @@ class PythonToolAdapter(ToolAdapter):
         Returns:
             InstallResult with success status and installed packages
         """
+        # Resolve to absolute path
+        workspace_path = Path(workspace_path).resolve()
+
         try:
             binary = self.find_binary(workspace_path)
         except FileNotFoundError as e:
@@ -413,10 +434,10 @@ class PythonToolAdapter(ToolAdapter):
         framework_kwargs: Optional[Dict[str, Any]] = None,
     ) -> TestResult:
         """
-        Run Python tests using pytest via uv.
+        Run Python tests using pytest.
 
-        Uses `uv run --with pytest pytest` when uv is available,
-        otherwise falls back to direct pytest execution.
+        Uses the workspace venv python directly to avoid uv project sync
+        (which triggers editable installs and setuptools-scm issues).
 
         Args:
             workspace_path: Path to the workspace directory
@@ -430,43 +451,128 @@ class PythonToolAdapter(ToolAdapter):
         Returns:
             TestResult with parsed test outcomes
         """
-        try:
-            binary = self.find_binary(workspace_path)
-        except FileNotFoundError as e:
-            return TestResult(success=False, error=str(e))
+        # Resolve to absolute path
+        workspace_path = Path(workspace_path).resolve()
 
-        is_uv = self._is_uv(binary)
+        # Use workspace venv python directly
+        venv_python = self._get_venv_python(workspace_path)
+        if venv_python is None:
+            return TestResult(
+                success=False,
+                error=f"No venv python found at {workspace_path}/.venv - workspace not properly provisioned",
+            )
 
-        # Build command based on whether we're using uv
-        if is_uv:
-            # Use uv run --with pytest pytest
-            cmd = [binary, "run", "--with", "pytest", "pytest"]
-        else:
-            cmd = [binary, "-m", "pytest"]
+        cmd = [str(venv_python), "-m", "pytest"]
+
+        # Framework-specific kwargs
+        fw = framework_kwargs or {}
+
+        # Add match_path first - restricts pytest to only collect from this path
+        if fw.get("match_path"):
+            cmd.append(fw["match_path"])
+        elif match_contract:
+            cmd.append(match_contract)
 
         # Add match patterns
         if match_test:
             cmd.extend(["-k", match_test])
 
-        if match_contract:
-            # Treat as file path pattern
-            cmd.append(match_contract)
-
         # Add verbosity
         if verbosity > 0:
             cmd.append("-" + "v" * min(verbosity, 3))
 
-        # Framework-specific kwargs
-        fw = framework_kwargs or {}
+        # Limit conftest loading
+        if fw.get("confcutdir"):
+            cmd.extend(["--confcutdir", fw["confcutdir"]])
+
+        # More framework kwargs
         if fw.get("markers"):
             cmd.extend(["-m", fw["markers"]])
         if fw.get("maxfail"):
             cmd.extend(["--maxfail", str(fw["maxfail"])])
 
-        # Additional args
         if additional_args:
             import shlex
+            cmd.extend(shlex.split(additional_args))
 
+        # Always add --noconftest to avoid project conftest.py conflicts
+        cmd.append("--noconftest")
+
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=str(workspace_path),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+
+            output = result.stdout + result.stderr
+            success = result.returncode == 0
+
+            parsed = self._parse_test_output(output)
+
+            # Check if parsing detected an import/module error
+            error_msg = parsed.get("error")
+            if error_msg:
+                success = False
+
+            return TestResult(
+                success=success,
+                tests_passed=parsed["tests_passed"],
+                tests_failed=parsed["tests_failed"],
+                tests_skipped=parsed["tests_skipped"],
+                reverts=parsed["reverts"],
+                parsed_results=parsed["parsed_results"],
+                raw_output=output[:5000] if len(output) > 5000 else output,
+                error=error_msg,
+            )
+
+        except subprocess.TimeoutExpired:
+            return TestResult(
+                success=False,
+                error=f"Tests timed out after {timeout} seconds",
+            )
+        except Exception as e:
+            return TestResult(success=False, error=str(e))
+
+    def run_standalone_script(
+        self,
+        workspace_path: Path,
+        script_path: Path,
+        timeout: int = 300,
+        additional_args: Optional[str] = None,
+    ) -> TestResult:
+        """
+        Run a standalone Python script without pytest.
+
+        For BountyBench-style PoC verification where exploits are standalone
+        scripts that make HTTP requests to a running target application.
+
+        Exit code determines success:
+        - 0: Exploit succeeded / vulnerability confirmed
+        - Non-zero: Exploit failed / no vulnerability
+        """
+        import shlex
+
+        workspace_path = Path(workspace_path).resolve()
+
+        venv_python = self._get_venv_python(workspace_path)
+
+        if venv_python:
+            cmd = [str(venv_python), str(script_path)]
+        else:
+            uv_bin = self._find_uv()
+            if uv_bin:
+                cmd = [uv_bin, "run", "python", str(script_path)]
+            else:
+                return TestResult(
+                    success=False,
+                    error="No Python interpreter found",
+                    raw_output="",
+                )
+
+        if additional_args:
             cmd.extend(shlex.split(additional_args))
 
         try:
@@ -481,27 +587,21 @@ class PythonToolAdapter(ToolAdapter):
             output = result.stdout + result.stderr
             success = result.returncode == 0
 
-            # Parse pytest output
-            parsed = self._parse_test_output(output)
-
             return TestResult(
                 success=success,
-                tests_passed=parsed["tests_passed"],
-                tests_failed=parsed["tests_failed"],
-                assertion_failures=parsed["assertion_failures"],
-                reverts=parsed["reverts"],
-                parsed_results=parsed["parsed_results"],
+                tests_passed=1 if success else 0,
+                tests_failed=0 if success else 1,
                 raw_output=output[:5000] if len(output) > 5000 else output,
             )
 
         except subprocess.TimeoutExpired:
             return TestResult(
                 success=False,
-                error=f"Test execution timed out after {timeout} seconds",
-                raw_output=f"Test execution timed out after {timeout} seconds",
+                error=f"Script execution timed out after {timeout} seconds",
+                raw_output="",
             )
         except Exception as e:
-            return TestResult(success=False, error=str(e))
+            return TestResult(success=False, error=str(e), raw_output="")
 
     def get_test_file_extension(self) -> str:
         """Return Python test file extension."""
@@ -521,9 +621,9 @@ class PythonToolAdapter(ToolAdapter):
         normalized = p.as_posix().lstrip("/")
 
         # Strip leading test directories
-        for prefix in ["tests/", "test/"]:
+        for prefix in ["tests/poc/", "test/poc/", "tests/", "test/", "poc/"]:
             if normalized.startswith(prefix):
-                normalized = normalized[len(prefix) :]
+                normalized = normalized[len(prefix):]
                 break
 
         # Ensure proper extension
@@ -639,25 +739,30 @@ Write Python test files in tests/poc/.
 
     def _parse_test_output(self, output: str) -> dict:
         """Parse pytest output to extract results."""
+        import re
+
         tests_passed = 0
         tests_failed = 0
+        tests_skipped = 0
         assertion_failures: List[str] = []
         reverts: List[str] = []
         parsed_results: dict = {}
+        error: Optional[str] = None
 
         lines = output.split("\n")
 
         for line in lines:
-            # pytest summary line: "X passed, Y failed"
-            if " passed" in line or " failed" in line:
-                import re
-
+            # pytest summary line: "X passed, Y failed, Z skipped"
+            if " passed" in line or " failed" in line or " skipped" in line:
                 passed_match = re.search(r"(\d+) passed", line)
                 failed_match = re.search(r"(\d+) failed", line)
+                skipped_match = re.search(r"(\d+) skipped", line)
                 if passed_match:
                     tests_passed = int(passed_match.group(1))
                 if failed_match:
                     tests_failed = int(failed_match.group(1))
+                if skipped_match:
+                    tests_skipped = int(skipped_match.group(1))
 
             # Individual test results: "PASSED test_module.py::test_name"
             if line.strip().startswith("PASSED"):
@@ -669,10 +774,18 @@ Write Python test files in tests/poc/.
                 if "AssertionError" in output:
                     assertion_failures.append(test_name)
 
+            # Detect import/module errors
+            if "ModuleNotFoundError" in line or "ImportError" in line:
+                error = line.strip()
+            elif "No module named" in line:
+                error = line.strip()
+
         return {
             "tests_passed": tests_passed,
             "tests_failed": tests_failed,
+            "tests_skipped": tests_skipped,
             "assertion_failures": assertion_failures,
             "reverts": reverts,
             "parsed_results": parsed_results,
+            "error": error,
         }

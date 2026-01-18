@@ -103,6 +103,18 @@ class DispatcherConfig:
     dedupe_model: str = settings.DEDUPE_DEFAULT_MODEL
     # Fixer agent settings
     fixer_model: str = settings.FIXER_DEFAULT_MODEL
+    # Fallback model (used when primary model fails after retries)
+    fallback_model: str = settings.FALLBACK_MODEL
+    # Output directory (if None, derives from rollouts_dir or workspace_dir)
+    output_dir: Optional[str] = None
+    # Turn configuration
+    main_agent_max_turns: int = settings.DEFAULT_MAX_TURNS
+    fixer_max_turns: int = settings.DEFAULT_MAX_TURNS
+    verifier_max_turns: int = settings.VERIFIER_MAX_TURNS
+    invariant_synth_max_turns: int = settings.INVARIANT_SYNTH_MAX_TURNS
+    validation_max_turns: int = settings.VALIDATION_MAX_TURNS
+    # Concurrent fixer limit
+    max_concurrent_fixers: int = settings.MAX_CONCURRENT_FIXERS
 
 
 class Dispatcher:
@@ -163,6 +175,12 @@ class Dispatcher:
         self.exploit_candidates: List[ExploitCandidate] = []
         self.verdicts: List[Verdict] = []
         self.fixes: List[Fix] = []
+
+        # Aggregated token/cost tracking across all agents
+        self.total_tokens: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
+        self.total_cost: float = 0.0
+        # Per-phase breakdown for detailed reporting
+        self.token_usage_by_phase: Dict[str, Dict[str, Any]] = {}
 
         self._workspace_manager = WorkspaceManager(
             workspace_dir=self.config.workspace_dir, logger=self.logger
@@ -300,6 +318,68 @@ class Dispatcher:
             self.logger.debug(f"Saved verifier rollout: {output_file}")
         except Exception as e:
             self.logger.warning(f"Failed to save verifier rollout {mission_id}: {e}")
+
+    def _aggregate_usage(
+        self,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cost: float,
+        phase: str,
+        agent_type: str,
+    ) -> None:
+        """Core method to aggregate token usage into dispatcher totals."""
+        self.total_tokens["prompt_tokens"] += prompt_tokens
+        self.total_tokens["completion_tokens"] += completion_tokens
+        self.total_cost += cost
+
+        if phase not in self.token_usage_by_phase:
+            self.token_usage_by_phase[phase] = {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "cost": 0.0,
+                "by_agent_type": {},
+            }
+
+        phase_data = self.token_usage_by_phase[phase]
+        phase_data["prompt_tokens"] += prompt_tokens
+        phase_data["completion_tokens"] += completion_tokens
+        phase_data["cost"] += cost
+
+        if agent_type not in phase_data["by_agent_type"]:
+            phase_data["by_agent_type"][agent_type] = {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "cost": 0.0,
+                "count": 0,
+            }
+
+        agent_data = phase_data["by_agent_type"][agent_type]
+        agent_data["prompt_tokens"] += prompt_tokens
+        agent_data["completion_tokens"] += completion_tokens
+        agent_data["cost"] += cost
+        agent_data["count"] += 1
+
+    def _aggregate_agent_usage(self, agent: Any, phase: str, agent_type: str = "unknown") -> None:
+        """Aggregate token usage from an agent."""
+        agent_tokens = getattr(agent, "total_tokens", {})
+        self._aggregate_usage(
+            prompt_tokens=agent_tokens.get("prompt_tokens", 0),
+            completion_tokens=agent_tokens.get("completion_tokens", 0),
+            cost=getattr(agent, "estimated_cost", 0.0),
+            phase=phase,
+            agent_type=agent_type,
+        )
+
+    def _aggregate_process_usage(
+        self,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cost: float,
+        phase: str,
+        agent_type: str = "process",
+    ) -> None:
+        """Aggregate token usage from a process."""
+        self._aggregate_usage(prompt_tokens, completion_tokens, cost, phase, agent_type)
 
     async def boot(
         self,
@@ -549,6 +629,54 @@ class Dispatcher:
             self.logger.error(f"Boot failed: {e}", exc_info=True)
             return False
 
+    def _infer_adapter_from_framework(self, frameworks: Optional[List[str]]) -> Optional[str]:
+        """
+        Infer the adapter type from the detected framework(s).
+
+        Returns the appropriate adapter string, or None if no mapping found.
+        """
+        if not frameworks:
+            return None
+
+        # Framework to adapter mapping
+        framework_to_adapter = {
+            # Solidity frameworks
+            "foundry": "solidity",
+            "forge": "solidity",
+            "hardhat": "solidity",
+            # Python frameworks
+            "python": "python",
+            "py": "python",
+            "uv": "python",
+            "pip": "python",
+            "poetry": "python",
+            # JavaScript frameworks
+            "javascript": "javascript",
+            "js": "javascript",
+            "node": "javascript",
+            "npm": "javascript",
+            "yarn": "javascript",
+            "pnpm": "javascript",
+            # TypeScript frameworks
+            "typescript": "typescript",
+            "ts": "typescript",
+            # C/C++ frameworks
+            "c": "c",
+            "cmake": "c",
+            "make": "c",
+            "gcc": "c",
+            # Rust frameworks
+            "cargo": "c",  # Using C builder for now as we don't have a Rust builder
+            "rust": "c",
+        }
+
+        for fw in frameworks:
+            fw_lower = fw.lower()
+            if fw_lower in framework_to_adapter:
+                return framework_to_adapter[fw_lower]
+
+        return None
+
     async def _build_dependency_graph(self) -> Optional[DependencyGraph]:
         """
         Run static analysis to build DependencyGraph.
@@ -563,13 +691,38 @@ class Dispatcher:
         if not self.master_context:
             return None
 
+        # Tree-sitter builders (python, javascript, c, typescript) only read files - no workspace needed.
+        # Only Solidity (Slither) needs a writable workspace for compilation caches.
+
+        # Infer adapter from framework if not explicitly set or still at default "solidity"
+        adapter = self.master_context.adapter
+        if adapter == "solidity" and self.master_context.frameworks:
+            # Check if frameworks suggest a different adapter
+            inferred = self._infer_adapter_from_framework(self.master_context.frameworks)
+            if inferred and inferred != "solidity":
+                self.logger.info(
+                    f"Adapter inferred from frameworks {self.master_context.frameworks}: {inferred}"
+                )
+                adapter = inferred
+                # Update master_context.adapter for downstream use
+                # Note: MasterContext is frozen, so we create a new one
+                self.master_context = self.master_context.model_copy(
+                    update={"adapter": inferred}
+                )
+
+        if not adapter:
+            raise RuntimeError("MasterContext.adapter must be set before building dependency graph")
+
+        adapter = adapter.lower()
+        needs_writable_workspace = adapter == "solidity"
+
         master_root = Path(self.master_context.root_path).resolve()
         analysis_root = master_root
 
         # The golden master is intentionally marked read-only. Slither/CryticCompile may run
         # To keep the master immutable while allowing compilation, build the graph in a
         # writable workspace copy when the master root isn't writable.
-        if not os.access(str(master_root), os.W_OK):
+        if needs_writable_workspace and not os.access(str(master_root), os.W_OK):
             try:
                 ws_id = f"analysis_{uuid.uuid4().hex[:8]}"
                 ws_path = self._workspace_manager.provision(
@@ -846,9 +999,14 @@ class Dispatcher:
             )
 
         finally:
-            # Save rollout before closing agent
+            # Save rollout and aggregate usage before closing agent
             if agent is not None:
                 self._save_rollout(agent, "missions", mission.mission_id)
+                self._aggregate_agent_usage(
+                    agent=agent,
+                    phase="run_loop",
+                    agent_type=mission.agent_type.value if mission.agent_type else "unknown",
+                )
                 try:
                     await agent.close()
                 except Exception:
@@ -936,10 +1094,20 @@ class Dispatcher:
                 dependency_graph=self.dependency_graph,
                 model_name=self.config.verifier_model,
                 use_openai=self.config.use_openai,
-                max_turns=settings.VERIFIER_MAX_TURNS,
+                max_turns=self.config.verifier_max_turns,
+                fallback_model=self.config.fallback_model,
             )
 
             output = await process.run(process_input)
+
+            # Aggregate verifier usage
+            self._aggregate_process_usage(
+                prompt_tokens=output.total_tokens.get("prompt_tokens", 0),
+                completion_tokens=output.total_tokens.get("completion_tokens", 0),
+                cost=output.estimated_cost,
+                phase="run_loop",
+                agent_type="verifier",
+            )
 
             # Save verifier rollout if messages available
             if self.config.save_rollouts and output.agent_messages:
@@ -1071,7 +1239,7 @@ class Dispatcher:
         Generate fixes for all verified exploits.
 
         Called after all missions complete. Deduplicates by root cause, then
-        runs FixerAgent on each unique exploit.
+        runs FixerAgent on each unique exploit concurrently (limited by semaphore).
         """
         if self.config.disable_fixer:
             self.logger.info(
@@ -1090,9 +1258,22 @@ class Dispatcher:
             valid_verdicts = await self._dedupe_verified_exploits(valid_verdicts)
 
         self.logger.info(
-            f"Generating fixes for {len(valid_verdicts)} verified exploit(s)..."
+            f"Generating fixes for {len(valid_verdicts)} verified exploit(s) "
+            f"(max {self.config.max_concurrent_fixers} concurrent)..."
         )
 
+        # Semaphore to limit concurrent fixer agents
+        semaphore = asyncio.Semaphore(self.config.max_concurrent_fixers)
+
+        async def fix_with_semaphore(
+            candidate: ExploitCandidate, verdict: Verdict
+        ) -> tuple[List[Fix], Verdict]:
+            async with semaphore:
+                fixes = await self._fix_single_exploit(candidate, verdict)
+                return fixes, verdict
+
+        # Build list of tasks for all valid candidates
+        tasks = []
         for verdict in valid_verdicts:
             # Find the corresponding exploit candidate
             candidate = next(
@@ -1111,7 +1292,18 @@ class Dispatcher:
                 )
                 continue
 
-            fixes = await self._fix_single_exploit(candidate, verdict)
+            tasks.append(fix_with_semaphore(candidate, verdict))
+
+        # Run all fixer tasks concurrently (semaphore limits actual concurrency)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Process results
+        for result in results:
+            if isinstance(result, Exception):
+                self.logger.error(f"Fixer task failed with exception: {result}")
+                continue
+
+            fixes, verdict = result
             for fix in fixes:
                 self.fixes.append(fix)
                 # Embed fix into verdict
@@ -1203,9 +1395,14 @@ class Dispatcher:
             return []
 
         finally:
-            # Save fixer rollout before cleanup
+            # Save fixer rollout and aggregate usage before cleanup
             if agent is not None:
                 self._save_rollout(agent, "fixer", f"fixer_{candidate.mission_id}")
+                self._aggregate_agent_usage(
+                    agent=agent,
+                    phase="fixer",
+                    agent_type="fixer",
+                )
                 try:
                     await agent.close()
                 except Exception:
@@ -1402,7 +1599,8 @@ class Dispatcher:
         """
         Export all dispatcher results to a JSON file.
 
-        Includes campaigns, missions, exploit candidates, verdicts, and stats.
+        Includes campaigns, missions, exploit candidates, verdicts, stats,
+        and cost tracking (total tokens, total cost, breakdown by phase).
 
         Args:
             output_path: Path to the output JSON file
@@ -1426,6 +1624,13 @@ class Dispatcher:
             "rejected_exploits": len([v for v in self.verdicts if not v.is_valid]),
         }
 
+        # Cost tracking
+        cost_tracking = {
+            "total_tokens": self.total_tokens,
+            "total_cost": self.total_cost,
+            "by_phase": self.token_usage_by_phase,
+        }
+
         # Serialize campaigns
         campaigns_data = [c.model_dump() for c in self.campaigns]
 
@@ -1446,6 +1651,7 @@ class Dispatcher:
         # Build final report
         report = {
             "summary": summary,
+            "cost_tracking": cost_tracking,
             "verification_stats": self.get_verification_stats(),
             "campaigns": campaigns_data,
             "missions": missions_data,

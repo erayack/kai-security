@@ -76,9 +76,13 @@ class GraphQueryEngine:
     ) -> List[NodeRef]:
         """Atomic local expansion with explicit edge types."""
         kinds = {EdgeKind(k) for k in edge_kinds}
-        # Generic neighbor lookup
         nids = self.graph.neighbors(node_id, edge_kinds=kinds, direction=direction)
-        return [self._to_ref(self.graph.node(nid)) for nid in nids]
+        # Skip neighbor IDs that don't have corresponding nodes
+        results = []
+        for nid in nids:
+            if nid in self.graph._nodes:
+                results.append(self._to_ref(self.graph.node(nid)))
+        return results
 
     def callers(self, func_id: str) -> List[NodeRef]:
         """Who calls this?"""

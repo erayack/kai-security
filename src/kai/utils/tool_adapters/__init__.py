@@ -18,6 +18,7 @@ from kai.utils.tool_adapters.cargo import CargoToolAdapter
 from kai.utils.tool_adapters.cmake import CMakeToolAdapter
 from kai.utils.tool_adapters.python import PythonToolAdapter
 from kai.utils.tool_adapters.javascript import JavaScriptToolAdapter
+from kai.utils.tool_adapters.typescript import TypeScriptToolAdapter
 from kai.utils.tool_adapters.c import CToolAdapter
 
 __all__ = [
@@ -30,6 +31,7 @@ __all__ = [
     "CMakeToolAdapter",
     "PythonToolAdapter",
     "JavaScriptToolAdapter",
+    "TypeScriptToolAdapter",
     "CToolAdapter",
     "get_tool_adapter",
     "get_supported_frameworks",
@@ -44,9 +46,16 @@ _ADAPTERS = {
     # BountyBench language adapters
     "python": PythonToolAdapter,
     "py": PythonToolAdapter,  # Alias
+    "pytest": PythonToolAdapter,  # Test runner alias
+    "unittest": PythonToolAdapter,  # Test runner alias
     "javascript": JavaScriptToolAdapter,
     "js": JavaScriptToolAdapter,  # Alias
     "node": JavaScriptToolAdapter,  # Alias
+    "jest": JavaScriptToolAdapter,  # Test runner alias
+    "mocha": JavaScriptToolAdapter,  # Test runner alias
+    "typescript": TypeScriptToolAdapter,
+    "ts": TypeScriptToolAdapter,  # Alias
+    "vitest": TypeScriptToolAdapter,  # Test runner alias
     "c": CToolAdapter,
 }
 
