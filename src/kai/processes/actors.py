@@ -17,7 +17,12 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from kai.inference import create_openai_client, get_model_pricing
+from kai.inference import (
+    create_openai_client,
+    get_model_pricing,
+    _get_extra_body,
+    _extract_usage,
+)
 from kai.processes.base import BaseProcess
 from kai.schemas import (
     ActorMatrix,
@@ -346,6 +351,7 @@ Domain: {manifesto.domain}"""
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,  # Deterministic
+            extra_body=_get_extra_body(use_openai),
         )
 
         # Parse response
@@ -377,18 +383,17 @@ Domain: {manifesto.domain}"""
             }
 
         # Calculate cost
-        usage = response.usage
-        tokens = {
-            "prompt_tokens": usage.prompt_tokens if usage else 0,
-            "completion_tokens": usage.completion_tokens if usage else 0,
-        }
+        tokens = _extract_usage(response.usage)
 
-        # Get pricing and calculate cost
-        pricing = get_model_pricing(model_name, use_openai)
-        cost = (
-            tokens["prompt_tokens"] * pricing["prompt"]
-            + tokens["completion_tokens"] * pricing["completion"]
-        )
+        # Prefer API-provided cost, fall back to calculated
+        if "cost" in tokens and tokens["cost"] is not None:
+            cost = tokens["cost"]
+        else:
+            pricing = get_model_pricing(model_name, use_openai)
+            cost = (
+                tokens["prompt_tokens"] * pricing["prompt"]
+                + tokens["completion_tokens"] * pricing["completion"]
+            )
 
         return assignments, cost, tokens
 

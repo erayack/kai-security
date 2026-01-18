@@ -18,7 +18,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from kai.agents.agent_types.bucketing_agent import BucketingAgent
-from kai.inference import create_openai_client, get_model_pricing
+from kai.inference import (
+    create_openai_client,
+    get_model_pricing,
+    _get_extra_body,
+    _extract_usage,
+)
 from kai.processes.base import BaseProcess
 from kai.schemas import (
     ActorMatrix,
@@ -376,6 +381,7 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
+            extra_body=_get_extra_body(use_openai),
         )
 
         # Handle API errors where choices is None or empty
@@ -391,17 +397,17 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
         invariants = self._parse_invariants_response(content, lens.name)
 
         # Calculate tokens and cost
-        usage = response.usage
-        tokens = {
-            "prompt_tokens": usage.prompt_tokens if usage else 0,
-            "completion_tokens": usage.completion_tokens if usage else 0,
-        }
+        tokens = _extract_usage(response.usage)
 
-        pricing = get_model_pricing(model_name, use_openai)
-        cost = (
-            tokens["prompt_tokens"] * pricing["prompt"]
-            + tokens["completion_tokens"] * pricing["completion"]
-        )
+        # Prefer API-provided cost, fall back to calculated
+        if "cost" in tokens and tokens["cost"] is not None:
+            cost = tokens["cost"]
+        else:
+            pricing = get_model_pricing(model_name, use_openai)
+            cost = (
+                tokens["prompt_tokens"] * pricing["prompt"]
+                + tokens["completion_tokens"] * pricing["completion"]
+            )
 
         return invariants, cost, tokens
 
