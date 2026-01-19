@@ -10,58 +10,45 @@ import pytest  # type: ignore[import-not-found]
 
 from kai.utils.dependency.builders import (
     get_builder,
-    BaseBuilder,
     PythonBuilder,
     JavaScriptBuilder,
     CBuilder,
 )
-from kai.utils.dependency.models import NodeKind, EdgeKind
+from kai.utils.dependency.models import NodeKind
 
 
 # Helper functions to check tree-sitter availability (must be defined before use in decorators)
 def _has_tree_sitter_python() -> bool:
     """Check if tree-sitter-python is installed."""
-    try:
-        import tree_sitter_python
+    import importlib.util
 
+    if importlib.util.find_spec("tree_sitter_python") is not None:
         return True
-    except ImportError:
-        try:
-            import tree_sitter_languages
-
-            return True
-        except ImportError:
-            return False
+    if importlib.util.find_spec("tree_sitter_languages") is not None:
+        return True
+    return False
 
 
 def _has_tree_sitter_javascript() -> bool:
     """Check if tree-sitter-javascript is installed."""
-    try:
-        import tree_sitter_javascript
+    import importlib.util
 
+    if importlib.util.find_spec("tree_sitter_javascript") is not None:
         return True
-    except ImportError:
-        try:
-            import tree_sitter_languages
-
-            return True
-        except ImportError:
-            return False
+    if importlib.util.find_spec("tree_sitter_languages") is not None:
+        return True
+    return False
 
 
 def _has_tree_sitter_c() -> bool:
     """Check if tree-sitter-c is installed."""
-    try:
-        import tree_sitter_c
+    import importlib.util
 
+    if importlib.util.find_spec("tree_sitter_c") is not None:
         return True
-    except ImportError:
-        try:
-            import tree_sitter_languages
-
-            return True
-        except ImportError:
-            return False
+    if importlib.util.find_spec("tree_sitter_languages") is not None:
+        return True
+    return False
 
 
 class TestBuilderRegistry:

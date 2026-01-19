@@ -6,7 +6,7 @@ Uses real fixtures from the Ethena BBP protocol analysis.
 import tempfile
 from pathlib import Path
 
-import pytest
+import pytest  # type: ignore[import-not-found]
 
 from evaluation.runner import BlackboxEvaluationRunner
 

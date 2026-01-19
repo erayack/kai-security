@@ -11,7 +11,6 @@ from tests.test_processes_profiler import _normalize_master_context_paths
 from kai.utils.dependency import DependencyGraph
 from kai.utils.tool_adapters import get_tool_adapter
 from kai.utils.workspace import get_workspace_adapter
-import logging
 
 
 @pytest.fixture
@@ -106,7 +105,6 @@ async def test_fixer_agent_runs_and_registers_fix_on_bbp(tmp_path: Path):
         max_tool_turns=32,
     )
     agent.workspace_path = workspace_path
-    agent.framework = "foundry"
     user_prompt = "Start your work."
 
     try:

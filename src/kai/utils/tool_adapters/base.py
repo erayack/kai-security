@@ -59,6 +59,7 @@ class TestResult:
     success: bool
     tests_passed: int = 0
     tests_failed: int = 0
+    tests_skipped: int = 0
     assertion_failures: List[str] = field(default_factory=list)
     reverts: List[str] = field(default_factory=list)
     parsed_results: Dict[str, str] = field(default_factory=dict)
@@ -70,6 +71,7 @@ class TestResult:
             "success": self.success,
             "tests_passed": self.tests_passed,
             "tests_failed": self.tests_failed,
+            "tests_skipped": self.tests_skipped,
             "assertion_failures": self.assertion_failures,
             "reverts": self.reverts,
             "parsed_results": self.parsed_results,

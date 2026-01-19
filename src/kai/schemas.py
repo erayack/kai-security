@@ -3,11 +3,11 @@ from typing import Optional, List, Dict, Any, Literal
 
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 
-from kai.agents.settings import MAIN_DEFAULT_MODEL, SETUP_DEFAULT_MODEL, MAX_TOOL_TURNS
+from kai.agents.settings import MAIN_DEFAULT_MODEL, SETUP_DEFAULT_MODEL, MAX_TOOL_TURNS, FALLBACK_MODEL
 from kai.utils.ids import generate_id
 
 # Adapter type literal for structured output validation
-AdapterType = Literal["solidity", "python", "javascript", "c"]
+AdapterType = Literal["solidity", "python", "javascript", "typescript", "c"]
 
 
 class Role(str, Enum):
@@ -29,8 +29,11 @@ class ChatMessage(BaseModel):
 class Language(str, Enum):
     SOLIDITY = "solidity"
     JAVASCRIPT = "javascript"
+    TYPESCRIPT = "typescript"
+    PYTHON = "python"
     RUST = "rust"
     CPP = "cpp"
+    C = "c"
 
 
 class Framework(str, Enum):
@@ -203,7 +206,7 @@ class InvariantProcessOutput(BaseModel):
     success: bool
     error_message: Optional[str] = None
     estimated_cost: float = 0.0
-    total_tokens: Dict[str, int] = Field(default_factory=dict)
+    total_tokens: Dict[str, Any] = Field(default_factory=dict)
     stats: Dict[str, int] = Field(default_factory=dict)
     # stats: {total_generated, validated, dropped, merged}
 
@@ -360,7 +363,7 @@ class EnvironmentSetupOutput(BaseModel):
     response: Optional[AgentResponse]
     master_context: Optional[MasterContext]
     estimated_cost: float
-    total_tokens: Dict[str, int]
+    total_tokens: Dict[str, Any]
     success: bool
     error_message: Optional[str]
     master_repo_path: str
@@ -546,7 +549,7 @@ class ProfilerOutput(BaseModel):
     response: Optional[AgentResponse]
     protocol_manifesto: Optional[ProtocolManifesto]
     estimated_cost: float
-    total_tokens: Dict[str, int]
+    total_tokens: Dict[str, Any]
     success: bool
     error_message: Optional[str]
     repo_path: str
@@ -636,7 +639,7 @@ class ActorMatrixOutput(BaseModel):
     success: bool
     error_message: Optional[str] = None
     estimated_cost: float = 0.0
-    total_tokens: Dict[str, int] = Field(default_factory=dict)
+    total_tokens: Dict[str, Any] = Field(default_factory=dict)
 
 
 # Resolve forward references for models that refer to ProtocolManifesto
@@ -655,7 +658,7 @@ class AdapterChooserOutput(BaseModel):
     choice: Optional[AdapterSelection]
     raw_response: Optional[str] = None
     estimated_cost: float = 0.0
-    total_tokens: Dict[str, int] = Field(default_factory=dict)
+    total_tokens: Dict[str, Any] = Field(default_factory=dict)
     success: bool
     error_message: Optional[str] = None
 
@@ -906,7 +909,7 @@ class BlackboxOutput(BaseModel):
     response: Optional[AgentResponse]
     observations: List[Observation] = Field(default_factory=list)
     estimated_cost: float
-    total_tokens: Dict[str, int]
+    total_tokens: Dict[str, Any]
     success: bool
     error_message: Optional[str] = None
     repo_path: str
@@ -927,7 +930,7 @@ class InvariantSynthesizerOutput(BaseModel):
     success: bool
     error_message: Optional[str] = None
     estimated_cost: float = 0.0
-    total_tokens: Dict[str, int] = Field(default_factory=dict)
+    total_tokens: Dict[str, Any] = Field(default_factory=dict)
     stats: Dict[str, int] = Field(
         default_factory=lambda: {
             "seen": 0,
@@ -949,6 +952,7 @@ class VerifierProcessInput(BaseModel):
     model_name: str = MAIN_DEFAULT_MODEL
     use_openai: bool = False
     max_turns: int = 16
+    fallback_model: Optional[str] = FALLBACK_MODEL
 
 
 class VerifierProcessOutput(BaseModel):
@@ -958,7 +962,7 @@ class VerifierProcessOutput(BaseModel):
     success: bool
     error_message: Optional[str] = None
     estimated_cost: float = 0.0
-    total_tokens: Dict[str, int] = Field(default_factory=dict)
+    total_tokens: Dict[str, Any] = Field(default_factory=dict)
     # Agent messages for rollout saving (optional)
     agent_messages: Optional[List[Any]] = None
     agent_model: Optional[str] = None

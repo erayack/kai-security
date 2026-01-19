@@ -7,7 +7,6 @@ import pytest  # type: ignore[import-not-found]
 from kai.processes.profiler import ProfilerProcess
 from kai.schemas import MasterContext, ProfilerInput
 from kai.agents import settings
-import logging
 
 # Defaults for live profiler test; overridable via env vars
 DEFAULT_PROFILER_REPO_URL = "https://github.com/ethena-labs/bbp-public-assets.git"

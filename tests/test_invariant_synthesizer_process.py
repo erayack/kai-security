@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import List
 
-import pytest
+import pytest  # type: ignore[import-not-found]
 
 from kai.processes.invariant_synthesizer import InvariantSynthesizerProcess
 from kai.schemas import (

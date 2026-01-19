@@ -5,7 +5,6 @@ Tests the WorkspaceAdapter interface implementations for each language.
 """
 
 from pathlib import Path
-import shutil
 
 import pytest  # type: ignore[import-not-found]
 

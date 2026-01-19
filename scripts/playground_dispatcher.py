@@ -54,9 +54,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from kai.agents import settings
-from kai.dispatcher.core import Dispatcher, DispatcherConfig
-from kai.schemas import CampaignBudget
+from kai.agents import settings  # noqa: E402
+from kai.dispatcher.core import Dispatcher, DispatcherConfig  # noqa: E402
+from kai.schemas import CampaignBudget  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -91,7 +91,7 @@ async def run_dispatcher_demo(
     print(f"{'=' * 70}")
     print(f"Repository: {repo_path}")
     print(f"Output: {output_dir}")
-    print(f"\nModels:")
+    print("\nModels:")
     print(f"  Main (State/Quant): {model}")
     print(f"  Setup:              {settings.SETUP_DEFAULT_MODEL}")
     print(f"  Verifier:           {settings.VERIFIER_DEFAULT_MODEL}")
@@ -171,7 +171,7 @@ async def run_dispatcher_demo(
     # =========================================================================
     # PHASE 2: RUN LOOP (includes inline verification + post-loop fixing)
     # =========================================================================
-    print(f"\n[PHASE 2] RUN LOOP - Executing missions...")
+    print("\n[PHASE 2] RUN LOOP - Executing missions...")
 
     await dispatcher.run_loop()
 

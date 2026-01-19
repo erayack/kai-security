@@ -16,12 +16,15 @@ INVARIANT_DEFAULT_MODEL = "openai/gpt-5.2-codex"
 DEDUPE_DEFAULT_MODEL = "openai/gpt-5.2-codex"
 FIXER_DEFAULT_MODEL = "openai/gpt-5.2-codex"
 
+# Fallback model (used when primary model fails after retries)
+FALLBACK_MODEL = "google/gemini-3-flash-preview"
+
 # Agent turn limits (centralized)
 DEFAULT_MAX_TURNS = (
     32  # Default for most agents (state, quant, blackbox, gamified, fixer)
 )
 SETUP_MAX_TURNS = 32  # Setup agent
-PROFILER_MAX_TURNS = 12  # Profiler agent
+PROFILER_MAX_TURNS = 24  # Profiler agent
 VERIFIER_MAX_TURNS = 16  # Verifier needs fewer turns
 VALIDATION_MAX_TURNS = 8  # Workspace validation is quick
 INVARIANT_SYNTH_MAX_TURNS = 8  # Invariant synthesizer per observation
@@ -31,6 +34,10 @@ MAX_TOOL_TURNS = DEFAULT_MAX_TURNS
 
 # Dispatcher settings
 MAX_CONCURRENT_AGENTS = 2
+MAX_CONCURRENT_FIXERS = 4
+
+# Python workspace settings
+PRE_INSTALL_PACKAGES: list[str] = ["pytest", "requests"]
 
 # OpenRouter
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"

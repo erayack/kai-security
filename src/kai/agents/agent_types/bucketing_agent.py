@@ -99,7 +99,7 @@ class BucketingAgent(BaseAgent):
                 if meta.get("modifiers"):
                     func_lines.append(f"  - Modifiers: {meta['modifiers']}")
                 if meta.get("is_payable"):
-                    func_lines.append(f"  - Payable: True")
+                    func_lines.append("  - Payable: True")
             if func.get("reads"):
                 func_lines.append(
                     f"  - Reads: {func['reads'][:5]}{'...' if len(func['reads']) > 5 else ''}"

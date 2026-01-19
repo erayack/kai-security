@@ -74,6 +74,7 @@ class VerifierAgent(BaseAgent):
         model: Optional[str] = settings.VERIFIER_DEFAULT_MODEL,
         use_openai: bool = False,
         execution_id: Optional[str] = None,
+        fallback_model: Optional[str] = settings.FALLBACK_MODEL,
     ):
         # Initialize with minimal system prompt - will be replaced by set_toolcalling_prompt()
         super().__init__(
@@ -91,6 +92,7 @@ class VerifierAgent(BaseAgent):
         self.master_context = master_context
         self.dependency_graph = dependency_graph
         self.workspace_path: Optional[str] = None
+        self.fallback_model = fallback_model
 
         if execution_id:
             self.execution_id = execution_id

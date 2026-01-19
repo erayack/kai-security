@@ -37,6 +37,8 @@ _ADAPTERS = {
     "javascript": JavaScriptWorkspaceAdapter,
     "js": JavaScriptWorkspaceAdapter,  # Alias
     "node": JavaScriptWorkspaceAdapter,  # Alias
+    "typescript": JavaScriptWorkspaceAdapter,  # TypeScript uses JS workspace (same tooling)
+    "ts": JavaScriptWorkspaceAdapter,  # Alias
     "c": CWorkspaceAdapter,
 }
 

@@ -171,16 +171,23 @@ class BaseAgent(ABC):
         completion_cost = usage_data.get("completion_tokens", 0) * pricing["completion"]
         return prompt_cost + completion_cost
 
-    def update_budget(self, usage_data: Dict[str, int]):
+    def update_budget(self, usage_data: Dict[str, Any]):
         """
         Update token usage and estimated cost.
 
         Args:
-            usage_data: Dict with prompt_tokens, completion_tokens, total_tokens
+            usage_data: Dict with prompt_tokens, completion_tokens, total_tokens,
+                        and optionally cost (from OpenRouter API)
         """
         self.total_tokens["prompt_tokens"] += usage_data.get("prompt_tokens", 0)
         self.total_tokens["completion_tokens"] += usage_data.get("completion_tokens", 0)
-        cost = self.calculate_cost(usage_data)
+
+        # Prefer API-provided cost (from OpenRouter), fall back to calculated
+        if "cost" in usage_data and usage_data["cost"] is not None:
+            cost = usage_data["cost"]
+        else:
+            cost = self.calculate_cost(usage_data)
+
         self.estimated_cost += cost
 
     def _get_remaining_turns(self) -> int:

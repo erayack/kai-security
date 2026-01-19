@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Dict, List
 
-import pytest
+import pytest  # type: ignore[import-not-found]
 from unittest.mock import AsyncMock, MagicMock
 
 from kai.schemas import Invariant, Observation

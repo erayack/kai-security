@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Any, List
 
+from kai.agents import settings
 from kai.schemas import MasterContext, WorkspacePreset
 from kai.utils.workspace.base import WorkspaceAdapter
 
@@ -288,16 +289,17 @@ class PythonWorkspaceAdapter(WorkspaceAdapter):
                 if logger:
                     logger.warning(f"Failed to install from pyproject.toml: {e}")
 
-        # Always try to install pytest for testing
-        try:
-            subprocess.run(
-                [str(pip_bin), "install", "pytest"],
-                cwd=str(workspace),
-                capture_output=True,
-                timeout=60,
-            )
-        except Exception:
-            pass
+        # Install pre-configured packages (pytest, requests, etc.)
+        for pkg in settings.PRE_INSTALL_PACKAGES:
+            try:
+                subprocess.run(
+                    [str(pip_bin), "install", pkg],
+                    cwd=str(workspace),
+                    capture_output=True,
+                    timeout=60,
+                )
+            except Exception:
+                pass
 
     def _create_conftest(
         self,

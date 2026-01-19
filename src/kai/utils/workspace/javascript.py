@@ -38,21 +38,25 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
 
         Copies package.json and lockfiles, symlinks source directories.
         """
-        # Create directory structure
-        (workspace / "tests" / "poc").mkdir(parents=True, exist_ok=True)
-        (workspace / "__tests__" / "poc").mkdir(parents=True, exist_ok=True)
-
         # Copy package.json and lockfiles
         self._copy_package_files(workspace, master)
 
-        # Symlink source directories
+        # Symlink source directories and copy test directories
+        # NOTE: Must happen BEFORE creating poc directories to avoid conflicts
         self._setup_source_symlinks(workspace, master, master_context)
+
+        # Create PoC directory structure (inside existing test dirs if they exist)
+        (workspace / "tests" / "poc").mkdir(parents=True, exist_ok=True)
+        (workspace / "__tests__" / "poc").mkdir(parents=True, exist_ok=True)
 
         # Copy config files
         self._copy_config_files(workspace, master)
 
         # Install dependencies
         self._install_dependencies(workspace, logger)
+
+        # Run build if needed (for TypeScript projects where dist/ is gitignored)
+        self._run_build_if_needed(workspace, logger)
 
         if logger:
             logger.debug(f"Provisioned LIGHTWEIGHT JavaScript workspace: {workspace}")
@@ -71,11 +75,13 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
         Create a full workspace by copying files from master.
         """
         # Exclude patterns for JavaScript projects
+        # NOTE: We do NOT exclude "dist" or "build" because:
+        # 1. Some projects commit pre-built dist/ to the repo (e.g., npm packages)
+        # 2. Tests often import from dist/ directly
+        # 3. If dist/ doesn't exist, _run_build_if_needed() will generate it
         exclude_dirs = {
             "node_modules",
             ".git",
-            "dist",
-            "build",
             "coverage",
             ".cache",
             ".next",
@@ -93,6 +99,9 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
 
         # Install dependencies with fresh node_modules
         self._install_dependencies(workspace, logger)
+
+        # Run build if needed (for TypeScript projects where dist/ is gitignored)
+        self._run_build_if_needed(workspace, logger)
 
         # Create test directories
         (workspace / "tests" / "poc").mkdir(parents=True, exist_ok=True)
@@ -189,11 +198,23 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
         master: Path,
         master_context: MasterContext,
     ) -> None:
-        """Symlink source directories from master to workspace."""
-        # Common source directories to symlink
-        src_dirs = ["src", "lib", "app", "source", "components", "utils"]
+        """Symlink/copy source directories from master to workspace."""
+        # Source directories can be symlinked - they're imported by other code
+        symlink_dirs = [
+            "src", "lib", "app", "source", "components", "utils",
+        ]
 
-        for src_dir in src_dirs:
+        # These directories must be COPIED, not symlinked, because:
+        # - Node.js module resolution follows realpath, not symlink path
+        # - Symlinked files would look for node_modules in master, not workspace
+        # - dist/build contain executable code that imports dependencies
+        # - test directories run code that imports dependencies
+        copy_dirs = [
+            "dist", "build",  # Build output that may import dependencies
+            "test", "tests", "__tests__",  # Test directories
+        ]
+
+        for src_dir in symlink_dirs:
             master_dir = master / src_dir
             workspace_dir = workspace / src_dir
 
@@ -208,6 +229,18 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
                 except OSError:
                     # Symlink might fail on Windows, copy instead
                     shutil.copytree(master_dir, workspace_dir)
+
+        # Copy directories that contain executable code (for correct module resolution)
+        for copy_dir in copy_dirs:
+            master_dir = master / copy_dir
+            workspace_dir = workspace / copy_dir
+
+            if (
+                master_dir.exists()
+                and master_dir.is_dir()
+                and not workspace_dir.exists()
+            ):
+                shutil.copytree(master_dir, workspace_dir)
 
     def _copy_config_files(self, workspace: Path, master: Path) -> None:
         """Copy JavaScript/TypeScript config files to workspace."""
@@ -235,6 +268,11 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
             src = master / config_file
             if src.exists() and src.is_file():
                 shutil.copy2(src, workspace / config_file)
+
+        # Copy TypeScript declaration files from root (needed for tsd, type imports)
+        for src in master.iterdir():
+            if src.is_file() and (src.name.endswith(".d.ts") or src.name.endswith(".d.mts")):
+                shutil.copy2(src, workspace / src.name)
 
     def _install_dependencies(
         self, workspace: Path, logger: Optional[Any] = None
@@ -270,6 +308,77 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
         except Exception as e:
             if logger:
                 logger.warning(f"Failed to install dependencies: {e}")
+
+    def _run_build_if_needed(
+        self, workspace: Path, logger: Optional[Any] = None
+    ) -> None:
+        """
+        Run build step if dist/ doesn't exist but package.json has a build script.
+
+        This handles TypeScript and other projects where dist/ is gitignored
+        and must be generated before tests can run.
+        """
+        # Skip if dist/ already exists (pre-built or symlinked from master)
+        if (workspace / "dist").exists():
+            if logger:
+                logger.debug("dist/ exists - skipping build step")
+            return
+
+        # Check if package.json has a build script
+        package_json = workspace / "package.json"
+        if not package_json.exists():
+            return
+
+        try:
+            data = json.loads(package_json.read_text())
+            scripts = data.get("scripts", {})
+
+            if "build" not in scripts:
+                if logger:
+                    logger.debug("No build script in package.json - skipping build")
+                return
+
+        except Exception as e:
+            if logger:
+                logger.warning(f"Failed to parse package.json: {e}")
+            return
+
+        # Run the build
+        manager = self._detect_package_manager(workspace)
+        manager_bin = shutil.which(manager)
+
+        if not manager_bin:
+            if logger:
+                logger.warning(f"{manager} not found - skipping build step")
+            return
+
+        try:
+            if logger:
+                logger.debug(f"Running {manager} run build...")
+
+            result = subprocess.run(
+                [manager_bin, "run", "build"],
+                cwd=str(workspace),
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+
+            if result.returncode == 0:
+                if logger:
+                    logger.debug("Build completed successfully")
+            else:
+                if logger:
+                    logger.warning(
+                        f"Build failed (exit {result.returncode}): {result.stderr[:500]}"
+                    )
+
+        except subprocess.TimeoutExpired:
+            if logger:
+                logger.warning("Build timed out after 300 seconds")
+        except Exception as e:
+            if logger:
+                logger.warning(f"Build failed: {e}")
 
     def _copy_with_excludes(self, src: Path, dst: Path, excludes: set) -> None:
         """Copy directory tree excluding certain patterns."""

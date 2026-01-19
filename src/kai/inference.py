@@ -100,6 +100,50 @@ def _as_dict(msg: Union[ChatMessage, dict]) -> dict:
     return msg if isinstance(msg, dict) else msg.model_dump()
 
 
+def _get_extra_body(use_openai: bool, use_vllm: bool = False) -> Optional[Dict[str, Any]]:
+    """
+    Return extra_body for OpenRouter to request usage/cost data.
+
+    OpenRouter requires explicit opt-in to receive cost in response.
+    OpenAI and vLLM don't support this parameter.
+    """
+    if use_openai or use_vllm:
+        return None
+    return {"usage": {"include": True}}
+
+
+def _extract_usage(usage: Any) -> Dict[str, Any]:
+    """
+    Extract usage data including cost from completion response.
+
+    Args:
+        usage: The usage object from a completion response.
+
+    Returns:
+        Dict with prompt_tokens, completion_tokens, total_tokens, and optionally cost.
+    """
+    if not usage:
+        return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    result: Dict[str, Any] = {
+        "prompt_tokens": usage.prompt_tokens or 0,
+        "completion_tokens": usage.completion_tokens or 0,
+        "total_tokens": usage.total_tokens or 0,
+    }
+
+    # OpenRouter provides cost directly when requested
+    if hasattr(usage, "cost") and usage.cost is not None:
+        result["cost"] = usage.cost
+
+    # Extract cached tokens for cost insights (OpenRouter)
+    if hasattr(usage, "prompt_tokens_details") and usage.prompt_tokens_details:
+        details = usage.prompt_tokens_details
+        if hasattr(details, "cached_tokens") and details.cached_tokens is not None:
+            result["cached_tokens"] = details.cached_tokens
+
+    return result
+
+
 async def get_structured_response(
     message: str,
     response_model: Any,
@@ -143,13 +187,7 @@ async def get_structured_response(
             )
 
             parsed = completion.choices[0].message.parsed
-
-            usage = completion.usage
-            usage_dict = {
-                "prompt_tokens": usage.prompt_tokens if usage else 0,
-                "completion_tokens": usage.completion_tokens if usage else 0,
-                "total_tokens": usage.total_tokens if usage else 0,
-            }
+            usage_dict = _extract_usage(completion.usage)
 
             return parsed, usage_dict
 
@@ -163,10 +201,12 @@ async def get_structured_response(
     messages_payload[-1]["content"] = enhanced_message
 
     try:
+        extra_body = _get_extra_body(use_openai)
         completion = await client.chat.completions.create(
             model=model,
             messages=messages_payload,
             response_format={"type": "json_object"},
+            extra_body=extra_body,
         )
 
         response_text = completion.choices[0].message.content
@@ -182,12 +222,7 @@ async def get_structured_response(
         parsed_dict = json.loads(response_text)
         parsed = response_model.model_validate(parsed_dict)
 
-        usage = completion.usage
-        usage_dict = {
-            "prompt_tokens": usage.prompt_tokens if usage else 0,
-            "completion_tokens": usage.completion_tokens if usage else 0,
-            "total_tokens": usage.total_tokens if usage else 0,
-        }
+        usage_dict = _extract_usage(completion.usage)
 
         return parsed, usage_dict
 
@@ -251,19 +286,15 @@ async def get_model_response(
         messages_payload = [_as_dict(m) for m in messages]
 
     try:
+        extra_body = _get_extra_body(use_openai, use_vllm)
         completion = await client.chat.completions.create(
-            model=model, messages=messages_payload
+            model=model,
+            messages=messages_payload,
+            extra_body=extra_body,
         )
 
         response_text = completion.choices[0].message.content
-
-        # Extract usage data
-        usage = completion.usage
-        usage_dict = {
-            "prompt_tokens": usage.prompt_tokens if usage else 0,
-            "completion_tokens": usage.completion_tokens if usage else 0,
-            "total_tokens": usage.total_tokens if usage else 0,
-        }
+        usage_dict = _extract_usage(completion.usage)
 
         return response_text, usage_dict
 
@@ -322,8 +353,9 @@ async def get_model_response_with_tools(
             client = create_openai_client(use_openai=use_openai)
 
     messages_payload = [_as_dict(m) for m in messages]
-    total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    total_usage: Dict[str, Any] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     tool_calls_made = []
+    extra_body = _get_extra_body(use_openai, use_vllm)
 
     def _json_default(obj: Any):
         """
@@ -376,6 +408,7 @@ async def get_model_response_with_tools(
                 messages=messages_payload,
                 tools=tools if tools else None,
                 tool_choice="auto" if tools else None,
+                extra_body=extra_body,
             )
         except Exception as e:
             error_msg = str(e)
@@ -406,10 +439,12 @@ async def get_model_response_with_tools(
             raise
 
         # Update usage
-        if completion.usage:
-            total_usage["prompt_tokens"] += completion.usage.prompt_tokens
-            total_usage["completion_tokens"] += completion.usage.completion_tokens
-            total_usage["total_tokens"] += completion.usage.total_tokens
+        round_usage = _extract_usage(completion.usage)
+        total_usage["prompt_tokens"] += round_usage.get("prompt_tokens", 0)
+        total_usage["completion_tokens"] += round_usage.get("completion_tokens", 0)
+        total_usage["total_tokens"] += round_usage.get("total_tokens", 0)
+        if "cost" in round_usage:
+            total_usage["cost"] = total_usage.get("cost", 0.0) + round_usage["cost"]
 
         message = completion.choices[0].message
         last_content = message.content or ""

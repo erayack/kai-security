@@ -323,6 +323,17 @@ class JavaScriptToolAdapter(ToolAdapter):
                 return "mocha"
             if "playwright" in deps:
                 return "playwright"
+            # Non-standard test frameworks that use their own API (not global describe/it)
+            # These run via npm test, not via a CLI runner
+            if "tester" in deps:
+                return "tester"
+            if "tape" in deps:
+                return "tape"
+            if "ava" in deps:
+                return "ava"
+            if "node:test" in deps or "@types/node" in deps:
+                # Node.js built-in test runner (node:test)
+                pass  # Will be detected via test script below
 
             # Check scripts for test command hints
             scripts = data.get("scripts", {})
@@ -333,11 +344,81 @@ class JavaScriptToolAdapter(ToolAdapter):
                 return "jest"
             if "mocha" in test_script:
                 return "mocha"
+            # Detect plain node execution (e.g., "node test/index.mjs")
+            # These projects use custom test libraries or node:test
+            if test_script.startswith("node "):
+                return "node-script"
 
         except Exception:
             pass
 
         return None
+
+    def _discover_poc_file(self, workspace_path: Path) -> Optional[str]:
+        """
+        Auto-discover PoC files in standard locations.
+
+        When using non-standard test frameworks that don't pick up files
+        from tests/poc/, this method finds PoC files to run directly with node.
+
+        Args:
+            workspace_path: Path to the workspace directory
+
+        Returns:
+            Relative path to the first PoC file found, or None
+        """
+        poc_dirs = ["tests/poc", "test/poc", "__tests__/poc"]
+        # Prefer .mjs files (ES modules work directly with node)
+        poc_extensions = [".mjs", ".js"]
+
+        for poc_dir in poc_dirs:
+            dir_path = workspace_path / poc_dir
+            if dir_path.exists() and dir_path.is_dir():
+                for ext in poc_extensions:
+                    # Sort to get consistent results, search recursively for nested files
+                    poc_files = sorted(dir_path.rglob(f"*{ext}"))
+                    for poc_file in poc_files:
+                        # Skip files that look like config or setup files
+                        if poc_file.name.startswith("_") or poc_file.name.startswith("."):
+                            continue
+                        # Return the relative path
+                        return str(poc_file.relative_to(workspace_path))
+        return None
+
+    def _build_poc_command(
+        self,
+        workspace_path: Path,
+        framework_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> Optional[List[str]]:
+        """
+        Build command to run PoC file directly with node.
+
+        For non-standard test frameworks (tester, tape, ava, node-script) or
+        unknown frameworks, we run PoC files directly with node instead of
+        using a test runner CLI.
+
+        Args:
+            workspace_path: Path to the workspace directory
+            framework_kwargs: Optional dict with "match_path" key
+
+        Returns:
+            Command list [node_bin, test_file] or None if no PoC found
+        """
+        fw = framework_kwargs or {}
+        match_path = fw.get("match_path") or self._discover_poc_file(workspace_path)
+
+        if not match_path:
+            return None
+
+        test_file = workspace_path / match_path
+        if not test_file.exists():
+            return None
+
+        try:
+            node_bin = self.find_binary(workspace_path)
+            return [node_bin, str(test_file)]
+        except FileNotFoundError:
+            return None
 
     def run_test(
         self,
@@ -364,7 +445,6 @@ class JavaScriptToolAdapter(ToolAdapter):
         Returns:
             TestResult with parsed test outcomes
         """
-        manager = self._detect_package_manager(workspace_path)
         npx_bin = shutil.which("npx")
 
         if not npx_bin:
@@ -392,11 +472,18 @@ class JavaScriptToolAdapter(ToolAdapter):
             if match_contract:
                 cmd.append(match_contract)
         else:
-            # Fall back to npm test
-            manager_bin = self._get_package_manager_binary(manager)
-            if not manager_bin:
-                return TestResult(success=False, error=f"{manager} not found")
-            cmd = [manager_bin, "test"]
+            # Non-standard frameworks (tester, tape, ava, node-script) or unknown
+            # These don't provide global describe/it/expect, so we run PoC files
+            # directly with node. Files must use node:assert for assertions.
+            cmd = self._build_poc_command(workspace_path, framework_kwargs)
+            if cmd is None:
+                # No PoC file found - return clear error instead of running project tests
+                return TestResult(
+                    success=False,
+                    error="No PoC file found in tests/poc/, test/poc/, or __tests__/poc/. "
+                          "Write a .mjs file (ES module) to one of these directories first.",
+                    raw_output="PoC discovery searched: tests/poc/*.mjs, test/poc/*.mjs, __tests__/poc/*.mjs",
+                )
 
         # Add verbosity (framework-specific)
         if test_framework == "jest" and verbosity > 1:
@@ -465,23 +552,29 @@ class JavaScriptToolAdapter(ToolAdapter):
 
         normalized = p.as_posix().lstrip("/")
 
-        # Strip leading test directories
-        for prefix in ["tests/", "test/", "__tests__/"]:
+        # Strip leading test directories AND poc subdirectory
+        # Order matters: check longer prefixes first to avoid partial matches
+        for prefix in ["tests/poc/", "test/poc/", "__tests__/poc/", "tests/", "test/", "__tests__/", "poc/"]:
             if normalized.startswith(prefix):
                 normalized = normalized[len(prefix) :]
                 break
 
+        # Valid test file extensions (don't modify these)
+        valid_extensions = [
+            ".test.js", ".test.ts", ".test.mjs", ".test.mts",
+            ".spec.js", ".spec.ts", ".spec.mjs", ".spec.mts",
+            ".mjs", ".mts",  # ES modules can be run directly with node
+        ]
+
         # Ensure proper extension
-        if not any(
-            normalized.endswith(ext)
-            for ext in [".test.js", ".test.ts", ".spec.js", ".spec.ts"]
-        ):
+        # Prefer .mjs for framework-agnostic PoC files that can run directly with node
+        if not any(normalized.endswith(ext) for ext in valid_extensions):
             if normalized.endswith(".js"):
-                normalized = normalized[:-3] + ".test.js"
+                normalized = normalized[:-3] + ".mjs"
             elif normalized.endswith(".ts"):
                 normalized = normalized[:-3] + ".test.ts"
             else:
-                normalized = normalized + ".test.js"
+                normalized = normalized + ".mjs"
 
         return workspace / "tests" / "poc" / normalized
 
@@ -514,43 +607,43 @@ class JavaScriptToolAdapter(ToolAdapter):
     def get_tool_description(self, tool_name: str) -> Optional[str]:
         """Get JavaScript-specific tool descriptions."""
         descriptions = {
-            "write_and_compile": """Write a JavaScript/TypeScript test file to the workspace and check syntax.
+            "write_and_compile": """Write a JavaScript test file to the workspace and check syntax.
+
+IMPORTANT: Use framework-agnostic code. Do NOT use Mocha/Jest/Chai globals.
 
 Args:
-    file_path: Test file name (e.g., "exploit.test.js" or "poc/exploit.test.ts")
-    content: JavaScript/TypeScript test file content
+    file_path: Test file name with .mjs extension (e.g., "poc/exploit.mjs")
+    content: JavaScript test file content using node:assert
 
 Returns:
     {"written": bool, "path": str, "compiled": bool, "errors": List[str], "raw_output": str}
 
 Example:
-    result = write_and_compile("exploit.test.js", '''
-    const { expect } = require('chai');
-    const { VulnerableContract } = require('../src/vulnerable');
+    result = write_and_compile("poc/exploit.mjs", '''
+import assert from "assert";
+import targetModule from "package-name";  // Use package name, not relative path
 
-    describe('Exploit', () => {
-        it('should demonstrate the vulnerability', async () => {
-            const contract = new VulnerableContract();
-            // Trigger the vulnerability
-            const result = await contract.vulnerableMethod(maliciousInput);
-            // Assert the exploit succeeded
-            expect(result.balance).to.be.lessThan(0);
-        });
-    });
+// Test directly - NO describe/it blocks
+const result = targetModule.vulnerableMethod(maliciousInput);
+
+// Use node:assert for assertions
+assert.strictEqual(result.exploited, true, "Vulnerability demonstrated");
+
+console.log("PoC PASSED: vulnerability confirmed");
+process.exit(0);
     ''')
 
     if not result["compiled"]:
         # Fix errors in result["errors"]
         pass""",
-            "run_test": """Run JavaScript tests with detected framework (Jest/Mocha/Vitest).
+            "run_test": """Run JavaScript tests (runs PoC files directly with node).
 
 Args:
     match_contract: Filter by file pattern
     match_test: Filter by test name pattern
     verbosity: Verbosity level
     additional_args: Extra test arguments
-    framework_kwargs: Optional dict:
-        {"coverage": true}
+    framework_kwargs: Optional dict with "match_path" to specify PoC file
 
 Returns:
     {
@@ -563,34 +656,35 @@ Returns:
     }
 
 Example:
-    result = run_test(match_test="exploit")
+    result = run_test()  # Auto-discovers PoC in tests/poc/
 
-    if result["tests_passed"] > 0:
-        print("Exploit test passed - vulnerability confirmed!")""",
+    if result["success"]:
+        print("PoC passed - vulnerability confirmed!")""",
             "register_exploit": """Register an exploit finding for JavaScript.
 
 Args:
     exploit_found: True if you found a way to exploit the vulnerability
     reasoning: Explanation of your analysis and conclusion
-    poc_path: Path to the PoC test file (e.g., "tests/poc/exploit.test.js")
-    poc_code: Full JavaScript/TypeScript code of the PoC
+    poc_path: Path to the PoC test file (e.g., "tests/poc/exploit.mjs")
+    poc_code: Full JavaScript code of the PoC (framework-agnostic)
 
 Example:
     register_exploit(
         exploit_found=True,
         reasoning="The prototype pollution in merge() allows arbitrary property injection...",
-        poc_path="tests/poc/prototype_pollution.test.js",
+        poc_path="tests/poc/prototype_pollution.mjs",
         poc_code='''
-const { expect } = require("chai");
-const { merge } = require("../src/utils");
+import assert from "assert";
+import { merge } from "package-name";
 
-describe("Prototype Pollution Exploit", () => {
-    it("should pollute Object prototype", () => {
-        const payload = JSON.parse('{"__proto__": {"admin": true}}');
-        merge({}, payload);
-        expect({}.admin).to.equal(true);
-    });
-});
+// Test prototype pollution - NO describe/it blocks
+const target = {};
+const payload = JSON.parse('{"__proto__": {"admin": true}}');
+merge(target, payload);
+
+assert.strictEqual({}.admin, true, "Prototype polluted");
+console.log("PoC PASSED: prototype pollution confirmed");
+process.exit(0);
 '''
     )""",
         }
@@ -599,12 +693,51 @@ describe("Prototype Pollution Exploit", () => {
     def get_poc_guidance(self) -> str:
         """Get JavaScript-specific PoC writing guidance."""
         return """## PoC Format: JavaScript/Node.js
-Write JavaScript test files in tests/poc/.
-- Use the project's test framework (Jest/Mocha/Vitest)
-- Import REAL modules from the codebase (don't create mocks)
-- Use expect/assert to prove the exploit
-- A PASSING test with assertions proving vulnerability = valid exploit
-- For async code, use async/await or proper promise handling"""
+Write JavaScript test files in tests/poc/ with .mjs extension (ES modules).
+
+**CRITICAL: Use framework-agnostic code. Do NOT use:**
+- describe(), it(), test() - These are Mocha/Jest globals that won't work
+- expect(), chai - These require installation
+- jest.mock(), vi.mock() - These are framework-specific
+
+**Correct PoC structure:**
+```javascript
+import assert from 'assert';
+
+// IMPORT RULES:
+// 1. PREFERRED: Import from package name (works if installed)
+import targetModule from 'package-name';
+// 2. FALLBACK: Import from dist/ (from tests/poc/, need to go up 2 levels)
+// import targetModule from '../../dist/index.mjs';
+// 3. WRONG: Do NOT import from src/ (source code, may not work)
+// import targetModule from '../../src/index.js';  // WRONG!
+
+// Test directly - NO describe/it blocks
+const result = targetModule(maliciousInput);
+
+// Use node:assert for assertions
+assert.strictEqual(result.property, expected, 'Exploit demonstrated');
+
+console.log('PoC PASSED: vulnerability confirmed');
+process.exit(0);  // Exit 0 = success
+```
+
+**Import path rules:**
+1. Check package.json "main" or "exports" field for the correct entry point
+2. Prefer package name: `import x from 'package-name'`
+3. If relative path needed, use dist/: `import x from '../../dist/index.mjs'`
+4. Include .js or .mjs extension in relative imports (required for ES modules)
+5. NEVER import from src/ directly - it may contain uncompiled TypeScript
+
+**Import path from tests/poc/:**
+- Package root: `../../` (e.g., `../../dist/index.mjs`)
+- Source: `../../src/index.js` (if not using TypeScript)
+
+**Key rules:**
+- Use .mjs extension for ES module support
+- Use `import assert from 'assert'` for assertions
+- Exit with code 0 = exploit succeeded, non-zero = failed
+- Print clear output showing what was exploited"""
 
     def _parse_test_output(self, output: str, framework: Optional[str]) -> dict:
         """Parse test framework output to extract results."""
