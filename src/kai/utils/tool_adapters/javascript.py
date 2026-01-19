@@ -375,8 +375,8 @@ class JavaScriptToolAdapter(ToolAdapter):
             dir_path = workspace_path / poc_dir
             if dir_path.exists() and dir_path.is_dir():
                 for ext in poc_extensions:
-                    # Sort to get consistent results
-                    poc_files = sorted(dir_path.glob(f"*{ext}"))
+                    # Sort to get consistent results, search recursively for nested files
+                    poc_files = sorted(dir_path.rglob(f"*{ext}"))
                     for poc_file in poc_files:
                         # Skip files that look like config or setup files
                         if poc_file.name.startswith("_") or poc_file.name.startswith("."):
@@ -445,7 +445,6 @@ class JavaScriptToolAdapter(ToolAdapter):
         Returns:
             TestResult with parsed test outcomes
         """
-        manager = self._detect_package_manager(workspace_path)
         npx_bin = shutil.which("npx")
 
         if not npx_bin:
@@ -478,11 +477,13 @@ class JavaScriptToolAdapter(ToolAdapter):
             # directly with node. Files must use node:assert for assertions.
             cmd = self._build_poc_command(workspace_path, framework_kwargs)
             if cmd is None:
-                # No PoC file found, fall back to npm test
-                manager_bin = self._get_package_manager_binary(manager)
-                if not manager_bin:
-                    return TestResult(success=False, error=f"{manager} not found")
-                cmd = [manager_bin, "test"]
+                # No PoC file found - return clear error instead of running project tests
+                return TestResult(
+                    success=False,
+                    error="No PoC file found in tests/poc/, test/poc/, or __tests__/poc/. "
+                          "Write a .mjs file (ES module) to one of these directories first.",
+                    raw_output="PoC discovery searched: tests/poc/*.mjs, test/poc/*.mjs, __tests__/poc/*.mjs",
+                )
 
         # Add verbosity (framework-specific)
         if test_framework == "jest" and verbosity > 1:
@@ -551,8 +552,9 @@ class JavaScriptToolAdapter(ToolAdapter):
 
         normalized = p.as_posix().lstrip("/")
 
-        # Strip leading test directories
-        for prefix in ["tests/", "test/", "__tests__/"]:
+        # Strip leading test directories AND poc subdirectory
+        # Order matters: check longer prefixes first to avoid partial matches
+        for prefix in ["tests/poc/", "test/poc/", "__tests__/poc/", "tests/", "test/", "__tests__/", "poc/"]:
             if normalized.startswith(prefix):
                 normalized = normalized[len(prefix) :]
                 break
@@ -705,10 +707,10 @@ import assert from 'assert';
 // IMPORT RULES:
 // 1. PREFERRED: Import from package name (works if installed)
 import targetModule from 'package-name';
-// 2. FALLBACK: Import from dist/ (compiled output)
-// import targetModule from '../dist/index.js';
+// 2. FALLBACK: Import from dist/ (from tests/poc/, need to go up 2 levels)
+// import targetModule from '../../dist/index.mjs';
 // 3. WRONG: Do NOT import from src/ (source code, may not work)
-// import targetModule from '../src/index.js';  // WRONG!
+// import targetModule from '../../src/index.js';  // WRONG!
 
 // Test directly - NO describe/it blocks
 const result = targetModule(maliciousInput);
@@ -723,9 +725,13 @@ process.exit(0);  // Exit 0 = success
 **Import path rules:**
 1. Check package.json "main" or "exports" field for the correct entry point
 2. Prefer package name: `import x from 'package-name'`
-3. If relative path needed, use dist/: `import x from '../dist/index.js'`
-4. Include .js extension in relative imports (required for ES modules)
+3. If relative path needed, use dist/: `import x from '../../dist/index.mjs'`
+4. Include .js or .mjs extension in relative imports (required for ES modules)
 5. NEVER import from src/ directly - it may contain uncompiled TypeScript
+
+**Import path from tests/poc/:**
+- Package root: `../../` (e.g., `../../dist/index.mjs`)
+- Source: `../../src/index.js` (if not using TypeScript)
 
 **Key rules:**
 - Use .mjs extension for ES module support
