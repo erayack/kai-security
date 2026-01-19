@@ -34,6 +34,10 @@ class SolidityBuilder(BaseBuilder):
     def language(self) -> str:
         return "solidity"
 
+    @property
+    def file_extensions(self) -> List[str]:
+        return [".sol"]
+
     def _ensure_writable_path(self, path: Path) -> None:
         """
         Best-effort: ensure a file/dir under the target project is writable.

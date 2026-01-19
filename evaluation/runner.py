@@ -17,9 +17,7 @@ from typing import Dict, List, Optional
 from evaluation.evaluator import BlackboxEvaluator
 from evaluation.schemas import BlackboxEvaluationReport
 from kai.schemas import (
-    CampaignBrief,
-    CampaignBudget,
-    EntrypointsSubset,
+    BlackboxBrief,
     Invariant,
     MasterContext,
     Observation,
@@ -167,15 +165,10 @@ class BlackboxEvaluationRunner:
         """Run the Blackbox Agent to collect observations."""
         from kai.agents.agent_types import BlackboxAgent
 
-        # Create campaign brief
-        brief = CampaignBrief(
+        # Create blackbox brief
+        brief = BlackboxBrief(
             campaign_id=campaign_id,
             kind="blackbox_evaluation",
-            invariant_ids=[],
-            entrypoints_subset=EntrypointsSubset(function_ids=[]),
-            workspace_preset="clean",
-            budget=CampaignBudget(max_turns_per_worker=num_turns),
-            master_context=self.master_context,
         )
 
         # Setup Foundry environment
@@ -241,6 +234,7 @@ class BlackboxEvaluationRunner:
 
         # Initialize evaluator
         self._init_evaluator()
+        assert self.evaluator is not None  # Type narrowing after init
 
         if not self.observations:
             self.logger.warning("No observations to synthesize")

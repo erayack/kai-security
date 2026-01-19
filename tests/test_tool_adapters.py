@@ -5,7 +5,6 @@ Tests the ToolAdapter interface implementations for each language.
 """
 
 from pathlib import Path
-from typing import Optional
 
 import pytest  # type: ignore[import-not-found]
 

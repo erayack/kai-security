@@ -4,7 +4,7 @@ Base builder interface for language-agnostic graph construction.
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from ..models import SourceSpan
 
@@ -51,4 +51,10 @@ class BaseBuilder(ABC):
     @abstractmethod
     def language(self) -> str:
         """Return the language this builder handles (e.g., 'solidity', 'rust')."""
+        pass
+
+    @property
+    @abstractmethod
+    def file_extensions(self) -> List[str]:
+        """Return list of file extensions this builder handles (e.g., ['.py'], ['.js', '.mjs'])."""
         pass

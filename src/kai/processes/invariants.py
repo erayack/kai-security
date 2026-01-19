@@ -117,7 +117,7 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
             # Step 3: Run BucketingAgent
             self.logger.info("Running BucketingAgent to categorize functions...")
             lens_definitions = self.adapter.get_lens_definitions()
-            self.logger.info(f"Lenses: {[l.name for l in lens_definitions]}")
+            self.logger.info(f"Lenses: {[lens.name for lens in lens_definitions]}")
             buckets = await self._run_bucketing_agent(
                 functions=functions_with_metadata,
                 lens_definitions=lens_definitions,

@@ -5,7 +5,6 @@ import pytest  # type: ignore[import-not-found]
 
 from kai.processes.blackbox import BlackboxProcess
 from kai.schemas import CampaignBrief, BlackboxInput
-import logging
 
 
 @pytest.fixture

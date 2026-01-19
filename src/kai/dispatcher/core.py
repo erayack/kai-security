@@ -28,10 +28,10 @@ class DedupeResponse(BaseModel):
     representative_mission_ids: List[str]
 
 
-from kai.agents import settings
-from kai.state_manager import KaiStateManager
+from kai.agents import settings  # noqa: E402
+from kai.state_manager import KaiStateManager  # noqa: E402
 
-from kai.schemas import (
+from kai.schemas import (  # noqa: E402
     ActorMatrix,
     CampaignBrief,
     CampaignBudget,
@@ -49,11 +49,11 @@ from kai.schemas import (
     VerifierProcessInput,
     WorkspacePreset,
 )
-from kai.utils.dependency.graph import DependencyGraph
+from kai.utils.dependency.graph import DependencyGraph  # noqa: E402
 
-from kai.dispatcher.planner import MissionPlanner
-from kai.dispatcher.workspace import WorkspaceManager
-from kai.dispatcher.agent_factories import AGENT_FACTORIES as DEFAULT_AGENT_FACTORIES
+from kai.dispatcher.planner import MissionPlanner  # noqa: E402
+from kai.dispatcher.workspace import WorkspaceManager  # noqa: E402
+from kai.dispatcher.agent_factories import AGENT_FACTORIES as DEFAULT_AGENT_FACTORIES  # noqa: E402
 
 # Type alias for shutdown trigger callable
 ShutdownTrigger = Callable[[], bool]
@@ -1299,7 +1299,7 @@ class Dispatcher:
 
         # Process results
         for result in results:
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 self.logger.error(f"Fixer task failed with exception: {result}")
                 continue
 
