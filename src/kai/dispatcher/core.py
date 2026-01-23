@@ -22,12 +22,6 @@ DEDUPE_EXPLOITS_PROMPT = (
 )
 
 
-class DedupeResponse(BaseModel):
-    """Response schema for exploit deduplication LLM call."""
-
-    representative_mission_ids: List[str]
-
-
 from kai.agents import settings  # noqa: E402
 from kai.state_manager import KaiStateManager  # noqa: E402
 
@@ -35,6 +29,8 @@ from kai.schemas import (  # noqa: E402
     ActorMatrix,
     CampaignBrief,
     CampaignBudget,
+    DedupeGroup,
+    DedupeResponse,
     ExploitCandidate,
     Fix,
     Invariant,
@@ -1159,6 +1155,11 @@ class Dispatcher:
         Multiple verdicts may describe the same underlying vulnerability discovered
         through different paths. Uses structured output to get representative mission_ids.
 
+        LLM Response Format:
+            groups: List of DedupeGroup, each containing:
+                - representative_mission_id: The mission_id of the chosen representative
+                - duplicate_mission_ids: Array of mission_ids that are duplicates
+
         Args:
             verdicts: List of verified (is_valid=True) verdicts
 
@@ -1172,36 +1173,24 @@ class Dispatcher:
             self.logger.warning("Dedupe prompt not found, skipping deduplication")
             return verdicts
 
-        # Build candidate lookup for enriching verdict info
+        # Build findings for LLM (enrich with candidate info for better deduplication)
         candidate_map = {
             (c.mission_id, c.invariant_id): c for c in self.exploit_candidates
         }
-
-        # Prepare finding summaries for LLM
         findings = []
         for v in verdicts:
-            candidate = candidate_map.get((v.mission_id, v.invariant_id))
-            findings.append(
-                {
-                    "mission_id": v.mission_id,
-                    "vulnerability_class": v.vulnerability_class or "unknown",
-                    "severity": v.severity.value if v.severity else "unknown",
-                    "target_file": candidate.target_file if candidate else "",
-                    "target_function": candidate.target_function if candidate else "",
-                    "description": (
-                        candidate.description[:500]
-                        if candidate and candidate.description
-                        else ""
-                    ),
-                    "mechanism": (
-                        candidate.mechanism[:300]
-                        if candidate and candidate.mechanism
-                        else ""
-                    ),
-                }
-            )
+            c = candidate_map.get((v.mission_id, v.invariant_id))
+            findings.append({
+                "mission_id": v.mission_id,
+                "invariant_id": v.invariant_id,
+                "vulnerability_class": v.vulnerability_class or "unknown",
+                "severity": v.severity.value if v.severity else "unknown",
+                "target_file": c.target_file if c else "",
+                "target_function": c.target_function if c else "",
+                "description": c.description[:500] if c and c.description else "",
+                "mechanism": c.mechanism[:300] if c and c.mechanism else "",
+            })
 
-        # Build prompt from template
         prompt = DEDUPE_EXPLOITS_PROMPT.replace(
             "{{num_findings}}", str(len(findings))
         ).replace("{{findings_json}}", json.dumps(findings, indent=2))
@@ -1214,20 +1203,36 @@ class Dispatcher:
                 use_openai=self.config.use_openai,
             )
 
-            rep_ids = set(result.representative_mission_ids)
-
-            if not rep_ids:
-                self.logger.warning(
-                    "Deduplication returned empty representatives, keeping all"
-                )
+            if not result.groups:
+                self.logger.warning("Deduplication returned empty groups, keeping all")
                 return verdicts
 
-            deduped = [v for v in verdicts if v.mission_id in rep_ids]
+            # Build dup_id -> rep_id mapping from LLM response
+            dup_to_rep: Dict[str, str] = {
+                dup_id: group.representative_mission_id
+                for group in result.groups
+                for dup_id in group.duplicate_mission_ids
+            }
+
+            # Persist dedupe_id for each duplicate
+            verdict_map = {v.mission_id: v for v in verdicts}
+            for dup_id, rep_id in dup_to_rep.items():
+                v = verdict_map.get(dup_id)
+                if v and self._state_manager:
+                    await self._persist(
+                        self._state_manager.update_exploit_dedupe_id(
+                            mission_id=dup_id,
+                            invariant_id=v.invariant_id,
+                            dedupe_id=rep_id,
+                        )
+                    )
+
+            # Return only non-duplicate verdicts
+            deduped = [v for v in verdicts if v.mission_id not in dup_to_rep]
 
             self.logger.info(
-                f"Deduplication: {len(verdicts)} verdicts -> {len(deduped)} unique root causes"
+                f"Deduplication: {len(verdicts)} -> {len(deduped)} unique ({len(dup_to_rep)} duplicates)"
             )
-
             return deduped
 
         except Exception as e:
