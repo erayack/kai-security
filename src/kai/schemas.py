@@ -253,6 +253,7 @@ class ExploitCandidate(BaseModel):
     description: str
     compiled: bool = False  # Did it compile in agent's workspace?
     logs: List[str] = Field(default_factory=list)
+    dedupe_id: Optional[str] = None  # mission_id of original if this is a duplicate
 
     @model_validator(mode="before")
     @classmethod
@@ -971,6 +972,28 @@ class VerifierProcessOutput(BaseModel):
 # ---------------------------
 # Fixer Schemas
 # ---------------------------
+
+
+# ---------------------------
+# Deduplication Schemas
+# ---------------------------
+
+
+class DedupeGroup(BaseModel):
+    """A group of duplicate exploits sharing the same root cause."""
+
+    representative_mission_id: str
+    """The mission_id of the representative exploit for this group."""
+
+    duplicate_mission_ids: List[str] = []
+    """List of mission_ids that are duplicates of the representative."""
+
+
+class DedupeResponse(BaseModel):
+    """Response schema for exploit deduplication LLM call."""
+
+    groups: List[DedupeGroup]
+    """List of exploit groups, each with a representative and its duplicates."""
 
 
 class FixerInput(BaseModel):

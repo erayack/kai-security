@@ -173,6 +173,30 @@ class KaiStateManager(ABC):
         pass
 
     @abstractmethod
+    async def update_exploit_dedupe_id(
+        self,
+        mission_id: str,
+        invariant_id: str,
+        dedupe_id: str,
+    ) -> bool:
+        """
+        Update the dedupe_id field on an exploit candidate.
+        
+        Called during deduplication to mark duplicate exploits.
+        The implementation should find the representative exploit by its
+        mission_id and use that exploit's document ID as the dedupeId.
+
+        Args:
+            mission_id: The mission_id of the duplicate exploit
+            invariant_id: The invariant_id of the duplicate exploit
+            dedupe_id: The mission_id of the representative/original exploit
+
+        Returns:
+            True if successful
+        """
+        pass
+
+    @abstractmethod
     async def save_observations(self, observations: List[Observation]) -> bool:
         """
         Save observations from blackbox exploration.
