@@ -16,6 +16,13 @@ from kai.dispatcher.agent_factories import (
     get_agent_factory,
     AGENT_FACTORIES,
 )
+from kai.exceptions import (
+    DispatcherBootError,
+    EnvironmentSetupError,
+    StaticAnalysisError,
+    WorkspaceValidationError,
+    ActorAnalysisError,
+)
 
 __all__ = [
     "Dispatcher",
@@ -23,6 +30,12 @@ __all__ = [
     "AgentFactory",
     "MissionPlanner",
     "WorkspaceManager",
+    # Boot error classes
+    "DispatcherBootError",
+    "EnvironmentSetupError",
+    "StaticAnalysisError",
+    "WorkspaceValidationError",
+    "ActorAnalysisError",
     # Agent factories
     "create_state_agent",
     "create_blackbox_agent",

@@ -3,6 +3,14 @@ Dispatcher: Mission control for Kai v2.
 """
 
 import asyncio
+
+from kai.exceptions import (
+    DispatcherBootError,
+    EnvironmentSetupError,
+    StaticAnalysisError,
+    WorkspaceValidationError,
+    ActorAnalysisError,
+)
 import json
 import logging
 from dataclasses import dataclass, field
@@ -384,7 +392,7 @@ class Dispatcher:
         model_name: str = settings.MAIN_DEFAULT_MODEL,
         use_openai: bool = False,
         master_context: Optional[MasterContext] = None,
-    ) -> bool:
+    ) -> None:
         """
         Run preprocess chain to populate global knowledge.
 
@@ -396,6 +404,13 @@ class Dispatcher:
             model_name: Model to use for agent inference
             use_openai: Whether to use OpenAI API directly
             master_context: Pre-built MasterContext (BountyBench mode, skips EnvironmentSetup)
+
+        Raises:
+            EnvironmentSetupError: If environment setup fails
+            StaticAnalysisError: If dependency graph building fails
+            WorkspaceValidationError: If workspace validation fails
+            ActorAnalysisError: If actor analysis fails
+            DispatcherBootError: For other boot failures
         """
         self.logger.info("Booting Dispatcher...")
 
@@ -434,10 +449,9 @@ class Dispatcher:
                 env_output = await env_process.run(env_input)
 
                 if not env_output.success or not env_output.master_context:
-                    self.logger.error(
-                        f"Environment setup failed: {env_output.error_message}"
-                    )
-                    return False
+                    error_msg = env_output.error_message or "Environment setup failed"
+                    self.logger.error(f"Environment setup failed: {error_msg}")
+                    raise EnvironmentSetupError(error_msg)
 
                 self.master_context = env_output.master_context
 
@@ -463,7 +477,7 @@ class Dispatcher:
             self.dependency_graph = await self._build_dependency_graph()
             if not self.dependency_graph:
                 self.logger.error("Static analysis failed")
-                return False
+                raise StaticAnalysisError("Failed to build dependency graph")
 
             # Persist dependency graph
             await self._persist(
@@ -497,17 +511,21 @@ class Dispatcher:
                     )
                 )
                 if not ws_output.success:
-                    self.logger.error(
-                        ws_output.error_message or "Workspace validation failed"
-                    )
+                    error_msg = ws_output.error_message or "Workspace validation failed"
+                    self.logger.error(error_msg)
                     # Log per-preset summary for debugging
+                    preset_errors = []
                     for r in ws_output.results:
-                        self.logger.error(
+                        preset_info = (
                             f"WorkspaceValidation {r.preset.value}: "
                             f"compiled={r.compiled}, test_success={r.test_success}, "
                             f"workspace={r.workspace_path}, error={r.error}"
                         )
-                    return False
+                        self.logger.error(preset_info)
+                        preset_errors.append(preset_info)
+                    raise WorkspaceValidationError(
+                        f"{error_msg}. Details: {'; '.join(preset_errors)}"
+                    )
 
                 self.logger.info("Workspace validation passed")
             else:
@@ -558,10 +576,9 @@ class Dispatcher:
             actor_output = await actor_process.run(actor_input)
 
             if not actor_output.success or not actor_output.actor_matrix:
-                self.logger.error(
-                    f"Actor analysis failed: {actor_output.error_message}"
-                )
-                return False
+                error_msg = actor_output.error_message or "Actor analysis failed"
+                self.logger.error(f"Actor analysis failed: {error_msg}")
+                raise ActorAnalysisError(error_msg)
 
             self.actor_matrix = actor_output.actor_matrix
             self.logger.info(f"ActorMatrix ready: {len(self.actor_matrix.roles)} roles")
@@ -619,11 +636,13 @@ class Dispatcher:
             self.logger.info(
                 f"Boot complete: {len(self.invariants)} invariants, planner ready"
             )
-            return True
 
+        except (EnvironmentSetupError, StaticAnalysisError, WorkspaceValidationError, ActorAnalysisError):
+            # Re-raise our custom exceptions as-is
+            raise
         except Exception as e:
             self.logger.error(f"Boot failed: {e}", exc_info=True)
-            return False
+            raise DispatcherBootError(f"Boot failed: {e}") from e
 
     def _infer_adapter_from_framework(self, frameworks: Optional[List[str]]) -> Optional[str]:
         """
@@ -1539,7 +1558,14 @@ class Dispatcher:
             return
 
         base_id = len(self.completed_missions) + self.mission_queue.qsize()
-        missions = self._planner.create_missions_for_invariant(invariant, base_id)
+        campaign, missions = self._planner.create_missions_for_invariant(invariant, base_id)
+
+        # Save the campaign first
+        await self._persist(
+            self._state_manager.save_campaigns([campaign])
+            if self._state_manager
+            else None
+        )
 
         if missions:
             await self._persist(
