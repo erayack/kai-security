@@ -1536,9 +1536,14 @@ def write_and_compile(file_path: str, content: str) -> Dict[str, Any]:
         agent._compile_attempts = 0
     agent._compile_attempts += 1
 
+    # Store match_path on agent so run_test can use it automatically
+    # This avoids the need for the agent to pass framework_kwargs manually
+    agent._last_poc_match_path = rel_path.as_posix()
+
     return {
         "written": True,
         "path": rel_test_path,
+        "match_path": rel_path.as_posix(),  # Expose for run_test
         "workspace": str(workspace),
         "compiled": compile_result.success,
         "errors": compile_result.errors,

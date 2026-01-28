@@ -45,6 +45,9 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
         # NOTE: Must happen BEFORE creating poc directories to avoid conflicts
         self._setup_source_symlinks(workspace, master, master_context)
 
+        # Make copied dirs writable (they may have been copied from read-only master)
+        self._make_writable(workspace)
+
         # Create PoC directory structure (inside existing test dirs if they exist)
         (workspace / "tests" / "poc").mkdir(parents=True, exist_ok=True)
         (workspace / "__tests__" / "poc").mkdir(parents=True, exist_ok=True)
@@ -228,19 +231,18 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
                     workspace_dir.symlink_to(rel_path)
                 except OSError:
                     # Symlink might fail on Windows, copy instead
-                    shutil.copytree(master_dir, workspace_dir)
+                    # Use symlinks=True to preserve symlinks (e.g., label symlinks in test suites)
+                    shutil.copytree(master_dir, workspace_dir, symlinks=True, dirs_exist_ok=True)
 
         # Copy directories that contain executable code (for correct module resolution)
         for copy_dir in copy_dirs:
             master_dir = master / copy_dir
             workspace_dir = workspace / copy_dir
 
-            if (
-                master_dir.exists()
-                and master_dir.is_dir()
-                and not workspace_dir.exists()
-            ):
-                shutil.copytree(master_dir, workspace_dir)
+            if master_dir.exists() and master_dir.is_dir():
+                # Use symlinks=True to preserve symlinks (e.g., label symlinks in test suites)
+                # Use dirs_exist_ok=True in case the directory already exists
+                shutil.copytree(master_dir, workspace_dir, symlinks=True, dirs_exist_ok=True)
 
     def _copy_config_files(self, workspace: Path, master: Path) -> None:
         """Copy JavaScript/TypeScript config files to workspace."""
@@ -397,7 +399,12 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
 
             dest_path = dst / item.name
 
-            if item.is_dir():
+            # Preserve symlinks (e.g., label symlinks in test suites)
+            if item.is_symlink():
+                # Copy the symlink itself, not its target
+                linkto = os.readlink(item)
+                dest_path.symlink_to(linkto)
+            elif item.is_dir():
                 if not item.name.startswith(".") or item.name in {".github", ".vscode"}:
                     self._copy_with_excludes(item, dest_path, excludes)
             else:

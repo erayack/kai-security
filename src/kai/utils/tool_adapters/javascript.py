@@ -420,6 +420,51 @@ class JavaScriptToolAdapter(ToolAdapter):
         except FileNotFoundError:
             return None
 
+    def _run_node_command(
+        self,
+        cmd: List[str],
+        workspace_path: Path,
+        timeout: int,
+    ) -> TestResult:
+        """
+        Run a node command and return TestResult.
+
+        Helper method for running PoC files directly with node.
+        """
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=str(workspace_path),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+
+            output = result.stdout + result.stderr
+            success = result.returncode == 0
+
+            # Parse output for pass/fail indicators
+            parsed = self._parse_test_output(output, "node-direct")
+
+            return TestResult(
+                success=success,
+                tests_passed=1 if success else 0,
+                tests_failed=0 if success else 1,
+                assertion_failures=parsed["assertion_failures"],
+                reverts=parsed["reverts"],
+                parsed_results=parsed["parsed_results"],
+                raw_output=output[:5000] if len(output) > 5000 else output,
+            )
+
+        except subprocess.TimeoutExpired:
+            return TestResult(
+                success=False,
+                error=f"Test execution timed out after {timeout} seconds",
+                raw_output=f"Test execution timed out after {timeout} seconds",
+            )
+        except Exception as e:
+            return TestResult(success=False, error=str(e))
+
     def run_test(
         self,
         workspace_path: Path,
@@ -440,13 +485,60 @@ class JavaScriptToolAdapter(ToolAdapter):
             verbosity: Verbosity level
             timeout: Timeout in seconds
             additional_args: Additional test arguments
-            framework_kwargs: Framework-specific options
+            framework_kwargs: Framework-specific options (match_path to run specific file)
 
         Returns:
             TestResult with parsed test outcomes
         """
-        npx_bin = shutil.which("npx")
+        fw = framework_kwargs or {}
 
+        # If match_path is provided, run it directly with node (skip framework detection)
+        # This ensures we run the specific smoke/PoC file instead of the project's test suite
+        if fw.get("match_path"):
+            cmd = self._build_poc_command(workspace_path, framework_kwargs)
+            if cmd is not None:
+                return self._run_node_command(cmd, workspace_path, timeout)
+
+        # If a specific PoC path is provided, prefer running it directly with node
+        # regardless of any detected framework (avoids running full Jest/Vitest suites).
+        fw = framework_kwargs or {}
+        if fw.get("match_path"):
+            cmd = self._build_poc_command(workspace_path, framework_kwargs)
+            if cmd is not None:
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        cwd=str(workspace_path),
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout,
+                    )
+
+                    output = result.stdout + result.stderr
+                    success = result.returncode == 0
+
+                    # Parse output (may yield zeros, which is fine for smoke validation)
+                    parsed = self._parse_test_output(output, None)
+                    return TestResult(
+                        success=success,
+                        tests_passed=parsed["tests_passed"],
+                        tests_failed=parsed["tests_failed"],
+                        assertion_failures=parsed["assertion_failures"],
+                        reverts=parsed["reverts"],
+                        parsed_results=parsed["parsed_results"],
+                        raw_output=output[:5000] if len(output) > 5000 else output,
+                    )
+                except subprocess.TimeoutExpired:
+                    return TestResult(
+                        success=False,
+                        error=f"Test execution timed out after {timeout} seconds",
+                        raw_output=f"Test execution timed out after {timeout} seconds",
+                    )
+                except Exception as e:
+                    return TestResult(success=False, error=str(e))
+
+        # Otherwise, detect framework and run via its CLI (requires npx)
+        npx_bin = shutil.which("npx")
         if not npx_bin:
             return TestResult(success=False, error="npx not found")
 
