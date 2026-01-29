@@ -287,21 +287,32 @@ class GraphQueryEngine:
         # 1. Anti-Hallucination: Always include Type Definitions
         #    Agents cannot hallucinate struct fields if we provide the struct def.
         for seed in list(nodes):
+            # Skip seeds that aren't real nodes
+            if seed not in self.graph._nodes:
+                continue
             for tid in self.graph.neighbors(
                 seed, edge_kinds={EdgeKind.USES_TYPE}, direction="out"
             ):
-                add(tid, f"Type used by {self.graph.node(seed).name}")
+                # Only add type if it exists in graph
+                if tid in self.graph._nodes:
+                    add(tid, f"Type used by {self.graph.node(seed).name}")
 
         # 2. Policy Expansion
         if policy == "standard":
             for seed in list(nodes):
-                # Include Callees (Downstream)
+                # Skip seeds that aren't real nodes (external/builtin references)
+                if seed not in self.graph._nodes:
+                    continue
+                seed_node = self.graph.node(seed)
+                # Include Callees (Downstream) - only if they exist as nodes
                 for nid in self.graph.neighbors(
                     seed, edge_kinds={EdgeKind.CALLS}, direction="out"
                 ):
-                    add(nid, f"Called by {self.graph.node(seed).name}")
+                    # Skip external/builtin calls that aren't real nodes
+                    if nid in self.graph._nodes:
+                        add(nid, f"Called by {seed_node.name}")
                 # Include Parent Container
-                parent = self.graph.node(seed).parent_id
+                parent = seed_node.parent_id
                 if parent:
                     add(parent, "Parent container")
 
@@ -310,6 +321,9 @@ class GraphQueryEngine:
         files = set()
         for nid in nodes:
             n = self.graph.node(nid)
+            if not n:
+                # Skip node IDs that don't exist (external/builtin references)
+                continue
             node_refs.append(self._to_ref(n))
             if n.span and n.span.file:
                 if not self.adapter.is_test_file(n.span.file):

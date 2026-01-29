@@ -28,7 +28,9 @@ class TypeScriptBuilder(JavaScriptBuilder):
 
     @property
     def file_extensions(self) -> List[str]:
-        return [".ts", ".tsx", ".mts", ".cts"]
+        # Include both TypeScript and JavaScript extensions for mixed projects
+        # TypeScript parser can handle JavaScript syntax
+        return [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs"]
 
     def _create_parser(self):
         """Create a tree-sitter parser for TypeScript."""

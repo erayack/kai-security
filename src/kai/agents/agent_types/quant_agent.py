@@ -100,6 +100,7 @@ class QuantAgent(BaseAgent):
         model: Optional[str] = None,
         use_openai: bool = False,
         execution_id: Optional[str] = None,
+        scope_paths: Optional[list[str]] = None,
     ):
         # Initialize with minimal system prompt - will be replaced by set_toolcalling_prompt()
         super().__init__(
@@ -109,6 +110,7 @@ class QuantAgent(BaseAgent):
             model=model,
             agent_type=AgentType.QUANT,
             use_openai=use_openai,
+            scope_paths=scope_paths,
         )
 
         # Store mission context
@@ -164,6 +166,7 @@ class QuantAgent(BaseAgent):
             "{{invariant_id}}": invariant.id,
             "{{invariant_type}}": invariant.type.value if invariant.type else "unknown",
             "{{invariant_rule}}": invariant.rule,
+            "{{invariant_principle}}": invariant.principle or "(interpret rule by underlying pattern)",
             "{{invariant_explanation}}": invariant.explanation or "N/A",
             "{{target_function_ids}}": ", ".join(invariant.target_function_ids)
             if invariant.target_function_ids

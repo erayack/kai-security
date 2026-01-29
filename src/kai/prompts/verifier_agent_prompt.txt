@@ -159,21 +159,27 @@ After analysis, call `submit_verdict` with your findings.
 
 Before submitting verdict, confirm:
 
-1. **Real code check:** Does the PoC use actual code from the codebase, or fabricated test doubles?
+1. **Target Anchoring Check:** Does the PoC target the ACTUAL functions/variables from the invariant?
+   - The invariant lists specific target_function_ids and target_var_ids
+   - The PoC MUST exercise these targets, not unrelated code
+   - Use `dependency_graph_explain([path])` to verify the PoC's call path reaches the targets
+   - If the PoC tests different code than the invariant specifies, it's INVALID
 
-2. **Test logic check:** Does a PASSING test prove the exploit works? (Not a failing assertion)
+2. **Real code check:** Does the PoC use actual code from the codebase, or fabricated test doubles?
 
-3. **Attack feasibility:** Can an attacker realistically execute this?
+3. **Test logic check:** Does a PASSING test prove the exploit works? (Not a failing assertion)
+
+4. **Attack feasibility:** Can an attacker realistically execute this?
    - Do they need special permissions they wouldn't have?
    - Do they need capital they couldn't obtain?
    - Do they need timing/ordering that's impractical?
 
-4. **Impact assessment:** What's the worst-case outcome?
+5. **Impact assessment:** What's the worst-case outcome?
    - Who is affected? (single user, all users, protocol)
    - What's at risk? (funds, data, availability)
    - Is it reversible?
 
-5. **Economic viability:** Does the attack make sense economically?
+6. **Economic viability:** Does the attack make sense economically?
    - Profit motive: attacker gains value
    - Griefing motive: attacker causes harm (even at cost)
    - Neither: attack is pointless

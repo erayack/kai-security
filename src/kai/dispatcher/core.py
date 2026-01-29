@@ -710,6 +710,26 @@ class Dispatcher:
             raise RuntimeError("MasterContext.adapter must be set before building dependency graph")
 
         adapter = adapter.lower()
+
+        # If adapter is "javascript", check if there are TypeScript files
+        # and upgrade to "typescript" adapter to ensure .ts files are parsed
+        if adapter == "javascript":
+            master_root_check = Path(self.master_context.root_path).resolve()
+            # Check for .ts files in src/ or root (common TypeScript project layouts)
+            has_ts_files = (
+                any(master_root_check.glob("src/**/*.ts"))
+                or any(master_root_check.glob("*.ts"))
+                or any(master_root_check.glob("lib/**/*.ts"))
+            )
+            if has_ts_files:
+                self.logger.info(
+                    "TypeScript files detected - upgrading adapter from 'javascript' to 'typescript'"
+                )
+                adapter = "typescript"
+                self.master_context = self.master_context.model_copy(
+                    update={"adapter": "typescript"}
+                )
+
         needs_writable_workspace = adapter == "solidity"
 
         master_root = Path(self.master_context.root_path).resolve()

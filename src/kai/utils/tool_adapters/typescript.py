@@ -49,13 +49,26 @@ class TypeScriptToolAdapter(JavaScriptToolAdapter):
 
         normalized = p.as_posix().lstrip("/")
 
-        # Strip leading test directories
+        # Strip leading test directories but preserve poc/ subdirectory
+        for prefix in ["tests/poc/", "test/poc/", "__tests__/poc/"]:
+            if normalized.startswith(prefix):
+                normalized = normalized[len(prefix):]
+                # Preserve .mts extension for ES modules (needed for ESM imports)
+                if normalized.endswith(".mts"):
+                    return workspace / "tests" / "poc" / normalized
+                break
+
         for prefix in ["tests/", "test/", "__tests__/", "src/"]:
             if normalized.startswith(prefix):
                 normalized = normalized[len(prefix):]
                 break
 
-        # Ensure .test.ts extension
+        # Preserve .mts extension for ES modules (needed for ESM imports)
+        if normalized.endswith(".mts"):
+            stem = Path(normalized).stem
+            return workspace / "tests" / "poc" / f"{stem}.mts"
+
+        # Default: Ensure .test.ts extension
         stem = Path(normalized).stem
         if stem.endswith(".test"):
             stem = stem[:-5]
@@ -65,7 +78,8 @@ class TypeScriptToolAdapter(JavaScriptToolAdapter):
     def get_poc_guidance(self) -> str:
         """Return TypeScript-specific PoC guidance."""
         return """## PoC Format: TypeScript
-Write TypeScript test files in tests/poc/ with .mts extension (ES modules).
+Write TypeScript test files in tests/poc/ with .ts extension.
+Files are executed directly with Bun (native TypeScript support).
 
 **CRITICAL: Use framework-agnostic code. Do NOT use:**
 - describe(), it(), test() - These are Mocha/Jest globals that won't work
@@ -76,16 +90,14 @@ Write TypeScript test files in tests/poc/ with .mts extension (ES modules).
 ```typescript
 import assert from 'assert';
 
-// IMPORT RULES:
-// 1. PREFERRED: Import from package name
-import targetModule from 'package-name';
-// 2. FALLBACK: Import from dist/
-// import targetModule from '../dist/index.js';
-// 3. WRONG: Do NOT import from src/
-// import targetModule from '../src/index.ts';  // WRONG!
+// IMPORT RULES (from tests/poc/):
+// 1. PREFERRED: Import from src/ directly (Bun runs TypeScript natively)
+import { targetFunction } from '../../src/module.ts';
+// 2. ALTERNATIVE: Import from package name (if installed)
+// import targetModule from 'package-name';
 
 // Test directly - NO describe/it blocks
-const result = targetModule(maliciousInput);
+const result = targetFunction(maliciousInput);
 
 // Use node:assert for assertions
 assert.strictEqual(result.property, expected, 'Exploit demonstrated');
@@ -95,14 +107,13 @@ process.exit(0);  // Exit 0 = success
 ```
 
 **Import path rules:**
-1. Check package.json "main" or "exports" for entry point
-2. Prefer package name: `import x from 'package-name'`
-3. If relative path needed, use dist/: `import x from '../dist/index.js'`
-4. Include .js extension in relative imports (even for .ts source)
+1. Import directly from src/ TypeScript files (Bun supports this)
+2. Use relative paths from tests/poc/: ../../src/...
+3. Include .ts extension in imports
 
 **Key rules:**
-- Use .mts extension for TypeScript ES modules
+- Use .ts extension for TypeScript files
 - Use `import assert from 'assert'` for assertions
 - Exit with code 0 = exploit succeeded
-- For TypeScript PoCs, ensure tsconfig.json has compatible module settings
+- Bun runs TypeScript directly - no compilation needed
 """

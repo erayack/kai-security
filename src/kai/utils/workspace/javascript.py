@@ -315,15 +315,16 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
         self, workspace: Path, logger: Optional[Any] = None
     ) -> None:
         """
-        Run build step if dist/ doesn't exist but package.json has a build script.
+        Run build step if dist/ is empty/missing but package.json has a build script.
 
         This handles TypeScript and other projects where dist/ is gitignored
         and must be generated before tests can run.
         """
-        # Skip if dist/ already exists (pre-built or symlinked from master)
-        if (workspace / "dist").exists():
+        # Skip if dist/ already exists AND has content (pre-built)
+        dist_path = workspace / "dist"
+        if dist_path.exists() and any(dist_path.iterdir()):
             if logger:
-                logger.debug("dist/ exists - skipping build step")
+                logger.debug("dist/ exists with content - skipping build step")
             return
 
         # Check if package.json has a build script

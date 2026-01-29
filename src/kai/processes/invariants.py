@@ -490,6 +490,7 @@ Respond with a JSON object containing an "invariants" array:
     {{
       "type": "{lens.invariant_types[0] if lens.invariant_types else "OTHER"}",
       "rule": "Human-readable invariant statement",
+      "principle": "Abstract vulnerability pattern (language-agnostic, e.g., 'unchecked numeric input')",
       "explanation": "Why this invariant matters and how it could be violated",
       "target_function_ids": ["exact_function_id_from_vocab"],
       "target_var_ids": ["exact_var_id_from_vocab"],
@@ -502,6 +503,7 @@ Respond with a JSON object containing an "invariants" array:
 
 IMPORTANT:
 - Every ID in target_*_ids MUST exist in the vocabulary above
+- The `principle` should be abstract (e.g., "unchecked numeric input to string operation" not "padStart with negative")
 - Focus ONLY on {lens.name} concerns for this pass
 - Generate focused, high-quality invariants (prefer quality over quantity)
 - Do NOT include IDs that aren't in the vocabulary
@@ -533,6 +535,7 @@ IMPORTANT:
                     Invariant(
                         type=inv_type,
                         rule=item.get("rule", ""),
+                        principle=item.get("principle", ""),
                         explanation=item.get("explanation", ""),
                         target_function_ids=item.get("target_function_ids", []),
                         target_var_ids=item.get("target_var_ids", []),

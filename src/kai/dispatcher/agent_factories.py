@@ -5,7 +5,7 @@ Factory functions create properly configured agent instances for missions.
 Each factory handles agent-specific setup (prompts, workspace paths, etc.).
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from kai.agents import settings
 from kai.schemas import (
@@ -16,6 +16,90 @@ from kai.schemas import (
     MissionAgentType,
 )
 from kai.utils.dependency.graph import DependencyGraph
+
+
+def derive_scope_paths(
+    invariant: Optional[Invariant],
+    dependency_graph: Optional[DependencyGraph],
+) -> Optional[List[str]]:
+    """
+    Derive scope_paths from invariant targets using the dependency graph.
+
+    This ensures agents stay focused on files relevant to the invariant,
+    preventing drift to unrelated code.
+
+    Args:
+        invariant: The target invariant (may be None for exploration)
+        dependency_graph: DependencyGraph for resolving node locations
+
+    Returns:
+        List of file paths to scope the agent to, or None if no scoping needed
+    """
+    if not invariant or not dependency_graph:
+        return None
+
+    # Collect all target IDs
+    target_ids = set()
+    if invariant.target_function_ids:
+        target_ids.update(invariant.target_function_ids)
+    if invariant.target_var_ids:
+        target_ids.update(invariant.target_var_ids)
+    if invariant.target_file_ids:
+        target_ids.update(invariant.target_file_ids)
+
+    if not target_ids:
+        return None
+
+    # Resolve to file paths
+    file_paths = set()
+    for node_id in target_ids:
+        node = dependency_graph._nodes.get(node_id)
+        if node and node.span and node.span.file:
+            file_paths.add(node.span.file)
+
+    # Also include files that contain callers/callees of target functions
+    # This gives agents the "scoped halo" around targets
+    from kai.utils.dependency.models import EdgeKind
+
+    for (src, kind, dst), _ in dependency_graph._edges.items():
+        if kind == EdgeKind.CALLS:
+            # If src or dst is a target, include both
+            if src in target_ids or dst in target_ids:
+                for nid in [src, dst]:
+                    node = dependency_graph._nodes.get(nid)
+                    if node and node.span and node.span.file:
+                        file_paths.add(node.span.file)
+
+    return list(file_paths) if file_paths else None
+
+
+def derive_scope_paths_from_cluster(
+    invariant_cluster: Optional[List[Invariant]],
+    dependency_graph: Optional[DependencyGraph],
+) -> Optional[List[str]]:
+    """
+    Derive scope_paths from a cluster of invariants.
+
+    Combines targets from all invariants in the cluster.
+
+    Args:
+        invariant_cluster: List of invariants
+        dependency_graph: DependencyGraph for resolving node locations
+
+    Returns:
+        List of file paths to scope the agent to, or None if no scoping needed
+    """
+    if not invariant_cluster or not dependency_graph:
+        return None
+
+    # Combine all file paths from individual invariants
+    all_paths = set()
+    for inv in invariant_cluster:
+        paths = derive_scope_paths(inv, dependency_graph)
+        if paths:
+            all_paths.update(paths)
+
+    return list(all_paths) if all_paths else None
 
 
 def filter_actor_context(
@@ -144,7 +228,10 @@ def create_state_agent(
     """
     from kai.agents.agent_types.state_agent import StateAgent
 
-    # Create agent
+    # Derive scope paths from invariant targets
+    scope_paths = derive_scope_paths(mission.invariant, dependency_graph)
+
+    # Create agent with scope paths for focus
     agent = StateAgent(
         mission=mission,
         master_context=master_context,
@@ -154,6 +241,7 @@ def create_state_agent(
         model=model,
         use_openai=use_openai,
         execution_id=execution_id,
+        scope_paths=scope_paths,
     )
 
     # Set workspace path for tools
@@ -162,10 +250,14 @@ def create_state_agent(
     # Set up toolcalling prompt with invariant context
     if mission.invariant:
         actor_context = filter_actor_context(actor_matrix, mission.invariant)
+        # Add scope paths info to extra instructions
+        scope_info = ""
+        if scope_paths:
+            scope_info = f"\n\n### Scoped Files\nFocus analysis on these files: {', '.join(scope_paths)}"
         agent.set_toolcalling_prompt(
             invariant=mission.invariant,
             actor_context=actor_context,
-            extra_instructions=extra_instructions or "",
+            extra_instructions=(extra_instructions or "") + scope_info,
         )
 
     return agent
@@ -200,7 +292,10 @@ def create_quant_agent(
     """
     from kai.agents.agent_types.quant_agent import QuantAgent
 
-    # Create agent
+    # Derive scope paths from invariant targets
+    scope_paths = derive_scope_paths(mission.invariant, dependency_graph)
+
+    # Create agent with scope paths for focus
     agent = QuantAgent(
         mission=mission,
         master_context=master_context,
@@ -210,6 +305,7 @@ def create_quant_agent(
         model=model,
         use_openai=use_openai,
         execution_id=execution_id,
+        scope_paths=scope_paths,
     )
 
     # Set workspace path for tools
@@ -218,10 +314,14 @@ def create_quant_agent(
     # Set up toolcalling prompt with invariant context
     if mission.invariant:
         actor_context = filter_actor_context(actor_matrix, mission.invariant)
+        # Add scope paths info to extra instructions
+        scope_info = ""
+        if scope_paths:
+            scope_info = f"\n\n### Scoped Files\nFocus analysis on these files: {', '.join(scope_paths)}"
         agent.set_toolcalling_prompt(
             invariant=mission.invariant,
             actor_context=actor_context,
-            extra_instructions=extra_instructions or "",
+            extra_instructions=(extra_instructions or "") + scope_info,
         )
 
     return agent
@@ -353,7 +453,10 @@ def create_gamified_agent(
                         )
                     )
 
-    # Create the agent
+    # Derive scope paths from the invariant cluster
+    scope_paths = derive_scope_paths_from_cluster(invariant_cluster, dependency_graph)
+
+    # Create the agent with scope paths for focus
     agent = GamifiedAgent(
         mission=mission,
         master_context=master_context,
@@ -367,6 +470,7 @@ def create_gamified_agent(
         model=model,
         use_openai=use_openai,
         execution_id=execution_id,
+        scope_paths=scope_paths,
     )
 
     # Set workspace path for tools

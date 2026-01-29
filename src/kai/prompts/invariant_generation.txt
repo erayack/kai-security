@@ -46,8 +46,9 @@ Respond with a JSON object containing an "invariants" array:
 {{
   "invariants": [
     {{
-      "type": "ACCESS|SOLVENCY|CONSERVATION|LIVENESS|FEE_BOUND|REENTRANCY|ORDERING|VALUE_FLOW|ECONOMIC|OTHER",
+      "type": "ACCESS|SOLVENCY|CONSERVATION|LIVENESS|FEE_BOUND|REENTRANCY|ORDERING|VALUE_FLOW|ECONOMIC|EXCEPTION_SAFETY|OTHER",
       "rule": "Human-readable invariant statement",
+      "principle": "Abstract vulnerability pattern this invariant detects (language-agnostic)",
       "explanation": "Why this invariant matters and how it could be violated",
       "target_function_ids": ["exact_function_id_from_vocab"],
       "target_var_ids": ["exact_var_id_from_vocab"],
@@ -57,6 +58,12 @@ Respond with a JSON object containing an "invariants" array:
   ]
 }}
 ```
+
+The `principle` field should describe the ABSTRACT vulnerability class, not the specific implementation.
+Examples:
+- "unchecked numeric input to string/array operation" (covers repeat, padStart, slice, etc.)
+- "external call before state update" (covers reentrancy in any language)
+- "user-controlled index without bounds check" (covers array access, string indexing, etc.)
 
 IMPORTANT:
 - Every ID in target_*_ids MUST exist in the vocabulary above

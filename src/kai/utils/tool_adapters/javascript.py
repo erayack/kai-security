@@ -359,7 +359,7 @@ class JavaScriptToolAdapter(ToolAdapter):
         Auto-discover PoC files in standard locations.
 
         When using non-standard test frameworks that don't pick up files
-        from tests/poc/, this method finds PoC files to run directly with node.
+        from tests/poc/, this method finds PoC files to run directly.
 
         Args:
             workspace_path: Path to the workspace directory
@@ -368,8 +368,8 @@ class JavaScriptToolAdapter(ToolAdapter):
             Relative path to the first PoC file found, or None
         """
         poc_dirs = ["tests/poc", "test/poc", "__tests__/poc"]
-        # Prefer .mjs files (ES modules work directly with node)
-        poc_extensions = [".mjs", ".js"]
+        # Prefer TypeScript files (Bun runs them directly), then ES modules
+        poc_extensions = [".ts", ".mts", ".mjs", ".js"]
 
         for poc_dir in poc_dirs:
             dir_path = workspace_path / poc_dir
@@ -391,18 +391,17 @@ class JavaScriptToolAdapter(ToolAdapter):
         framework_kwargs: Optional[Dict[str, Any]] = None,
     ) -> Optional[List[str]]:
         """
-        Build command to run PoC file directly with node.
+        Build command to run PoC file directly.
 
-        For non-standard test frameworks (tester, tape, ava, node-script) or
-        unknown frameworks, we run PoC files directly with node instead of
-        using a test runner CLI.
+        Prefers Bun if available (native TypeScript support, no compilation needed).
+        Falls back to Node.js for .js/.mjs files.
 
         Args:
             workspace_path: Path to the workspace directory
             framework_kwargs: Optional dict with "match_path" key
 
         Returns:
-            Command list [node_bin, test_file] or None if no PoC found
+            Command list [runtime, test_file] or None if no PoC found
         """
         fw = framework_kwargs or {}
         match_path = fw.get("match_path") or self._discover_poc_file(workspace_path)
@@ -414,6 +413,23 @@ class JavaScriptToolAdapter(ToolAdapter):
         if not test_file.exists():
             return None
 
+        # Prefer Bun for TypeScript files (native TS support, no compilation)
+        bun_bin = shutil.which("bun")
+        if not bun_bin:
+            # Check common Bun installation paths (not always in PATH)
+            for bun_path in [
+                Path.home() / ".bun" / "bin" / "bun",
+                Path("/usr/local/bin/bun"),
+                Path("/opt/homebrew/bin/bun"),
+            ]:
+                if bun_path.exists():
+                    bun_bin = str(bun_path)
+                    break
+        # Bun can execute files directly: `bun <file>`
+        if bun_bin:
+            return [bun_bin, str(test_file)]
+
+        # Fallback to Node.js
         try:
             node_bin = self.find_binary(workspace_path)
             return [node_bin, str(test_file)]
@@ -582,9 +598,10 @@ class JavaScriptToolAdapter(ToolAdapter):
             cmd.append("--verbose")
 
         # Additional args
-        if additional_args:
+        # Only append additional_args when using a real test runner (jest/vitest/mocha).
+        # For direct file execution (bun/node) these flags are meaningless and may break execution.
+        if additional_args and test_framework in {"jest", "vitest", "mocha"}:
             import shlex
-
             cmd.extend(shlex.split(additional_args))
 
         # Framework-specific kwargs

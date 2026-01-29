@@ -118,6 +118,7 @@ class InvariantType(str, Enum):
     ORDERING = "ordering"  # State transition ordering
     VALUE_FLOW = "value_flow"  # Correct variable used in value calculations
     ECONOMIC = "economic"  # Economic correctness (distribution, basis)
+    EXCEPTION_SAFETY = "exception_safety"  # Uncaught exceptions from invalid args (CWE-248)
     OTHER = "other"  # Anything else
 
 
@@ -135,6 +136,7 @@ class Invariant(BaseModel):
     type: InvariantType
     rule: str  # Human-readable invariant statement
     explanation: str = ""  # LLM's reasoning for this invariant
+    principle: str = ""  # Abstract vulnerability pattern (e.g., "unchecked numeric input to string operation")
 
     # Grounded targets - all must be valid graph node IDs
     target_function_ids: List[str] = Field(default_factory=list)

@@ -14,6 +14,8 @@ from kai.agents.tools.tools import (
     dependency_graph_resolve,
     dependency_graph_snippet,
     dependency_graph_neighbors,
+    dependency_graph_paths,
+    dependency_graph_explain,
     _get_current_agent,
 )
 
@@ -158,6 +160,8 @@ __all__ = [
     "dependency_graph_resolve",
     "dependency_graph_snippet",
     "dependency_graph_neighbors",
+    "dependency_graph_paths",
+    "dependency_graph_explain",
     "write_and_compile",
     "run_test",
     "submit_verdict",

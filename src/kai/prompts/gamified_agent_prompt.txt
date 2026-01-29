@@ -81,6 +81,23 @@ Invariants tell you what IS checked. Exploits live in what ISN'T checked. For ea
 
 ---
 
+## TARGET ANCHORING
+
+1. **Context First**: Start with `dependency_graph_slice([target_function_ids])` to get relevant context.
+2. **Anchor Queries**: Every graph query MUST include at least one target ID from the invariant cluster.
+3. **One-Hop Rule**: Explore at most one hop from targets without explicit justification.
+
+## PRINCIPLE-BASED INTERPRETATION
+
+**Interpret invariants by UNDERLYING PATTERN, not literal wording.**
+
+Invariants describe vulnerability classes. The specific method/variable names are examples.
+If code exhibits the SAME vulnerability pattern with DIFFERENT names, that IS a valid finding.
+
+Do NOT dismiss because wording differs. DO check if code exhibits the described vulnerability class.
+
+---
+
 ## YOUR PROCESS
 
 For each potential gap you identify:

@@ -532,6 +532,62 @@ For EACH cookie operation:
                     "Cookies have security flags",
                 ],
             ),
+            LensDefinition(
+                name="exception_safety",
+                description="Uncaught exceptions from built-in methods with invalid arguments (CWE-248)",
+                invariant_types=["EXCEPTION_SAFETY", "OTHER"],
+                prompt_template="""
+## EXCEPTION SAFETY LENS - JavaScript/TypeScript (CWE-248)
+
+Focus on uncaught exceptions from built-in methods that throw on invalid arguments.
+
+### Built-in Methods That Throw on Invalid Arguments
+JavaScript built-ins that throw RangeError/TypeError with invalid inputs:
+
+**String methods:**
+- `str.repeat(count)` - throws if count < 0 or Infinity
+- `str.padStart(len)` / `str.padEnd(len)` - throws if len not valid
+- `str.normalize(form)` - throws on invalid form
+
+**Array/Buffer constructors:**
+- `new Array(length)` - throws if length < 0 or > 2^32-1
+- `new ArrayBuffer(length)` - throws if length < 0
+- TypedArray constructors - similar bounds
+
+**Number methods:**
+- `num.toFixed(digits)` - throws if digits < 0 or > 100
+- `num.toPrecision(digits)` - throws if digits < 1 or > 100
+
+For EACH usage of these methods:
+1. Check if argument is computed (arithmetic, variable)
+2. Check if computation could produce invalid value
+3. Generate EXCEPTION_SAFETY invariant if unguarded
+
+### Arithmetic Before Built-in Calls
+Look for patterns where arithmetic feeds into throwing methods:
+- Subtraction that could go negative
+- Division that could produce non-integer
+- User-controlled values without validation
+
+### Functions Processing External/Untrusted Data
+For functions that:
+- Parse or process structured input
+- Handle position/offset/index values
+- Format or transform data for output
+
+Check if computed values flow into throwing built-ins unguarded.
+
+### Try-Catch Coverage
+- Throwing operations should be wrapped or arguments validated
+- Error handling code paths should not themselves throw
+""",
+                checklist=[
+                    "Arguments to throwing built-ins are validated",
+                    "Arithmetic results checked before use as counts/lengths",
+                    "External data validated before flowing to built-ins",
+                    "No unguarded throwing calls in error handling paths",
+                ],
+            ),
         ]
 
     def get_function_metadata_extractors(self) -> Dict[str, Callable]:
@@ -650,6 +706,54 @@ For EACH cookie operation:
             ]
             return any(p in name_lower for p in state_patterns)
 
+        def _get_calls_from_graph(node: Node, graph: "DependencyGraph") -> List[str]:
+            """Get call targets for a node from graph edges."""
+            from ..models import EdgeKind
+            calls = []
+            # Graph stores edges as Dict[(src, kind, dst), EdgeMeta]
+            for (src, kind, dst) in graph._edges.keys():
+                if src == node.id and kind == EdgeKind.CALLS:
+                    calls.append(dst)
+            return calls
+
+        def extract_uses_throwing_builtins(node: Node, graph: "DependencyGraph") -> bool:
+            """Check if function uses JS built-ins that throw on invalid args."""
+            calls = _get_calls_from_graph(node, graph)
+            calls_lower = [c.lower() for c in calls if isinstance(c, str)]
+            # JS built-in methods that throw RangeError/TypeError on invalid args
+            throwing_builtins = [
+                ".repeat",
+                ".padstart",
+                ".padend",
+                ".tofixed",
+                ".toprecision",
+                ".normalize",
+            ]
+            return any(m in c for c in calls_lower for m in throwing_builtins)
+
+        def extract_creates_sized_objects(node: Node, graph: "DependencyGraph") -> bool:
+            """Check if function creates arrays/buffers with size arguments."""
+            calls = _get_calls_from_graph(node, graph)
+            calls_lower = [c.lower() for c in calls if isinstance(c, str)]
+            # Constructors that throw on invalid size
+            sized_constructors = [
+                "array(",
+                "arraybuffer(",
+                "sharedarraybuffer(",
+                "uint8array(",
+                "uint16array(",
+                "uint32array(",
+                "int8array(",
+                "int16array(",
+                "int32array(",
+                "float32array(",
+                "float64array(",
+                "bigint64array(",
+                "biguint64array(",
+                "buffer.alloc",
+            ]
+            return any(c in calls_lower for c in sized_constructors)
+
         return {
             "is_async": extract_is_async,
             "is_exported": extract_is_exported,
@@ -661,4 +765,7 @@ For EACH cookie operation:
             "handles_dom": extract_handles_dom,
             "calls_external": extract_calls_external,
             "modifies_state": extract_modifies_state,
+            # Exception safety extractors - based on actual JS semantics
+            "uses_throwing_builtins": extract_uses_throwing_builtins,
+            "creates_sized_objects": extract_creates_sized_objects,
         }
