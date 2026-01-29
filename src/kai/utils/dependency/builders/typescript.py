@@ -43,7 +43,7 @@ class TypeScriptBuilder(JavaScriptBuilder):
 
         try:
             import tree_sitter
-            import tree_sitter_typescript  # type: ignore[import-not-found]
+            import tree_sitter_typescript
 
             parser = tree_sitter.Parser()
             parser.language = tree_sitter.Language(
