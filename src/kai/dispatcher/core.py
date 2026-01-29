@@ -355,7 +355,9 @@ class Dispatcher:
         agent_data["cost"] += cost
         agent_data["count"] += 1
 
-    def _aggregate_agent_usage(self, agent: Any, phase: str, agent_type: str = "unknown") -> None:
+    def _aggregate_agent_usage(
+        self, agent: Any, phase: str, agent_type: str = "unknown"
+    ) -> None:
         """Aggregate token usage from an agent."""
         agent_tokens = getattr(agent, "total_tokens", {})
         self._aggregate_usage(
@@ -625,7 +627,9 @@ class Dispatcher:
             self.logger.error(f"Boot failed: {e}", exc_info=True)
             return False
 
-    def _infer_adapter_from_framework(self, frameworks: Optional[List[str]]) -> Optional[str]:
+    def _infer_adapter_from_framework(
+        self, frameworks: Optional[List[str]]
+    ) -> Optional[str]:
         """
         Infer the adapter type from the detected framework(s).
 
@@ -694,7 +698,9 @@ class Dispatcher:
         adapter = self.master_context.adapter
         if adapter == "solidity" and self.master_context.frameworks:
             # Check if frameworks suggest a different adapter
-            inferred = self._infer_adapter_from_framework(self.master_context.frameworks)
+            inferred = self._infer_adapter_from_framework(
+                self.master_context.frameworks
+            )
             if inferred and inferred != "solidity":
                 self.logger.info(
                     f"Adapter inferred from frameworks {self.master_context.frameworks}: {inferred}"
@@ -707,7 +713,9 @@ class Dispatcher:
                 )
 
         if not adapter:
-            raise RuntimeError("MasterContext.adapter must be set before building dependency graph")
+            raise RuntimeError(
+                "MasterContext.adapter must be set before building dependency graph"
+            )
 
         adapter = adapter.lower()
 
@@ -1021,7 +1029,9 @@ class Dispatcher:
                 self._aggregate_agent_usage(
                     agent=agent,
                     phase="run_loop",
-                    agent_type=mission.agent_type.value if mission.agent_type else "unknown",
+                    agent_type=mission.agent_type.value
+                    if mission.agent_type
+                    else "unknown",
                 )
                 try:
                     await agent.close()
@@ -1200,16 +1210,18 @@ class Dispatcher:
         findings = []
         for v in verdicts:
             c = candidate_map.get((v.mission_id, v.invariant_id))
-            findings.append({
-                "mission_id": v.mission_id,
-                "invariant_id": v.invariant_id,
-                "vulnerability_class": v.vulnerability_class or "unknown",
-                "severity": v.severity.value if v.severity else "unknown",
-                "target_file": c.target_file if c else "",
-                "target_function": c.target_function if c else "",
-                "description": c.description[:500] if c and c.description else "",
-                "mechanism": c.mechanism[:300] if c and c.mechanism else "",
-            })
+            findings.append(
+                {
+                    "mission_id": v.mission_id,
+                    "invariant_id": v.invariant_id,
+                    "vulnerability_class": v.vulnerability_class or "unknown",
+                    "severity": v.severity.value if v.severity else "unknown",
+                    "target_file": c.target_file if c else "",
+                    "target_function": c.target_function if c else "",
+                    "description": c.description[:500] if c and c.description else "",
+                    "mechanism": c.mechanism[:300] if c and c.mechanism else "",
+                }
+            )
 
         prompt = DEDUPE_EXPLOITS_PROMPT.replace(
             "{{num_findings}}", str(len(findings))

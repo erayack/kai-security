@@ -69,7 +69,10 @@ class WorkspaceValidationProcess(
                 mapped = adapter_map.get(adapter_lower, adapter_lower)
                 # Don't trust "solidity" default if there's no foundry.toml
                 # (MasterContext.adapter defaults to "solidity")
-                if adapter_lower == "solidity" and not (master / "foundry.toml").exists():
+                if (
+                    adapter_lower == "solidity"
+                    and not (master / "foundry.toml").exists()
+                ):
                     pass  # Fall through to file-based detection
                 elif mapped in supported:
                     return mapped

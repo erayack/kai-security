@@ -166,7 +166,8 @@ class QuantAgent(BaseAgent):
             "{{invariant_id}}": invariant.id,
             "{{invariant_type}}": invariant.type.value if invariant.type else "unknown",
             "{{invariant_rule}}": invariant.rule,
-            "{{invariant_principle}}": invariant.principle or "(interpret rule by underlying pattern)",
+            "{{invariant_principle}}": invariant.principle
+            or "(interpret rule by underlying pattern)",
             "{{invariant_explanation}}": invariant.explanation or "N/A",
             "{{target_function_ids}}": ", ".join(invariant.target_function_ids)
             if invariant.target_function_ids

@@ -52,7 +52,7 @@ class TypeScriptToolAdapter(JavaScriptToolAdapter):
         # Strip leading test directories but preserve poc/ subdirectory
         for prefix in ["tests/poc/", "test/poc/", "__tests__/poc/"]:
             if normalized.startswith(prefix):
-                normalized = normalized[len(prefix):]
+                normalized = normalized[len(prefix) :]
                 # Preserve .mts extension for ES modules (needed for ESM imports)
                 if normalized.endswith(".mts"):
                     return workspace / "tests" / "poc" / normalized
@@ -60,7 +60,7 @@ class TypeScriptToolAdapter(JavaScriptToolAdapter):
 
         for prefix in ["tests/", "test/", "__tests__/", "src/"]:
             if normalized.startswith(prefix):
-                normalized = normalized[len(prefix):]
+                normalized = normalized[len(prefix) :]
                 break
 
         # Preserve .mts extension for ES modules (needed for ESM imports)

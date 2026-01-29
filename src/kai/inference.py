@@ -100,7 +100,9 @@ def _as_dict(msg: Union[ChatMessage, dict]) -> dict:
     return msg if isinstance(msg, dict) else msg.model_dump()
 
 
-def _get_extra_body(use_openai: bool, use_vllm: bool = False) -> Optional[Dict[str, Any]]:
+def _get_extra_body(
+    use_openai: bool, use_vllm: bool = False
+) -> Optional[Dict[str, Any]]:
     """
     Return extra_body for OpenRouter to request usage/cost data.
 
@@ -353,7 +355,11 @@ async def get_model_response_with_tools(
             client = create_openai_client(use_openai=use_openai)
 
     messages_payload = [_as_dict(m) for m in messages]
-    total_usage: Dict[str, Any] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    total_usage: Dict[str, Any] = {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+    }
     tool_calls_made = []
     extra_body = _get_extra_body(use_openai, use_vllm)
 

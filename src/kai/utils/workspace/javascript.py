@@ -204,7 +204,12 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
         """Symlink/copy source directories from master to workspace."""
         # Source directories can be symlinked - they're imported by other code
         symlink_dirs = [
-            "src", "lib", "app", "source", "components", "utils",
+            "src",
+            "lib",
+            "app",
+            "source",
+            "components",
+            "utils",
         ]
 
         # These directories must be COPIED, not symlinked, because:
@@ -213,8 +218,11 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
         # - dist/build contain executable code that imports dependencies
         # - test directories run code that imports dependencies
         copy_dirs = [
-            "dist", "build",  # Build output that may import dependencies
-            "test", "tests", "__tests__",  # Test directories
+            "dist",
+            "build",  # Build output that may import dependencies
+            "test",
+            "tests",
+            "__tests__",  # Test directories
         ]
 
         for src_dir in symlink_dirs:
@@ -232,7 +240,9 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
                 except OSError:
                     # Symlink might fail on Windows, copy instead
                     # Use symlinks=True to preserve symlinks (e.g., label symlinks in test suites)
-                    shutil.copytree(master_dir, workspace_dir, symlinks=True, dirs_exist_ok=True)
+                    shutil.copytree(
+                        master_dir, workspace_dir, symlinks=True, dirs_exist_ok=True
+                    )
 
         # Copy directories that contain executable code (for correct module resolution)
         for copy_dir in copy_dirs:
@@ -242,7 +252,9 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
             if master_dir.exists() and master_dir.is_dir():
                 # Use symlinks=True to preserve symlinks (e.g., label symlinks in test suites)
                 # Use dirs_exist_ok=True in case the directory already exists
-                shutil.copytree(master_dir, workspace_dir, symlinks=True, dirs_exist_ok=True)
+                shutil.copytree(
+                    master_dir, workspace_dir, symlinks=True, dirs_exist_ok=True
+                )
 
     def _copy_config_files(self, workspace: Path, master: Path) -> None:
         """Copy JavaScript/TypeScript config files to workspace."""
@@ -273,7 +285,9 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
 
         # Copy TypeScript declaration files from root (needed for tsd, type imports)
         for src in master.iterdir():
-            if src.is_file() and (src.name.endswith(".d.ts") or src.name.endswith(".d.mts")):
+            if src.is_file() and (
+                src.name.endswith(".d.ts") or src.name.endswith(".d.mts")
+            ):
                 shutil.copy2(src, workspace / src.name)
 
     def _install_dependencies(

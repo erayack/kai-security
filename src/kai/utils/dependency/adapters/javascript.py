@@ -709,14 +709,17 @@ Check if computed values flow into throwing built-ins unguarded.
         def _get_calls_from_graph(node: Node, graph: "DependencyGraph") -> List[str]:
             """Get call targets for a node from graph edges."""
             from ..models import EdgeKind
+
             calls = []
             # Graph stores edges as Dict[(src, kind, dst), EdgeMeta]
-            for (src, kind, dst) in graph._edges.keys():
+            for src, kind, dst in graph._edges.keys():
                 if src == node.id and kind == EdgeKind.CALLS:
                     calls.append(dst)
             return calls
 
-        def extract_uses_throwing_builtins(node: Node, graph: "DependencyGraph") -> bool:
+        def extract_uses_throwing_builtins(
+            node: Node, graph: "DependencyGraph"
+        ) -> bool:
             """Check if function uses JS built-ins that throw on invalid args."""
             calls = _get_calls_from_graph(node, graph)
             calls_lower = [c.lower() for c in calls if isinstance(c, str)]

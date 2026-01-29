@@ -3,7 +3,12 @@ from typing import Optional, List, Dict, Any, Literal
 
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 
-from kai.agents.settings import MAIN_DEFAULT_MODEL, SETUP_DEFAULT_MODEL, MAX_TOOL_TURNS, FALLBACK_MODEL
+from kai.agents.settings import (
+    MAIN_DEFAULT_MODEL,
+    SETUP_DEFAULT_MODEL,
+    MAX_TOOL_TURNS,
+    FALLBACK_MODEL,
+)
 from kai.utils.ids import generate_id
 
 # Adapter type literal for structured output validation
@@ -118,7 +123,9 @@ class InvariantType(str, Enum):
     ORDERING = "ordering"  # State transition ordering
     VALUE_FLOW = "value_flow"  # Correct variable used in value calculations
     ECONOMIC = "economic"  # Economic correctness (distribution, basis)
-    EXCEPTION_SAFETY = "exception_safety"  # Uncaught exceptions from invalid args (CWE-248)
+    EXCEPTION_SAFETY = (
+        "exception_safety"  # Uncaught exceptions from invalid args (CWE-248)
+    )
     OTHER = "other"  # Anything else
 
 

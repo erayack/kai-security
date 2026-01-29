@@ -379,7 +379,9 @@ class JavaScriptToolAdapter(ToolAdapter):
                     poc_files = sorted(dir_path.rglob(f"*{ext}"))
                     for poc_file in poc_files:
                         # Skip files that look like config or setup files
-                        if poc_file.name.startswith("_") or poc_file.name.startswith("."):
+                        if poc_file.name.startswith("_") or poc_file.name.startswith(
+                            "."
+                        ):
                             continue
                         # Return the relative path
                         return str(poc_file.relative_to(workspace_path))
@@ -589,7 +591,7 @@ class JavaScriptToolAdapter(ToolAdapter):
                 return TestResult(
                     success=False,
                     error="No PoC file found in tests/poc/, test/poc/, or __tests__/poc/. "
-                          "Write a .mjs file (ES module) to one of these directories first.",
+                    "Write a .mjs file (ES module) to one of these directories first.",
                     raw_output="PoC discovery searched: tests/poc/*.mjs, test/poc/*.mjs, __tests__/poc/*.mjs",
                 )
 
@@ -602,6 +604,7 @@ class JavaScriptToolAdapter(ToolAdapter):
         # For direct file execution (bun/node) these flags are meaningless and may break execution.
         if additional_args and test_framework in {"jest", "vitest", "mocha"}:
             import shlex
+
             cmd.extend(shlex.split(additional_args))
 
         # Framework-specific kwargs
@@ -663,16 +666,31 @@ class JavaScriptToolAdapter(ToolAdapter):
 
         # Strip leading test directories AND poc subdirectory
         # Order matters: check longer prefixes first to avoid partial matches
-        for prefix in ["tests/poc/", "test/poc/", "__tests__/poc/", "tests/", "test/", "__tests__/", "poc/"]:
+        for prefix in [
+            "tests/poc/",
+            "test/poc/",
+            "__tests__/poc/",
+            "tests/",
+            "test/",
+            "__tests__/",
+            "poc/",
+        ]:
             if normalized.startswith(prefix):
                 normalized = normalized[len(prefix) :]
                 break
 
         # Valid test file extensions (don't modify these)
         valid_extensions = [
-            ".test.js", ".test.ts", ".test.mjs", ".test.mts",
-            ".spec.js", ".spec.ts", ".spec.mjs", ".spec.mts",
-            ".mjs", ".mts",  # ES modules can be run directly with node
+            ".test.js",
+            ".test.ts",
+            ".test.mjs",
+            ".test.mts",
+            ".spec.js",
+            ".spec.ts",
+            ".spec.mjs",
+            ".spec.mts",
+            ".mjs",
+            ".mts",  # ES modules can be run directly with node
         ]
 
         # Ensure proper extension
