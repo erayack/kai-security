@@ -245,6 +245,9 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
         """
         Build vocabulary tables from graph + ActorMatrix.
 
+        Includes protocol entrypoints AND their immediate callees (internal helpers)
+        to ensure security-critical helper functions are in scope for invariant generation.
+
         Returns: {functions: [...], vars: [...], files: [...]}
         """
         # Build role lookup from ActorMatrix
@@ -255,12 +258,32 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
 
         # Get protocol entrypoints
         entrypoints = engine.protocol_entrypoints()
+        entrypoint_ids = {ep.id for ep in entrypoints}
+
+        # Expand to include immediate callees (internal helper functions)
+        # This ensures functions like shouldRemoveHeader are included when
+        # their caller (onHeaders) is an entrypoint
+        callee_refs = []
+        for ep in entrypoints:
+            callees = engine.callees(ep.id)
+            for callee in callees:
+                # Only include callees that are in the same file (internal helpers)
+                # and not already entrypoints
+                if callee.id not in entrypoint_ids and callee.file == ep.file:
+                    # Also skip library/test files for callees
+                    if callee.file and not self.adapter.is_library_file(callee.file):
+                        if not self.adapter.is_test_file(callee.file):
+                            callee_refs.append(callee)
+                            entrypoint_ids.add(callee.id)  # Avoid duplicates
+
+        # Combine entrypoints and callees
+        all_functions = list(entrypoints) + callee_refs
 
         functions: List[FunctionVocabEntry] = []
         vars_map: Dict[str, VarVocabEntry] = {}  # var_id -> entry
         files_map: Dict[str, Set[str]] = defaultdict(set)  # file -> contracts
 
-        for ep in entrypoints:
+        for ep in all_functions:
             # Get reads/writes
             reads = engine.neighbors(ep.id, [EdgeKind.READS], "out")
             writes = engine.neighbors(ep.id, [EdgeKind.WRITES], "out")

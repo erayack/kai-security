@@ -533,6 +533,51 @@ For EACH cookie operation:
                 ],
             ),
             LensDefinition(
+                name="redirect_sanitization",
+                description="HTTP redirect handling, credential forwarding, header sanitization completeness",
+                invariant_types=["ACCESS", "VALUE_FLOW", "OTHER"],
+                prompt_template="""
+## REDIRECT SANITIZATION LENS - HTTP Client Security
+
+Focus on security policy enforcement during HTTP redirects.
+
+### Cross-Origin Redirect Security
+When an HTTP client follows a redirect to a different origin, browser security policies require
+that sensitive/credential headers NOT be forwarded to the new origin. This prevents credential
+leakage to potentially malicious redirect targets.
+
+For EACH function involved in redirect handling:
+1. **Identify redirect detection**: How does the code detect 3xx responses?
+2. **Identify origin comparison**: How does it determine same-origin vs cross-origin?
+3. **Identify header filtering**: What logic decides which headers to strip?
+4. **Audit completeness**: Is the filtering logic complete or partial?
+
+### Patterns Indicating Incomplete Sanitization
+- Hardcoded lists of header names (may be missing entries)
+- Filtering based on header name length (may miss headers of different lengths)
+- Allowlist approach without comprehensive coverage
+- Case sensitivity issues in header name matching
+- Missing custom authentication headers common in the ecosystem
+
+### What to Look For
+- Functions named: redirect, Redirect, RedirectHandler, followRedirect
+- Methods: onHeaders, onRedirect, handleRedirect
+- Helper functions: shouldRemoveHeader, cleanHeaders, sanitizeHeaders, filterHeaders
+- Look at BOTH the public handler AND its internal helper functions
+
+### Generate Invariants For
+- "Header sanitization on cross-origin redirect covers all credential headers"
+- "Redirect handler strips sensitive headers when origin changes"
+- "Header filtering logic is comprehensive (not partial/hardcoded subset)"
+""",
+                checklist=[
+                    "Redirect handling identifies cross-origin redirects",
+                    "Credential headers are stripped on cross-origin redirect",
+                    "Header filtering is comprehensive (not just a partial list)",
+                    "Internal helper functions are included in analysis",
+                ],
+            ),
+            LensDefinition(
                 name="exception_safety",
                 description="Uncaught exceptions from built-in methods with invalid arguments (CWE-248)",
                 invariant_types=["EXCEPTION_SAFETY", "OTHER"],
@@ -757,6 +802,63 @@ Check if computed values flow into throwing built-ins unguarded.
             ]
             return any(c in calls_lower for c in sized_constructors)
 
+        def extract_handles_redirect(node: Node, graph: "DependencyGraph") -> bool:
+            """Check if function handles HTTP redirects or header sanitization."""
+            name_lower = node.name.lower()
+            file_path = (node.file or "").lower()
+
+            # Function name patterns related to redirect handling
+            redirect_patterns = [
+                "redirect",
+                "location",
+                "onheaders",
+                "cleanheaders",
+                "sanitizeheader",
+                "removeheader",
+                "filterheader",
+                "shouldremove",
+            ]
+            if any(p in name_lower for p in redirect_patterns):
+                return True
+
+            # File path patterns
+            if "redirect" in file_path or "handler" in file_path:
+                return True
+
+            # Check calls for redirect-related operations
+            calls = _get_calls_from_graph(node, graph)
+            calls_lower = [c.lower() for c in calls if isinstance(c, str)]
+            redirect_calls = ["redirect", "location", "header"]
+            if any(r in c for c in calls_lower for r in redirect_calls):
+                return True
+
+            return False
+
+        def extract_handles_headers(node: Node, graph: "DependencyGraph") -> bool:
+            """Check if function manipulates HTTP headers."""
+            name_lower = node.name.lower()
+
+            # Function name patterns related to header handling
+            header_patterns = [
+                "header",
+                "headers",
+                "setheader",
+                "getheader",
+                "removeheader",
+                "cleanheader",
+                "parseheader",
+            ]
+            if any(p in name_lower for p in header_patterns):
+                return True
+
+            # Check calls
+            calls = _get_calls_from_graph(node, graph)
+            calls_lower = [c.lower() for c in calls if isinstance(c, str)]
+            if any("header" in c for c in calls_lower):
+                return True
+
+            return False
+
         return {
             "is_async": extract_is_async,
             "is_exported": extract_is_exported,
@@ -771,4 +873,7 @@ Check if computed values flow into throwing built-ins unguarded.
             # Exception safety extractors - based on actual JS semantics
             "uses_throwing_builtins": extract_uses_throwing_builtins,
             "creates_sized_objects": extract_creates_sized_objects,
+            # Redirect/header sanitization extractors
+            "handles_redirect": extract_handles_redirect,
+            "handles_headers": extract_handles_headers,
         }

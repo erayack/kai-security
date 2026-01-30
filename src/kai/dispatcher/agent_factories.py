@@ -254,10 +254,20 @@ def create_state_agent(
         scope_info = ""
         if scope_paths:
             scope_info = f"\n\n### Scoped Files\nFocus analysis on these files: {', '.join(scope_paths)}"
+        # Import recipe hint
+        import_info = ""
+        try:
+            ir = getattr(master_context, "import_recipe", None)
+            if ir and getattr(ir, "validated", False):
+                ex = getattr(ir, "example_import", None) or getattr(ir, "main_import", None) or ""
+                if ex:
+                    import_info = f"\n\n### Validated Import\nUse this import in PoCs: {ex}"
+        except Exception:
+            pass
         agent.set_toolcalling_prompt(
             invariant=mission.invariant,
             actor_context=actor_context,
-            extra_instructions=(extra_instructions or "") + scope_info,
+            extra_instructions=(extra_instructions or "") + scope_info + import_info,
         )
 
     return agent
@@ -318,10 +328,19 @@ def create_quant_agent(
         scope_info = ""
         if scope_paths:
             scope_info = f"\n\n### Scoped Files\nFocus analysis on these files: {', '.join(scope_paths)}"
+        import_info = ""
+        try:
+            ir = getattr(master_context, "import_recipe", None)
+            if ir and getattr(ir, "validated", False):
+                ex = getattr(ir, "example_import", None) or getattr(ir, "main_import", None) or ""
+                if ex:
+                    import_info = f"\n\n### Validated Import\nUse this import in PoCs: {ex}"
+        except Exception:
+            pass
         agent.set_toolcalling_prompt(
             invariant=mission.invariant,
             actor_context=actor_context,
-            extra_instructions=(extra_instructions or "") + scope_info,
+            extra_instructions=(extra_instructions or "") + scope_info + import_info,
         )
 
     return agent

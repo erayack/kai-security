@@ -80,7 +80,8 @@ def _detect_framework(workspace: Path) -> str:
     """
     Best-effort detect a supported tool framework for compilation/testing.
 
-    Returns one of the supported tool adapter frameworks (e.g., "foundry", "cargo", "cmake").
+    Returns one of the supported tool adapter frameworks (e.g., "foundry", "cargo", "cmake",
+    "javascript", "typescript", "python").
     Defaults to "foundry" if nothing matches.
     """
     supported = set(get_supported_frameworks())
@@ -92,6 +93,28 @@ def _detect_framework(workspace: Path) -> str:
         return "cargo"
     if (workspace / "CMakeLists.txt").exists() and "cmake" in supported:
         return "cmake"
+
+    # JavaScript/TypeScript detection (check tsconfig first for TypeScript)
+    if (workspace / "tsconfig.json").exists() and "typescript" in supported:
+        return "typescript"
+    if (workspace / "package.json").exists() and "javascript" in supported:
+        # Check if it's a TypeScript project by looking for tsconfig or .ts files
+        if "typescript" in supported:
+            if (workspace / "tsconfig.json").exists():
+                return "typescript"
+            # Check for TypeScript source files
+            if any(workspace.glob("**/*.ts")) or any(workspace.glob("**/*.tsx")):
+                return "typescript"
+        return "javascript"
+
+    # Python detection
+    if "python" in supported:
+        if (workspace / "pyproject.toml").exists():
+            return "python"
+        if (workspace / "setup.py").exists():
+            return "python"
+        if (workspace / "requirements.txt").exists():
+            return "python"
 
     # Shallow fallback signals
     if any(workspace.glob("*.sol")) and "foundry" in supported:

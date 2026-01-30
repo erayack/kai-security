@@ -72,7 +72,7 @@ class DispatcherConfig:
     max_campaigns: int = 10
     include_exploration: bool = True
     default_budget: CampaignBudget = field(default_factory=CampaignBudget)
-    workspace_dir: str = "./kai_workspaces"  # TODO: check if it respects workspace_dir
+    workspace_dir: str = "./kai_workspaces"
     # Model settings for agents
     model: str = settings.MAIN_DEFAULT_MODEL
     verifier_model: str = settings.VERIFIER_DEFAULT_MODEL
@@ -432,6 +432,8 @@ class Dispatcher:
                     model_name=self.config.setup_model,
                     use_openai=use_openai,
                     repo_path_override=repo_path,
+                    save_rollouts=self.config.save_rollouts,
+                    rollouts_dir=self.config.rollouts_dir,
                 )
                 env_output = await env_process.run(env_input)
 
@@ -496,6 +498,8 @@ class Dispatcher:
                         ],
                         timeout_compile_s=120,
                         timeout_test_s=120,
+                        save_rollouts=self.config.save_rollouts,
+                        rollouts_dir=self.config.rollouts_dir,
                     )
                 )
                 if not ws_output.success:
@@ -512,6 +516,14 @@ class Dispatcher:
                     return False
 
                 self.logger.info("Workspace validation passed")
+                try:
+                    for r in ws_output.results:
+                        ir = getattr(r, "import_recipe", None)
+                        if ir and getattr(ir, "validated", False):
+                            self.master_context.import_recipe = ir
+                            break
+                except Exception:
+                    pass
             else:
                 self.logger.info(
                     "Skipping workspace validation (config.skip_workspace_validation=True)"

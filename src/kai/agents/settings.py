@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Agent model settings
-SETUP_DEFAULT_MODEL = "google/gemini-3-flash-preview"
+SETUP_DEFAULT_MODEL = "openai/gpt-5.2-codex"
 MAIN_DEFAULT_MODEL = "google/gemini-3-flash-preview"
 GAMIFIED_DEFAULT_MODEL = "google/gemini-3-flash-preview"
 VERIFIER_DEFAULT_MODEL = "openai/gpt-5.2-codex"

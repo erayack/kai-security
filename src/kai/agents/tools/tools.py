@@ -1626,6 +1626,36 @@ def register_exploit(
 
         compiled = True
 
+        try:
+            mc = getattr(agent, "master_context", None)
+            recipe = getattr(mc, "import_recipe", None) if mc else None
+            if recipe and getattr(recipe, "validated", False):
+                imports_ok = False
+                code_lc = poc_code.lower()
+                paths = []
+                if getattr(recipe, "main_import", None):
+                    paths.append(str(recipe.main_import))
+                for v in (getattr(recipe, "submodule_paths", {}) or {}).values():
+                    paths.append(str(v))
+                for p in paths:
+                    if p and p.lower() in code_lc:
+                        imports_ok = True
+                        break
+                if not imports_ok:
+                    return {
+                        "registered": False,
+                        "message": "PoC must import real code using the validated ImportRecipe.",
+                        "hint": getattr(recipe, "example_import", None) or "",
+                    }
+                if any(k in poc_code for k in ["Mock", "Fake", "Hostile", "Malicious", "Evil"]):
+                    return {
+                        "registered": False,
+                        "message": "PoC appears to use mock components. Import and exercise real code using the ImportRecipe.",
+                        "hint": getattr(recipe, "example_import", None) or "",
+                    }
+        except Exception:
+            pass
+
     # Build exploit record
     exploit_record = {
         "exploit_found": exploit_found,

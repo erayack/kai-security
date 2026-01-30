@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import json
+import subprocess
 import uuid
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
+import os
+import shutil
 
 from kai.dispatcher.workspace import WorkspaceManager
 from kai.agents import settings
 from kai.processes.base import BaseProcess
 from kai.schemas import (
+    ImportRecipe,
     MasterContext,
     WorkspacePreset,
     WorkspaceValidationInput,
@@ -215,6 +220,93 @@ class WorkspaceValidationProcess(
             "}\n"
         )
         return content, imported, "kai_smoke/WorkspaceSmoke"
+
+    def _discover_import_recipe(
+        self, *, workspace: Path, framework: str
+    ) -> Optional[ImportRecipe]:
+        fw = (framework or "").lower()
+        if fw not in {"javascript", "js", "typescript", "ts"}:
+            return None
+
+        tests_poc = workspace / "tests" / "poc"
+        tests_poc.mkdir(parents=True, exist_ok=True)
+
+        bun = shutil.which("bun") or os.path.exists(str(Path.home() / ".bun" / "bin" / "bun"))
+        runner_ext = ".mts" if bun else ".mjs"
+        probe_name = f"kai_import_probe{runner_ext}"
+        probe_rel = f"tests/poc/{probe_name}"
+
+        candidates: list[tuple[str, Path]] = []
+        # Prefer dist entries for Node
+        for p in workspace.rglob("dist/index.mjs"):
+            if "node_modules" not in p.as_posix():
+                candidates.append(("main", p))
+                break
+        if not candidates:
+            for p in workspace.rglob("dist/index.js"):
+                if "node_modules" not in p.as_posix():
+                    candidates.append(("main", p))
+                    break
+        for p in workspace.rglob("lib/index.js"):
+            if "node_modules" not in p.as_posix():
+                candidates.append(("main", p))
+                break
+        if bun:
+            for p in workspace.rglob("src/index.ts"):
+                if "node_modules" not in p.as_posix():
+                    candidates.insert(0, ("src", p))
+                    break
+            if not any(k == "src" for k, _ in candidates):
+                for p in workspace.rglob("*.ts"):
+                    pp = p.as_posix()
+                    if "node_modules" in pp or "/test" in pp or "/tests" in pp or "/__tests__" in pp:
+                        continue
+                    candidates.append(("src", p))
+                    break
+
+        def _rel_from_tests(abs_path: Path) -> str:
+            return os.path.relpath(abs_path, tests_poc).replace(os.sep, "/")
+
+        for _, target in candidates:
+            rel = _rel_from_tests(target)
+            imp_line = f"import * as target from '{rel}';\n"
+            content = (
+                "import assert from 'node:assert';\n" + imp_line + "assert.ok(target);\nprocess.exit(0);\n"
+            )
+            probe_abs = (workspace / probe_rel).resolve()
+            probe_abs.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                probe_abs.write_text(content)
+                from kai.utils.tool_adapters import get_tool_adapter
+
+                adapter = get_tool_adapter(fw)
+                compile_res = adapter.compile(workspace_path=workspace, timeout=60)
+                if not compile_res.success:
+                    continue
+                test_res = adapter.run_test(
+                    workspace_path=workspace,
+                    match_test="kai_import_probe",
+                    verbosity=1,
+                    timeout=60,
+                    framework_kwargs={"match_path": probe_rel},
+                )
+                if not test_res.success:
+                    continue
+                return ImportRecipe(
+                    main_import=rel,
+                    example_import=imp_line.strip(),
+                    submodule_paths={"main": rel},
+                    validated=True,
+                )
+            except Exception:
+                continue
+            finally:
+                try:
+                    if probe_abs.exists():
+                        probe_abs.unlink()
+                except Exception:
+                    pass
+        return None
 
     async def execute(
         self, input_data: WorkspaceValidationInput
@@ -483,6 +575,35 @@ class WorkspaceValidationProcess(
                 failures.append(f"{preset.value}: error={err}")
 
             finally:
+                if input_data.save_rollouts:
+                    try:
+                        self._save_validation_rollout(
+                            agent=agent,
+                            repo_slug=repo_slug,
+                            preset=preset.value,
+                            compiled=compiled,
+                            test_success=test_success,
+                            workspace_path=workspace_path,
+                            smoke_test_relpath=smoke_relpath,
+                            raw_output=raw_output,
+                            rollouts_dir=input_data.rollouts_dir,
+                        )
+                    except Exception:
+                        pass
+                import_recipe: Optional[ImportRecipe] = None
+                if not err and compiled and test_success:
+                    try:
+                        import_recipe = self._discover_import_recipe(
+                            workspace=Path(workspace_path), framework=framework
+                        )
+                        if import_recipe:
+                            try:
+                                mc.import_recipe = import_recipe
+                            except Exception:
+                                pass
+                    except Exception:
+                        import_recipe = None
+
                 results.append(
                     WorkspaceValidationResult(
                         preset=preset,
@@ -496,6 +617,7 @@ class WorkspaceValidationProcess(
                         tests_failed=tests_failed,
                         raw_output=raw_output,
                         error=err,
+                        import_recipe=import_recipe,
                     )
                 )
 
@@ -514,3 +636,57 @@ class WorkspaceValidationProcess(
             )
 
         return WorkspaceValidationOutput(success=True, results=results)
+
+    def _save_validation_rollout(
+        self,
+        *,
+        agent: WorkspaceValidationAgent,
+        repo_slug: str,
+        preset: str,
+        compiled: bool,
+        test_success: bool,
+        workspace_path: str,
+        smoke_test_relpath: str,
+        raw_output: str,
+        rollouts_dir: Optional[str] = None,
+    ) -> None:
+        try:
+            from pathlib import Path as _P
+            import json as _json
+
+            if not rollouts_dir:
+                rollouts_dir = str(_P("output") / "rollouts")
+
+            rollout_path = _P(rollouts_dir) / "workspace_validation"
+            rollout_path.mkdir(parents=True, exist_ok=True)
+
+            messages = getattr(agent, "messages", [])
+            serialized = []
+            for msg in messages:
+                if hasattr(msg, "model_dump"):
+                    serialized.append(msg.model_dump())
+                elif hasattr(msg, "dict"):
+                    serialized.append(msg.dict())
+                else:
+                    serialized.append(str(msg))
+
+            data = {
+                "identifier": f"ws_validate_{repo_slug}_{preset}",
+                "type": "workspace_validation",
+                "preset": preset,
+                "model": getattr(agent, "model", "unknown"),
+                "messages": serialized,
+                "total_tokens": getattr(agent, "total_tokens", {}),
+                "estimated_cost": getattr(agent, "estimated_cost", 0.0),
+                "compiled": compiled,
+                "test_success": test_success,
+                "workspace_path": workspace_path,
+                "smoke_test_relpath": smoke_test_relpath,
+                "raw_output": raw_output,
+            }
+
+            output_file = rollout_path / f"ws_validate_{repo_slug}_{preset}.json"
+            with open(output_file, "w") as f:
+                _json.dump(data, f, indent=2, default=str)
+        except Exception:
+            pass
