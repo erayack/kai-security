@@ -231,7 +231,9 @@ class WorkspaceValidationProcess(
         tests_poc = workspace / "tests" / "poc"
         tests_poc.mkdir(parents=True, exist_ok=True)
 
-        bun = shutil.which("bun") or os.path.exists(str(Path.home() / ".bun" / "bin" / "bun"))
+        bun = shutil.which("bun") or os.path.exists(
+            str(Path.home() / ".bun" / "bin" / "bun")
+        )
         runner_ext = ".mts" if bun else ".mjs"
         probe_name = f"kai_import_probe{runner_ext}"
         probe_rel = f"tests/poc/{probe_name}"
@@ -259,7 +261,12 @@ class WorkspaceValidationProcess(
             if not any(k == "src" for k, _ in candidates):
                 for p in workspace.rglob("*.ts"):
                     pp = p.as_posix()
-                    if "node_modules" in pp or "/test" in pp or "/tests" in pp or "/__tests__" in pp:
+                    if (
+                        "node_modules" in pp
+                        or "/test" in pp
+                        or "/tests" in pp
+                        or "/__tests__" in pp
+                    ):
                         continue
                     candidates.append(("src", p))
                     break
@@ -271,7 +278,9 @@ class WorkspaceValidationProcess(
             rel = _rel_from_tests(target)
             imp_line = f"import * as target from '{rel}';\n"
             content = (
-                "import assert from 'node:assert';\n" + imp_line + "assert.ok(target);\nprocess.exit(0);\n"
+                "import assert from 'node:assert';\n"
+                + imp_line
+                + "assert.ok(target);\nprocess.exit(0);\n"
             )
             probe_abs = (workspace / probe_rel).resolve()
             probe_abs.parent.mkdir(parents=True, exist_ok=True)

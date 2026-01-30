@@ -1647,7 +1647,10 @@ def register_exploit(
                         "message": "PoC must import real code using the validated ImportRecipe.",
                         "hint": getattr(recipe, "example_import", None) or "",
                     }
-                if any(k in poc_code for k in ["Mock", "Fake", "Hostile", "Malicious", "Evil"]):
+                if any(
+                    k in poc_code
+                    for k in ["Mock", "Fake", "Hostile", "Malicious", "Evil"]
+                ):
                     return {
                         "registered": False,
                         "message": "PoC appears to use mock components. Import and exercise real code using the ImportRecipe.",

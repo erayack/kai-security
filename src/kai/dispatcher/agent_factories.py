@@ -259,9 +259,15 @@ def create_state_agent(
         try:
             ir = getattr(master_context, "import_recipe", None)
             if ir and getattr(ir, "validated", False):
-                ex = getattr(ir, "example_import", None) or getattr(ir, "main_import", None) or ""
+                ex = (
+                    getattr(ir, "example_import", None)
+                    or getattr(ir, "main_import", None)
+                    or ""
+                )
                 if ex:
-                    import_info = f"\n\n### Validated Import\nUse this import in PoCs: {ex}"
+                    import_info = (
+                        f"\n\n### Validated Import\nUse this import in PoCs: {ex}"
+                    )
         except Exception:
             pass
         agent.set_toolcalling_prompt(
@@ -332,9 +338,15 @@ def create_quant_agent(
         try:
             ir = getattr(master_context, "import_recipe", None)
             if ir and getattr(ir, "validated", False):
-                ex = getattr(ir, "example_import", None) or getattr(ir, "main_import", None) or ""
+                ex = (
+                    getattr(ir, "example_import", None)
+                    or getattr(ir, "main_import", None)
+                    or ""
+                )
                 if ex:
-                    import_info = f"\n\n### Validated Import\nUse this import in PoCs: {ex}"
+                    import_info = (
+                        f"\n\n### Validated Import\nUse this import in PoCs: {ex}"
+                    )
         except Exception:
             pass
         agent.set_toolcalling_prompt(

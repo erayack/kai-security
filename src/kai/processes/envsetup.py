@@ -460,7 +460,10 @@ class EnvironmentSetupProcess(
                 "messages": serialized,
                 "total_tokens": getattr(agent, "total_tokens", {}),
                 "estimated_cost": getattr(agent, "estimated_cost", 0.0),
-                "master_context_registered": getattr(agent, "_registered_master_context", None) is not None,
+                "master_context_registered": getattr(
+                    agent, "_registered_master_context", None
+                )
+                is not None,
             }
 
             # Write to file
