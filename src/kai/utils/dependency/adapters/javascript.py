@@ -805,7 +805,7 @@ Check if computed values flow into throwing built-ins unguarded.
         def extract_handles_redirect(node: Node, graph: "DependencyGraph") -> bool:
             """Check if function handles HTTP redirects or header sanitization."""
             name_lower = node.name.lower()
-            file_path = (node.file or "").lower()
+            file_path = (node.span.file if node.span else "").lower()
 
             # Function name patterns related to redirect handling
             redirect_patterns = [

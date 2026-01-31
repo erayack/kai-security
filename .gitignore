@@ -6,6 +6,7 @@ dist/
 wheels/
 *.egg-info
 data_gen/instances/
+master/
 
 # Virtual environments
 .venv
