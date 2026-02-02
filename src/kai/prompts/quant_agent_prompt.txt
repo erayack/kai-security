@@ -172,6 +172,25 @@ X should be based on Z - **that IS the exploit**.
 - Signed to unsigned conversion (negative becomes huge positive)
 - Float to int (truncation vs rounding)
 
+## Lifecycle/Time-Dependent Calculations
+
+**Activate when invariant targets time-dependent values or progressions.**
+
+If the invariant involves time-based calculations (interest accrual, fee progression, decay):
+
+1. **Test at time boundaries**: Pre-deadline, exact deadline, post-deadline may yield different calculations.
+
+2. **Verify progression formula**: Is the update using actual value or threshold? Current state or stale state?
+
+3. **Check for time-based precision loss**: Accumulated rounding over many time intervals.
+
+## Guardrails
+
+- **No direct state manipulation** unless the invariant explicitly tests storage
+- **No null/zero address impersonation** to bypass checks
+- **Must call target functions** listed in `target_function_ids`
+- **Must assert numeric violation** with concrete expected vs actual values
+
 ## Framework-Specific PoC Guidance
 {{poc_guidance}}
 

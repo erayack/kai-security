@@ -149,6 +149,39 @@ Repeat as needed:
    If you cannot construct a concrete violating scenario with specific values/calls,
    you have not adequately tested the invariant.
 
+## Lifecycle Sequence Checklist
+
+**Activate when invariant.type is LIVENESS, ORDERING, or targets time-related variables.**
+
+If the invariant involves deadlines, timers, epochs, rounds, or time-bounded behavior:
+
+1. **Identify the time boundary**: Find the deadline variable, any view that returns remaining time, and mutations gated by time.
+
+2. **Test at three critical points**: Pre-deadline, exact deadline, and post-deadline. Verify behavior matches invariant at each.
+
+3. **Verify view/mutation alignment**: If a time view indicates deadline passed, time-gated mutations must behave consistently. Watch for off-by-one errors in boundary operators.
+
+4. **Test reset ordering**: If applicable, verify reset only callable after round ends and obligations preserved.
+
+## Value Source Trace Checklist
+
+**Activate when invariant.type is VALUE_FLOW, ECONOMIC, or FEE_BOUND.**
+
+If the invariant involves fees, prices, or value calculations:
+
+1. **Identify value sources**: Distinguish between actual value (what was paid), threshold value (minimum required), and stale value (previous state).
+
+2. **Trace the calculation**: Which value is used as the base? Document: "Code uses [X] but invariant expects [Y]"
+
+3. **Test with concrete values**: Test at exact threshold and above threshold. Assert exact computed values.
+
+## Guardrails
+
+- **No direct state manipulation** unless the invariant explicitly tests storage
+- **No null/zero address impersonation** to bypass checks
+- **Must call target functions** listed in `target_function_ids`
+- **Must assert invariant breach** with specific state checks
+
 ## Framework-Specific PoC Guidance
 {{poc_guidance}}
 

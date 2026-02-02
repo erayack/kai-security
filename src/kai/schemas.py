@@ -336,6 +336,12 @@ class Verdict(BaseModel):
     is_known_limitation: bool = False  # Known design tradeoff vs actual bug?
     targets_real_implementation: bool = True  # Tests actual code, not just interface?
 
+    # Root cause blocking - when a global liveness bug prevents testing downstream invariants
+    blocked_by_root_cause: bool = False  # Could not verify due to upstream bug
+    blocking_invariant_id: Optional[str] = (
+        None  # ID of the root cause invariant blocking this one
+    )
+
     # Economic analysis
     attack_cost_estimate: Optional[str] = None  # e.g., "$1M donation to grief $1"
     attacker_profit_estimate: Optional[str] = None  # e.g., "Can extract $X"

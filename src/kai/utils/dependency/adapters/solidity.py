@@ -5,7 +5,7 @@ Solidity-specific domain adapter for the GraphQueryEngine.
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from .base import DomainAdapter, LensDefinition
-from ..models import Node, NodeKind
+from ..models import Node, NodeKind, EdgeKind
 
 if TYPE_CHECKING:
     from ..graph import DependencyGraph
@@ -298,6 +298,78 @@ class SolidityAdapter(DomainAdapter):
         return "review_required"
 
     # =========================================================================
+    # Lifecycle/Temporal and Economic detection (Solidity-specific)
+    # =========================================================================
+
+    def get_time_source_patterns(self) -> List[str]:
+        """Solidity-specific time source patterns."""
+        return [
+            "block.timestamp",
+            "block.number",
+            "now",  # Deprecated but still used in older code
+        ]
+
+    def get_reset_patterns(self) -> List[str]:
+        """Solidity-specific reset patterns."""
+        return [
+            "= false",
+            "= true",
+            "= 0",
+            "delete ",
+            "reset",
+        ]
+
+    def _get_var_names_from_edges(
+        self,
+        node: Node,
+        graph: "DependencyGraph",
+        edge_kind: EdgeKind,
+    ) -> List[str]:
+        """
+        Get variable names that a function reads/writes via graph edges.
+
+        Args:
+            node: The function node
+            graph: The dependency graph
+            edge_kind: EdgeKind.READS or EdgeKind.WRITES
+
+        Returns:
+            List of variable names (lowercase for matching)
+        """
+        var_names: List[str] = []
+        try:
+            var_ids = list(
+                graph.neighbors(node.id, edge_kinds={edge_kind}, direction="out")
+            )
+            for var_id in var_ids:
+                var_node = graph.node(var_id)
+                if var_node and var_node.name:
+                    var_names.append(var_node.name)
+        except (KeyError, AttributeError):
+            pass
+        return var_names
+
+    def _get_source_code(self, node: Node, graph: "DependencyGraph") -> str:
+        """
+        Get source code for a node, trying multiple sources.
+
+        Args:
+            node: The function node
+            graph: The dependency graph (for potential file access)
+
+        Returns:
+            Source code string, empty if not available
+        """
+        # Try meta first (may be populated by parser)
+        code = node.meta.get("source_code", "")
+        if code:
+            return code
+
+        # Could extend to read from file using span if needed
+        # For now, return empty if not in meta
+        return ""
+
+    # =========================================================================
     # Lens-based invariant generation
     # =========================================================================
 
@@ -338,28 +410,62 @@ Generate at least one invariant:
             ),
             LensDefinition(
                 name="economic",
-                description="Value transfers, fee calculations, economic flows",
-                invariant_types=["VALUE_FLOW", "FEE_BOUND", "ECONOMIC"],
+                description="Value transfers, fee calculations, economic flows, obligations",
+                invariant_types=["VALUE_FLOW", "FEE_BOUND", "ECONOMIC", "SOLVENCY"],
                 prompt_template="""
 ## ECONOMIC LENS - Solidity/DeFi
 
-Focus on value flow correctness and fee calculations.
+Focus on value flow correctness, fee calculations, and obligation tracking.
 
-### Value Flow (CRITICAL - common bug source)
-For EACH payable function or function handling value:
-- Identify: Does it use msg.value or a stored threshold variable?
-- Generate VALUE_FLOW invariant: "Calculation X must use [correct variable]"
-- Common bug: fee increase using stored `minFee` instead of actual `msg.value`
-- Example: `claimFee` (threshold) vs `msg.value` (actual payment) - which is used?
+### Value Source Correctness (CRITICAL - common bug source)
+For EACH function that updates fees, prices, or thresholds:
+- Identify the BASE VALUE: Is it the actual payment or a stored threshold?
+- Generate VALUE_FLOW invariant: "Fee/price update must use [actual payment | threshold] as base"
+- Common bug patterns:
+  ```
+  // BUG: Uses threshold (claimFee) instead of actual payment (msg.value)
+  claimFee = claimFee + (claimFee * feePercent / 100);
 
-### State Progression (CRITICAL - often missed)
-For EACH state variable that updates over time (fees, rates, counters):
-- Check the UPDATE FORMULA: What value is used as the base?
-- Generate VALUE_FLOW invariant for the progression formula itself
-- Common bug pattern: `newFee = oldFee + (oldFee * percentage)` when it should
-  use the actual transaction value: `newFee = msg.value + (msg.value * percentage)`
+  // CORRECT: Uses actual payment for progression
+  claimFee = msg.value + (msg.value * feePercent / 100);
+  ```
 - Ask: "When this value increases, should it grow based on what was REQUIRED
   or what was actually PAID/SENT?"
+
+### Overpayment Semantics (REQUIRED for payable functions)
+For EACH payable function with a minimum threshold:
+- What happens when msg.value > required amount?
+- Generate VALUE_FLOW invariant for one of:
+  - "Excess refunded to sender"
+  - "Excess added to pot/treasury"
+  - "Excess causes revert (exact payment required)"
+- Common bug: Platform fee computed on msg.value when it should be on threshold
+- Example:
+  ```
+  // If claimFee is 1 ETH but user sends 2 ETH:
+  platformFee = msg.value * feePercent / 100;  // BUG: fee on 2 ETH
+  platformFee = claimFee * feePercent / 100;   // CORRECT: fee on threshold
+  ```
+
+### Distribution Completeness (REQUIRED)
+For EACH function receiving ETH:
+- Generate ECONOMIC invariant: "sum(outflows) == msg.value"
+- Verify: platformFee + userPayout + potIncrease == msg.value
+- No ETH silently dropped or stuck in contract
+- Check all paths: success, failure, edge cases
+
+### Displaced Participant Payout (CRITICAL for competitive systems)
+When a holder/leader/position changes:
+- Generate VALUE_FLOW invariant: "Previous holder's obligation increases correctly"
+- Previous holder should receive their payout allocation
+- Check the payout formula uses correct base (their entry value, not current)
+- Example:
+  ```
+  // When new king claims throne:
+  uint prevKingPayout = calculatePayout(prevKing);
+  pendingWithdrawals[prevKing] += prevKingPayout;  // MUST happen
+  currentKing = msg.sender;
+  ```
 
 ### Fee Bounds (REQUIRED for percentage parameters)
 For EACH fee/percentage parameter:
@@ -367,17 +473,20 @@ For EACH fee/percentage parameter:
 - 100% fee = all value extracted, nothing for users
 - Check boundary: `<= 100` allows 100% which may be unintended
 
-### Distribution Completeness (REQUIRED for payment functions)
-For EACH function receiving ETH:
-- Generate ECONOMIC invariant: "platformFee + userPayout + reserve == msg.value"
-- Verify no ETH is silently dropped or stuck
-- Check: what happens to excess if user overpays?
+### Obligation Tracking (SOLVENCY)
+For contracts with pending withdrawals or claimable balances:
+- Generate SOLVENCY invariant: "Contract balance >= sum(pendingWithdrawals)"
+- Track all obligation-creating operations
+- Track all obligation-clearing operations (withdrawals)
+- Common bug: Obligation created but contract doesn't have funds to cover
 """,
                 checklist=[
-                    "Every msg.value usage has VALUE_FLOW invariant specifying correct variable",
+                    "Value source identified for each fee/price update (actual vs threshold)",
+                    "Overpayment handling specified (refund, pot, or revert)",
+                    "Distribution completeness verified (no ETH lost)",
+                    "Displaced holder payout formula uses correct base",
                     "Every fee percentage has FEE_BOUND invariant (< 100)",
-                    "Payment distribution sums verified (no ETH lost)",
-                    "State progression formulas checked (fee/rate updates use correct base value)",
+                    "Obligation tracking verified (balance >= sum of pending)",
                 ],
             ),
             LensDefinition(
@@ -522,6 +631,88 @@ Generate INFORMATION invariant for each concern found.
                     "Information asymmetry concerns noted",
                 ],
             ),
+            LensDefinition(
+                name="lifecycle",
+                description="Time-bounded state transitions, round semantics, deadline enforcement",
+                invariant_types=["LIVENESS", "ORDERING", "VALUE_FLOW"],
+                prompt_template="""
+## LIFECYCLE/TEMPORAL LENS - Time-Bounded State Machines
+
+Focus on time-bounded state transitions for auctions, rounds, epochs, staking periods, etc.
+
+### Post-Expiry Gating (CRITICAL)
+For EACH function that should be blocked after a deadline:
+- Generate LIVENESS invariant: "Function X must revert when block.timestamp >= deadline"
+- Common bug: Missing deadline check allows actions after time window closes
+- Check: participation/entry functions should fail after deadline
+- Check: finalize/end functions should succeed after deadline
+- Pattern to verify:
+  ```
+  // WRONG: No deadline check
+  function participate() external payable { ... }
+
+  // RIGHT: Deadline enforced
+  function participate() external payable {
+      require(block.timestamp < deadline, "Too late");
+      ...
+  }
+  ```
+
+### View/Mutation Boundary Alignment (CRITICAL)
+When a view function returns remaining time and a mutation checks deadline:
+- Generate ORDERING invariant for boundary consistency
+- If `getRemainingTime() == 0`, then participation MUST revert
+- If `getRemainingTime() > 0`, then participation MUST succeed
+- Common bug: View uses `>` but mutation uses `>=` (off-by-one at exact deadline)
+- Example:
+  ```
+  // View: returns 0 when deadline reached
+  function getRemainingTime() view returns (uint) {
+      if (block.timestamp >= deadline) return 0;  // uses >=
+      return deadline - block.timestamp;
+  }
+
+  // Mutation: MUST also use >= for consistency
+  function participate() external {
+      require(block.timestamp < deadline);  // uses < (consistent with view)
+  }
+  ```
+
+### Timer Reset Semantics
+For functions that reset/extend deadlines on participation:
+- Generate VALUE_FLOW invariant: "Timer resets to X on successful participation"
+- Verify: Does participation extend the window as documented?
+- Check: Is extension amount correct (gracePeriod, not arbitrary)?
+- Example: `lastClaimTime = block.timestamp` should happen on participation
+
+### Reset Ordering (New Round/Epoch)
+For functions that start a new round/epoch:
+- Generate ORDERING invariant: "Reset callable only after ended == true"
+- Generate VALUE_FLOW invariant: "Reset must not clear pending obligations"
+- Check: Outstanding withdrawals preserved across rounds
+- Check: Accumulated rewards not lost on reset
+- Pattern:
+  ```
+  function startNewRound() external {
+      require(ended, "Current round not finished");
+      // MUST preserve: pendingWithdrawals[users]
+      // CAN reset: currentKing, pot (after distribution)
+  }
+  ```
+
+### Cross-Function Consistency
+When multiple functions read the same deadline/timer:
+- Verify they use consistent comparison operators
+- Generate invariant if view and mutation disagree on boundary
+""",
+                checklist=[
+                    "Every time-gated function has post-expiry LIVENESS invariant",
+                    "View/mutation boundary operators are consistent",
+                    "Timer reset semantics verified (extension amount correct)",
+                    "Reset ordering enforced (only after ended)",
+                    "Obligations preserved across round resets",
+                ],
+            ),
         ]
 
     def get_function_metadata_extractors(self) -> Dict[str, Callable]:
@@ -627,7 +818,141 @@ Generate INFORMATION invariant for each concern found.
             ]
             return any(p in name_lower for p in transition_patterns)
 
+        # =====================================================================
+        # New lifecycle/temporal extractors using graph-based classification
+        # =====================================================================
+
+        def extract_timerish_score(node: Node, graph: "DependencyGraph") -> int:
+            """Score indicating how likely function is timer-related (0-10)."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_view = node.meta.get("state_mutability", "") in ["view", "pure"]
+            score, _ = self.classify_timerish(
+                node.name, code, read_vars, write_vars, is_view
+            )
+            return score
+
+        def extract_timerish_roles(node: Node, graph: "DependencyGraph") -> List[str]:
+            """List of timer-related roles for this function."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_view = node.meta.get("state_mutability", "") in ["view", "pure"]
+            _, roles = self.classify_timerish(
+                node.name, code, read_vars, write_vars, is_view
+            )
+            return roles
+
+        def extract_is_time_view(node: Node, graph: "DependencyGraph") -> bool:
+            """True if function is a time/countdown view."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_view = node.meta.get("state_mutability", "") in ["view", "pure"]
+            _, roles = self.classify_timerish(
+                node.name, code, read_vars, write_vars, is_view
+            )
+            return "time_view" in roles
+
+        def extract_is_time_guard_mutation(
+            node: Node, graph: "DependencyGraph"
+        ) -> bool:
+            """True if function has time guard and mutates state."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_view = node.meta.get("state_mutability", "") in ["view", "pure"]
+            _, roles = self.classify_timerish(
+                node.name, code, read_vars, write_vars, is_view
+            )
+            return "time_guard_mutation" in roles
+
+        def extract_is_time_reset(node: Node, graph: "DependencyGraph") -> bool:
+            """True if function resets round/epoch state."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_view = node.meta.get("state_mutability", "") in ["view", "pure"]
+            _, roles = self.classify_timerish(
+                node.name, code, read_vars, write_vars, is_view
+            )
+            return "time_reset" in roles
+
+        # =====================================================================
+        # New economic extractors using graph-based classification
+        # =====================================================================
+
+        def extract_economic_score(node: Node, graph: "DependencyGraph") -> int:
+            """Score indicating how likely function is economic-related (0-10)."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_payable = node.meta.get("is_payable", False)
+            score, _ = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_payable
+            )
+            return score
+
+        def extract_economic_roles(node: Node, graph: "DependencyGraph") -> List[str]:
+            """List of economic roles for this function."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_payable = node.meta.get("is_payable", False)
+            _, roles = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_payable
+            )
+            return roles
+
+        def extract_is_participation_entry(
+            node: Node, graph: "DependencyGraph"
+        ) -> bool:
+            """True if function is a participation entry (payable or writes holder)."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_payable = node.meta.get("is_payable", False)
+            _, roles = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_payable
+            )
+            return "participation_entry" in roles
+
+        def extract_touches_accumulator(node: Node, graph: "DependencyGraph") -> bool:
+            """True if function reads/writes pot/treasury/reserve vars."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_payable = node.meta.get("is_payable", False)
+            _, roles = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_payable
+            )
+            return "touches_accumulator" in roles
+
+        def extract_touches_obligation(node: Node, graph: "DependencyGraph") -> bool:
+            """True if function reads/writes pending/withdrawable vars."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_payable = node.meta.get("is_payable", False)
+            _, roles = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_payable
+            )
+            return "touches_obligation" in roles
+
+        def extract_is_distribution(node: Node, graph: "DependencyGraph") -> bool:
+            """True if function distributes value from accumulator/obligation."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_payable = node.meta.get("is_payable", False)
+            _, roles = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_payable
+            )
+            return "distribution" in roles
+
         return {
+            # Existing extractors
             "is_payable": extract_is_payable,
             "has_access_modifier": extract_has_access_modifier,
             "has_external_call": extract_has_external_call,
@@ -638,4 +963,17 @@ Generate INFORMATION invariant for each concern found.
             "touches_value_state": extract_touches_value_state,
             "modifies_game_state": extract_modifies_game_state,
             "is_state_transition": extract_is_state_transition,
+            # New lifecycle/temporal extractors
+            "timerish_score": extract_timerish_score,
+            "timerish_roles": extract_timerish_roles,
+            "is_time_view": extract_is_time_view,
+            "is_time_guard_mutation": extract_is_time_guard_mutation,
+            "is_time_reset": extract_is_time_reset,
+            # New economic extractors
+            "economic_score": extract_economic_score,
+            "economic_roles": extract_economic_roles,
+            "is_participation_entry": extract_is_participation_entry,
+            "touches_accumulator": extract_touches_accumulator,
+            "touches_obligation": extract_touches_obligation,
+            "is_distribution": extract_is_distribution,
         }

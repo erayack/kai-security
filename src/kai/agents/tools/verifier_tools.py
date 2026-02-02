@@ -40,6 +40,8 @@ def submit_verdict(
     attack_cost_estimate: Optional[str] = None,
     attacker_profit_estimate: Optional[str] = None,
     cost_benefit_ratio: Optional[str] = None,
+    blocked_by_root_cause: bool = False,
+    blocking_invariant_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Submit the final verdict on an exploit candidate.
@@ -61,6 +63,8 @@ def submit_verdict(
         attack_cost_estimate: Estimated cost to attacker (e.g., "$1M donation")
         attacker_profit_estimate: Estimated attacker gain (e.g., "Can extract $10K")
         cost_benefit_ratio: Ratio of cost to benefit (e.g., "1000:1 loss ratio")
+        blocked_by_root_cause: True if this invariant couldn't be verified due to an upstream bug
+        blocking_invariant_id: ID of the root cause invariant that prevents verifying this one
 
     Returns:
         Confirmation that verdict was submitted
@@ -95,6 +99,16 @@ def submit_verdict(
             uses_mock_contracts=True,
             targets_real_implementation=False,
             rejection_reason="Uses mock contract that violates ERC20 assumptions"
+        )
+
+    Example (blocked by root cause):
+        submit_verdict(
+            is_valid=False,
+            severity="informational",
+            reasoning="Cannot verify this invariant because the claim() path is blocked by M-01...",
+            blocked_by_root_cause=True,
+            blocking_invariant_id="INV_LIVENESS_001",
+            rejection_reason="Blocked by upstream liveness bug - claim path unreachable"
         )
     """
     from kai.schemas import Verdict, VerdictSeverity
@@ -137,11 +151,16 @@ def submit_verdict(
         cost_benefit_ratio=cost_benefit_ratio,
         poc_path=exploit_candidate.target_file,
         test_passed=test_passed,
+        blocked_by_root_cause=blocked_by_root_cause,
+        blocking_invariant_id=blocking_invariant_id,
     )
 
     # Store verdict in agent
     agent._verdict = verdict
 
+    status = (
+        "VALID" if is_valid else ("BLOCKED" if blocked_by_root_cause else "INVALID")
+    )
     return {
         "submitted": True,
         "verdict": {
@@ -151,8 +170,10 @@ def submit_verdict(
             "test_passed": test_passed,
             "uses_mock_contracts": uses_mock_contracts,
             "is_economically_feasible": is_economically_feasible,
+            "blocked_by_root_cause": blocked_by_root_cause,
+            "blocking_invariant_id": blocking_invariant_id,
         },
-        "message": f"Verdict submitted: {'VALID' if is_valid else 'INVALID'} - {severity.upper()} (test_passed={test_passed})",
+        "message": f"Verdict submitted: {status} - {severity.upper()} (test_passed={test_passed})",
     }
 
 

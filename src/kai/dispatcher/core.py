@@ -1627,21 +1627,34 @@ class Dispatcher:
     def get_verification_stats(self) -> Dict[str, Any]:
         """Get verification statistics."""
         verified = [v for v in self.verdicts if v.is_valid]
-        rejected = [v for v in self.verdicts if not v.is_valid]
+        rejected = [
+            v for v in self.verdicts if not v.is_valid and not v.blocked_by_root_cause
+        ]
+        blocked = [v for v in self.verdicts if v.blocked_by_root_cause]
 
         severity_counts: Dict[str, int] = {}
         for verdict in verified:
             sev = verdict.severity.value
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
 
+        # Track which invariants are blocking others
+        blocking_invariants: Dict[str, int] = {}
+        for v in blocked:
+            if v.blocking_invariant_id:
+                blocking_invariants[v.blocking_invariant_id] = (
+                    blocking_invariants.get(v.blocking_invariant_id, 0) + 1
+                )
+
         return {
             "total_candidates": len(self.exploit_candidates),
             "verified_count": len(verified),
             "rejected_count": len(rejected),
+            "blocked_by_root_cause_count": len(blocked),
             "by_severity": severity_counts,
             "rejection_reasons": [
                 v.rejection_reason for v in rejected if v.rejection_reason
             ],
+            "blocking_invariants": blocking_invariants,
         }
 
     def export_results(self, output_path: str) -> None:
@@ -1670,7 +1683,16 @@ class Dispatcher:
             "total_exploit_candidates": len(self.exploit_candidates),
             "total_verdicts": len(self.verdicts),
             "verified_exploits": len([v for v in self.verdicts if v.is_valid]),
-            "rejected_exploits": len([v for v in self.verdicts if not v.is_valid]),
+            "rejected_exploits": len(
+                [
+                    v
+                    for v in self.verdicts
+                    if not v.is_valid and not v.blocked_by_root_cause
+                ]
+            ),
+            "blocked_by_root_cause": len(
+                [v for v in self.verdicts if v.blocked_by_root_cause]
+            ),
         }
 
         # Cost tracking

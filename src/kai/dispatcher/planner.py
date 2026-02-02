@@ -217,6 +217,11 @@ class MissionPlanner:
         workspace_preset = self._select_workspace_preset(agent_types)
         notes = "; ".join(inv.rule for inv in cluster_invariants[:3])
 
+        # Detect lifecycle/timerish invariants and add guidance
+        lifecycle_guidance = self._detect_lifecycle_guidance(cluster_invariants)
+        if lifecycle_guidance:
+            notes = f"{notes}\n\n[LIFECYCLE TESTING]: {lifecycle_guidance}"
+
         scope = CampaignScope(
             entrypoints_subset=EntrypointSubset(
                 ids=entrypoints,
@@ -305,6 +310,84 @@ class MissionPlanner:
         if MissionAgentType.STATE in agent_types:
             return WorkspacePreset.WRITEABLE
         return WorkspacePreset.CLEAN
+
+    def _detect_lifecycle_guidance(self, invariants: List[Invariant]) -> Optional[str]:
+        """
+        Detect if invariants involve lifecycle/timerish patterns and return guidance.
+
+        Returns guidance string if lifecycle patterns detected, None otherwise.
+        """
+        # Check for lifecycle-related invariant types
+        lifecycle_types = {
+            InvariantType.LIVENESS,
+            InvariantType.ORDERING,
+        }
+
+        has_lifecycle_type = any(inv.type in lifecycle_types for inv in invariants)
+        if not has_lifecycle_type:
+            return None
+
+        # Check for timerish patterns in invariant rules/principles
+        timerish_patterns = [
+            "deadline",
+            "expiry",
+            "timer",
+            "timestamp",
+            "time",
+            "boundary",
+            "pre-deadline",
+            "post-deadline",
+            "grace",
+            "round",
+            "epoch",
+            "window",
+            "finalize",
+            "reset",
+        ]
+
+        timerish_invariants = []
+        for inv in invariants:
+            rule_lower = (inv.rule or "").lower()
+            principle_lower = (inv.principle or "").lower()
+            combined = rule_lower + " " + principle_lower
+
+            if any(p in combined for p in timerish_patterns):
+                timerish_invariants.append(inv)
+
+        if not timerish_invariants:
+            return None
+
+        # Generate guidance based on detected patterns
+        guidance_parts = [
+            "Test time boundaries systematically:",
+            "1. Test at pre-deadline (deadline - 1 second)",
+            "2. Test at exact deadline (deadline)",
+            "3. Test at post-deadline (deadline + 1 second)",
+            "Verify: view function returns match mutation behavior at each boundary.",
+        ]
+
+        # Check for specific patterns
+        has_view_mutation = any(
+            "view" in (inv.principle or "").lower()
+            and "mutation" in (inv.principle or "").lower()
+            for inv in timerish_invariants
+        )
+        if has_view_mutation:
+            guidance_parts.append(
+                "CRITICAL: If time_view() returns 0, time-gated mutations must revert."
+            )
+
+        has_reset = any(
+            "reset" in (inv.rule or "").lower()
+            or "reset" in (inv.principle or "").lower()
+            for inv in timerish_invariants
+        )
+        if has_reset:
+            guidance_parts.append(
+                "Verify reset only callable after ended==true; obligations preserved."
+            )
+
+        return " ".join(guidance_parts)
 
     def build_blackbox_campaign(self) -> Tuple[CampaignBrief, List[Mission]]:
         """
