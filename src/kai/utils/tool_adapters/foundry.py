@@ -663,6 +663,32 @@ Write Foundry test files (.t.sol) in test/poc/.
 - Assertions prove the exploit: assertGt, assertEq, assertTrue, etc.
 - A PASSING test with assertions proving bad state = valid exploit
 
+## Cheatcode Guidelines
+
+### In setUp() - ALLOWED:
+- `vm.store()` - setting initial protocol state (deployer could have set these)
+- `vm.prank(deployer/admin)` - simulating deployment/configuration
+- Any state setup that represents a legitimate starting point
+
+### In test_*() - BE CAREFUL:
+- `vm.store()` to bypass guards mid-exploit = INVALID (proves bug is unreachable)
+- `vm.store()` to simulate result of N legitimate transactions = ACCEPTABLE (explain why)
+- `vm.prank(privilegedRole)` - only if you explain how attacker could gain that role
+
+### ALWAYS ACCEPTABLE:
+- `vm.warp(timestamp)` - time passes naturally
+- `vm.roll(blockNumber)` - blocks are mined
+- `vm.deal(attacker, amount)` - attacker can have ETH
+- `vm.prank(attacker)` / `vm.prank(regularUser)` - legitimate callers
+- `vm.expectRevert()` - testing failure cases
+
+### Target Anchoring:
+Your PoC should exercise functions in or reachable from `target_function_ids`:
+- Direct calls to target functions
+- Calls to functions that CALL the targets (callers)
+- Calls to functions that targets CALL (triggering vulnerable callees)
+- If you find a bug in related code, explain how it connects to the invariant
+
 ## Solidity-Specific Negative-Space Patterns
 
 ### Missing Setters for State Flags

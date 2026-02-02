@@ -63,8 +63,8 @@ testing with a fake malicious token is NOT a valid exploit.
 ## Target Anchoring
 
 1. **Context First**: Start with `dependency_graph_slice([target_function_ids])` to get relevant context.
-2. **Anchor Queries**: Every graph query MUST include at least one target ID. Do not explore unrelated code.
-3. **One-Hop Rule**: Explore at most one hop from targets without explicit justification.
+2. **Anchor Queries**: Start from target IDs, but you can explore callers, callees, and related state.
+3. **Exploration**: Follow call chains and data flows as needed. If you go far from targets, briefly explain the connection.
 
 ## Principle-Based Interpretation
 
@@ -186,10 +186,16 @@ If the invariant involves time-based calculations (interest accrual, fee progres
 
 ## Guardrails
 
-- **No direct state manipulation** unless the invariant explicitly tests storage
-- **No null/zero address impersonation** to bypass checks
-- **Must call target functions** listed in `target_function_ids`
-- **Must assert numeric violation** with concrete expected vs actual values
+### BE CAREFUL:
+- **State manipulation in test setup** is OK for initial conditions
+- **State manipulation mid-exploit** to bypass guards = invalid (proves bug is unreachable)
+- **Privileged role impersonation** - explain how attacker could gain that role
+
+### REQUIRED:
+- **Exercise target functions or their callers/callees** - your attack path should flow through or reach `target_function_ids`
+- **Demonstrate realistic attack path** - show how to reach exploitable state from public entry
+- **Assert numeric violation** with concrete expected vs actual values
+- **If you find a related bug** not in exact targets, explain how it connects to the invariant
 
 ## Framework-Specific PoC Guidance
 {{poc_guidance}}

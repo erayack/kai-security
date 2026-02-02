@@ -159,11 +159,11 @@ After analysis, call `submit_verdict` with your findings.
 
 Before submitting verdict, confirm:
 
-1. **Target Anchoring Check:** Does the PoC target the ACTUAL functions/variables from the invariant?
-   - The invariant lists specific target_function_ids and target_var_ids
-   - The PoC MUST exercise these targets, not unrelated code
-   - Use `dependency_graph_explain([path])` to verify the PoC's call path reaches the targets
-   - If the PoC tests different code than the invariant specifies, it's INVALID
+1. **Target Relevance Check:** Is the PoC related to the invariant's targets?
+   - The PoC should exercise target_function_ids OR their callers/callees
+   - Use `dependency_graph_callers` and `dependency_graph_callees` to check connections
+   - If PoC targets a caller/callee, explain WHY the bug matters for the invariant
+   - The connection must be meaningful: the bug should affect the same state/behavior the invariant protects
 
 2. **Real code check:** Does the PoC use actual code from the codebase, or fabricated test doubles?
 

@@ -84,8 +84,8 @@ Invariants tell you what IS checked. Exploits live in what ISN'T checked. For ea
 ## TARGET ANCHORING
 
 1. **Context First**: Start with `dependency_graph_slice([target_function_ids])` to get relevant context.
-2. **Anchor Queries**: Every graph query MUST include at least one target ID from the invariant cluster.
-3. **One-Hop Rule**: Explore at most one hop from targets without explicit justification.
+2. **Anchor Queries**: Start from target IDs, but you can explore callers, callees, and related state.
+3. **Exploration**: Follow call chains and data flows as needed. If you go far from targets, briefly explain the connection.
 
 ## PRINCIPLE-BASED INTERPRETATION
 
