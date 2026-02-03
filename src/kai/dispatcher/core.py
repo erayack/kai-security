@@ -1290,21 +1290,21 @@ class Dispatcher:
         Called after all missions complete. Deduplicates by root cause, then
         runs FixerAgent on each unique exploit concurrently (limited by semaphore).
         """
-        if self.config.disable_fixer:
-            self.logger.info(
-                "Fixer disabled (config.disable_fixer=True), skipping fix generation"
-            )
-            return
-
         valid_verdicts = [v for v in self.verdicts if v.is_valid]
 
         if not valid_verdicts:
             self.logger.info("No verified exploits to fix")
             return
 
-        # Deduplicate by root cause before fixing (if enabled)
+        # Deduplicate by root cause (always runs if enabled, even when fixer disabled)
         if self.config.enable_deduplication:
             valid_verdicts = await self._dedupe_verified_exploits(valid_verdicts)
+
+        if self.config.disable_fixer:
+            self.logger.info(
+                "Fixer disabled (config.disable_fixer=True), skipping fix generation"
+            )
+            return
 
         self.logger.info(
             f"Generating fixes for {len(valid_verdicts)} verified exploit(s) "
