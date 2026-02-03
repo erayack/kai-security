@@ -117,7 +117,13 @@ For each potential gap you identify:
    - It will auto-compile and return errors if compilation fails (fix and retry)
    - `exploit_found=True` requires poc_path and poc_code
    - `exploit_found=False` for verification that gap is protected (no PoC required)
-4. **Run the test** - use `run_test` to verify the exploit works
+
+   **CRITICAL: Every PoC MUST contain:**
+   - Actual calls to target contract functions (not just deployment)
+   - Assertions that FAIL if the bug doesn't exist
+   - A test with no assertions always passes and is INVALID
+
+5. **Run the test** - use `run_test` to verify the exploit works
 
 This loop ensures you provide concrete, compiled findings. Compilation errors help you fix issues.
 

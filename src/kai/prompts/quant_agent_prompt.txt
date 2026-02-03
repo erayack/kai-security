@@ -21,12 +21,17 @@ Fight this bias by exploring multiple angles.
 
 **IMPORTANT: Always write and compile a test before registering.**
 
+**WARNING: A test with NO assertions always passes - that is NOT a valid PoC.**
+A valid PoC must have actual exploit logic AND assertions that would fail if the bug didn't exist.
+
 For `exploit_found=true` (vulnerability found):
 - Test must PASS
-- Assertions prove numeric violation in REAL contracts:
+- Test must contain ACTUAL CALLS to target functions (not just setup)
+- Test must contain ASSERTIONS proving numeric violation in REAL contracts:
   - Attacker extracted more value than deposited
   - Balance equation broken after exploit sequence
   - Rounding exploit allowed zero-cost extraction
+- Empty tests or tests with only comments will be REJECTED
 
 For `exploit_found=false` (invariant holds):
 - Test must PASS
@@ -120,6 +125,11 @@ Repeat as needed:
    - Keep it minimal; instantiate only REAL contracts from the codebase.
    - Use concrete values, not symbolic. Include explicit assertions.
    - Do NOT create mock tokens or contracts with intentional bugs.
+
+   **CRITICAL: Every PoC MUST contain:**
+   - Actual calls to target contract functions (not just deployment)
+   - Assertions that FAIL if the bug doesn't exist (assert, require, assertTrue, etc.)
+   - A test with no assertions is INVALID and will be rejected
 
 5) **Prove it**
    - Run the test targeting your test contract.

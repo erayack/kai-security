@@ -135,6 +135,19 @@ After analysis, call `submit_verdict` with your findings.
   - "Economically infeasible - attacker loses X to cause Y damage"
   - "Known limitation with existing protection mechanisms"
 
+**If BLOCKED by upstream bug (Bug Eclipse):**
+
+When a PoC cannot be tested because an upstream bug blocks the code path:
+- `is_valid: false`
+- `blocked_by_root_cause: true`
+- `blocking_invariant_id: "<id of the blocking bug's invariant if known>"`
+- `rejection_reason: "Blocked by upstream bug - <describe the blocking issue>"`
+
+Use this when:
+- A function always reverts due to a bug (e.g., inverted require), blocking testing of downstream logic
+- The PoC cannot reach the target code due to an earlier bug in the call path
+- You identified a separate bug that prevents normal execution of this invariant's targets
+
 ## Tools Available
 
 **Test Execution:**
