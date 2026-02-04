@@ -359,7 +359,7 @@ class JavaScriptToolAdapter(ToolAdapter):
         Auto-discover PoC files in standard locations.
 
         When using non-standard test frameworks that don't pick up files
-        from tests/poc/, this method finds PoC files to run directly with node.
+        from tests/poc/, this method finds PoC files to run directly.
 
         Args:
             workspace_path: Path to the workspace directory
@@ -368,8 +368,8 @@ class JavaScriptToolAdapter(ToolAdapter):
             Relative path to the first PoC file found, or None
         """
         poc_dirs = ["tests/poc", "test/poc", "__tests__/poc"]
-        # Prefer .mjs files (ES modules work directly with node)
-        poc_extensions = [".mjs", ".js"]
+        # Prefer TypeScript files (Bun runs them directly), then ES modules
+        poc_extensions = [".ts", ".mts", ".mjs", ".js"]
 
         for poc_dir in poc_dirs:
             dir_path = workspace_path / poc_dir
@@ -379,7 +379,9 @@ class JavaScriptToolAdapter(ToolAdapter):
                     poc_files = sorted(dir_path.rglob(f"*{ext}"))
                     for poc_file in poc_files:
                         # Skip files that look like config or setup files
-                        if poc_file.name.startswith("_") or poc_file.name.startswith("."):
+                        if poc_file.name.startswith("_") or poc_file.name.startswith(
+                            "."
+                        ):
                             continue
                         # Return the relative path
                         return str(poc_file.relative_to(workspace_path))
@@ -391,18 +393,17 @@ class JavaScriptToolAdapter(ToolAdapter):
         framework_kwargs: Optional[Dict[str, Any]] = None,
     ) -> Optional[List[str]]:
         """
-        Build command to run PoC file directly with node.
+        Build command to run PoC file directly.
 
-        For non-standard test frameworks (tester, tape, ava, node-script) or
-        unknown frameworks, we run PoC files directly with node instead of
-        using a test runner CLI.
+        Prefers Bun if available (native TypeScript support, no compilation needed).
+        Falls back to Node.js for .js/.mjs files.
 
         Args:
             workspace_path: Path to the workspace directory
             framework_kwargs: Optional dict with "match_path" key
 
         Returns:
-            Command list [node_bin, test_file] or None if no PoC found
+            Command list [runtime, test_file] or None if no PoC found
         """
         fw = framework_kwargs or {}
         match_path = fw.get("match_path") or self._discover_poc_file(workspace_path)
@@ -414,11 +415,73 @@ class JavaScriptToolAdapter(ToolAdapter):
         if not test_file.exists():
             return None
 
+        # Prefer Bun for TypeScript files (native TS support, no compilation)
+        bun_bin = shutil.which("bun")
+        if not bun_bin:
+            # Check common Bun installation paths (not always in PATH)
+            for bun_path in [
+                Path.home() / ".bun" / "bin" / "bun",
+                Path("/usr/local/bin/bun"),
+                Path("/opt/homebrew/bin/bun"),
+            ]:
+                if bun_path.exists():
+                    bun_bin = str(bun_path)
+                    break
+        # Bun can execute files directly: `bun <file>`
+        if bun_bin:
+            return [bun_bin, str(test_file)]
+
+        # Fallback to Node.js
         try:
             node_bin = self.find_binary(workspace_path)
             return [node_bin, str(test_file)]
         except FileNotFoundError:
             return None
+
+    def _run_node_command(
+        self,
+        cmd: List[str],
+        workspace_path: Path,
+        timeout: int,
+    ) -> TestResult:
+        """
+        Run a node command and return TestResult.
+
+        Helper method for running PoC files directly with node.
+        """
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=str(workspace_path),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+
+            output = result.stdout + result.stderr
+            success = result.returncode == 0
+
+            # Parse output for pass/fail indicators
+            parsed = self._parse_test_output(output, "node-direct")
+
+            return TestResult(
+                success=success,
+                tests_passed=1 if success else 0,
+                tests_failed=0 if success else 1,
+                assertion_failures=parsed["assertion_failures"],
+                reverts=parsed["reverts"],
+                parsed_results=parsed["parsed_results"],
+                raw_output=output[:5000] if len(output) > 5000 else output,
+            )
+
+        except subprocess.TimeoutExpired:
+            return TestResult(
+                success=False,
+                error=f"Test execution timed out after {timeout} seconds",
+                raw_output=f"Test execution timed out after {timeout} seconds",
+            )
+        except Exception as e:
+            return TestResult(success=False, error=str(e))
 
     def run_test(
         self,
@@ -440,13 +503,60 @@ class JavaScriptToolAdapter(ToolAdapter):
             verbosity: Verbosity level
             timeout: Timeout in seconds
             additional_args: Additional test arguments
-            framework_kwargs: Framework-specific options
+            framework_kwargs: Framework-specific options (match_path to run specific file)
 
         Returns:
             TestResult with parsed test outcomes
         """
-        npx_bin = shutil.which("npx")
+        fw = framework_kwargs or {}
 
+        # If match_path is provided, run it directly with node (skip framework detection)
+        # This ensures we run the specific smoke/PoC file instead of the project's test suite
+        if fw.get("match_path"):
+            cmd = self._build_poc_command(workspace_path, framework_kwargs)
+            if cmd is not None:
+                return self._run_node_command(cmd, workspace_path, timeout)
+
+        # If a specific PoC path is provided, prefer running it directly with node
+        # regardless of any detected framework (avoids running full Jest/Vitest suites).
+        fw = framework_kwargs or {}
+        if fw.get("match_path"):
+            cmd = self._build_poc_command(workspace_path, framework_kwargs)
+            if cmd is not None:
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        cwd=str(workspace_path),
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout,
+                    )
+
+                    output = result.stdout + result.stderr
+                    success = result.returncode == 0
+
+                    # Parse output (may yield zeros, which is fine for smoke validation)
+                    parsed = self._parse_test_output(output, None)
+                    return TestResult(
+                        success=success,
+                        tests_passed=parsed["tests_passed"],
+                        tests_failed=parsed["tests_failed"],
+                        assertion_failures=parsed["assertion_failures"],
+                        reverts=parsed["reverts"],
+                        parsed_results=parsed["parsed_results"],
+                        raw_output=output[:5000] if len(output) > 5000 else output,
+                    )
+                except subprocess.TimeoutExpired:
+                    return TestResult(
+                        success=False,
+                        error=f"Test execution timed out after {timeout} seconds",
+                        raw_output=f"Test execution timed out after {timeout} seconds",
+                    )
+                except Exception as e:
+                    return TestResult(success=False, error=str(e))
+
+        # Otherwise, detect framework and run via its CLI (requires npx)
+        npx_bin = shutil.which("npx")
         if not npx_bin:
             return TestResult(success=False, error="npx not found")
 
@@ -481,7 +591,7 @@ class JavaScriptToolAdapter(ToolAdapter):
                 return TestResult(
                     success=False,
                     error="No PoC file found in tests/poc/, test/poc/, or __tests__/poc/. "
-                          "Write a .mjs file (ES module) to one of these directories first.",
+                    "Write a .mjs file (ES module) to one of these directories first.",
                     raw_output="PoC discovery searched: tests/poc/*.mjs, test/poc/*.mjs, __tests__/poc/*.mjs",
                 )
 
@@ -490,7 +600,9 @@ class JavaScriptToolAdapter(ToolAdapter):
             cmd.append("--verbose")
 
         # Additional args
-        if additional_args:
+        # Only append additional_args when using a real test runner (jest/vitest/mocha).
+        # For direct file execution (bun/node) these flags are meaningless and may break execution.
+        if additional_args and test_framework in {"jest", "vitest", "mocha"}:
             import shlex
 
             cmd.extend(shlex.split(additional_args))
@@ -554,16 +666,31 @@ class JavaScriptToolAdapter(ToolAdapter):
 
         # Strip leading test directories AND poc subdirectory
         # Order matters: check longer prefixes first to avoid partial matches
-        for prefix in ["tests/poc/", "test/poc/", "__tests__/poc/", "tests/", "test/", "__tests__/", "poc/"]:
+        for prefix in [
+            "tests/poc/",
+            "test/poc/",
+            "__tests__/poc/",
+            "tests/",
+            "test/",
+            "__tests__/",
+            "poc/",
+        ]:
             if normalized.startswith(prefix):
                 normalized = normalized[len(prefix) :]
                 break
 
         # Valid test file extensions (don't modify these)
         valid_extensions = [
-            ".test.js", ".test.ts", ".test.mjs", ".test.mts",
-            ".spec.js", ".spec.ts", ".spec.mjs", ".spec.mts",
-            ".mjs", ".mts",  # ES modules can be run directly with node
+            ".test.js",
+            ".test.ts",
+            ".test.mjs",
+            ".test.mts",
+            ".spec.js",
+            ".spec.ts",
+            ".spec.mjs",
+            ".spec.mts",
+            ".mjs",
+            ".mts",  # ES modules can be run directly with node
         ]
 
         # Ensure proper extension

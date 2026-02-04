@@ -257,11 +257,15 @@ class SolidityBuilder(BaseBuilder):
         project_root = Path(source).resolve()
         graph = DependencyGraph(project_root)
 
-        # Import Slither
+        # Import Slither (handle version/package layout differences robustly)
+        # Prefer top-level export; fall back to submodule. If unavailable, return empty graph.
         try:
-            from slither import Slither
-        except ImportError:
-            from slither.slither import Slither
+            from slither import Slither as _Slither
+        except Exception:
+            try:
+                from slither.slither import Slither as _Slither
+            except Exception:
+                return graph
 
         # Slither passes kwargs through to crytic-compile. If we force the Foundry framework,
         # crytic-compile requires a `foundry.toml` at the project root to identify it as
@@ -276,7 +280,7 @@ class SolidityBuilder(BaseBuilder):
                 self._prepare_foundry_compile_dirs(project_root)
 
             try:
-                sl = Slither(str(project_root), **(slither_kwargs or {}))
+                sl = _Slither(str(project_root), **(slither_kwargs or {}))
             except AssertionError:
                 foundry_toml = project_root / "foundry.toml"
                 if fw == "foundry" and not foundry_toml.is_file():
@@ -284,7 +288,7 @@ class SolidityBuilder(BaseBuilder):
                     tmp_foundry_toml.write_text(
                         self._default_foundry_toml(project_root), encoding="utf-8"
                     )
-                    sl = Slither(str(project_root), **(slither_kwargs or {}))
+                    sl = _Slither(str(project_root), **(slither_kwargs or {}))
                 else:
                     raise
         finally:

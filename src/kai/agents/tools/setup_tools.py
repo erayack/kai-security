@@ -20,6 +20,8 @@ __all__ = [
     "list_files",
     "update_file",
     "create_file",
+    "write_setup_script",
+    "run_setup_script",
     "git_submodule_update",
     "convert_ssh_to_https_in_gitmodules",
     "install_dependencies",
@@ -80,7 +82,8 @@ def _detect_framework(workspace: Path) -> str:
     """
     Best-effort detect a supported tool framework for compilation/testing.
 
-    Returns one of the supported tool adapter frameworks (e.g., "foundry", "cargo", "cmake").
+    Returns one of the supported tool adapter frameworks (e.g., "foundry", "cargo", "cmake",
+    "javascript", "typescript", "python").
     Defaults to "foundry" if nothing matches.
     """
     supported = set(get_supported_frameworks())
@@ -92,6 +95,28 @@ def _detect_framework(workspace: Path) -> str:
         return "cargo"
     if (workspace / "CMakeLists.txt").exists() and "cmake" in supported:
         return "cmake"
+
+    # JavaScript/TypeScript detection (check tsconfig first for TypeScript)
+    if (workspace / "tsconfig.json").exists() and "typescript" in supported:
+        return "typescript"
+    if (workspace / "package.json").exists() and "javascript" in supported:
+        # Check if it's a TypeScript project by looking for tsconfig or .ts files
+        if "typescript" in supported:
+            if (workspace / "tsconfig.json").exists():
+                return "typescript"
+            # Check for TypeScript source files
+            if any(workspace.glob("**/*.ts")) or any(workspace.glob("**/*.tsx")):
+                return "typescript"
+        return "javascript"
+
+    # Python detection
+    if "python" in supported:
+        if (workspace / "pyproject.toml").exists():
+            return "python"
+        if (workspace / "setup.py").exists():
+            return "python"
+        if (workspace / "requirements.txt").exists():
+            return "python"
 
     # Shallow fallback signals
     if any(workspace.glob("*.sol")) and "foundry" in supported:
@@ -110,6 +135,223 @@ def _detect_framework(workspace: Path) -> str:
             pass
 
     return "foundry"
+
+
+def write_setup_script(
+    working_dir: Optional[str] = None,
+    subdir: Optional[str] = None,
+    primary: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Write a cross-framework bootstrap script to scripts/setup_all.sh.
+
+    The script is idempotent and can:
+    - Install assist dependencies across Node/Foundry/Python/Cargo
+    - Build and test only the primary framework (auto-detected or overridden via PRIMARY=...)
+
+    Args:
+        working_dir: Base working directory (defaults to agent working_dir)
+        subdir: Optional subdirectory under working_dir to write the script in
+        primary: Optional primary framework hint (e.g., "foundry", "javascript", "python", "cargo", "cmake").
+
+    Returns:
+        Dict with {written: bool, path: str, content: str}
+    """
+    try:
+        wd = _resolve_working_dir(working_dir)
+        workspace = Path(wd)
+        # Determine destination directory for script.
+        # If subdir is provided, use it as-is; otherwise, default to "scripts".
+        # Avoid accidental nesting like scripts/scripts when callers pass "scripts".
+        scripts_dir = workspace / (subdir or "scripts")
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+
+        script_path = scripts_dir / "setup_all.sh"
+        script_content = """#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${SETUP_SUBDIR:-.}"
+cd "$ROOT"
+
+have(){ command -v "$1" >/dev/null 2>&1; }
+
+pkg_manager() {
+  if [ -f pnpm-lock.yaml ] && have pnpm; then echo pnpm; return; fi
+  if [ -f yarn.lock ] && have yarn; then echo yarn; return; fi
+  if [ -f package-lock.json ] && have npm; then echo npm; return; fi
+  if have pnpm; then echo pnpm; elif have yarn; then echo yarn; else echo npm; fi
+}
+
+node_install() {
+  [ -f package.json ] || return 0
+  PM="$(pkg_manager)"
+  case "$PM" in
+    pnpm) pnpm install --frozen-lockfile || pnpm install ;;
+    yarn) yarn install --frozen-lockfile || yarn install ;;
+    npm) npm ci || npm install ;;
+  esac
+}
+
+foundry_install() {
+  [ -f foundry.toml ] || return 0
+  if ! command -v forge >/dev/null 2>&1; then echo "forge not found in PATH"; return 1; fi
+  git submodule update --init --recursive || true
+  forge install || true
+}
+
+python_install() {
+  # Use uv sync ONLY when a pyproject.toml exists in this repo.
+  if [ -f pyproject.toml ]; then
+    if command -v uv >/dev/null 2>&1; then uv sync || true; return 0; fi
+  fi
+  # For requirements.txt-only repos, provision a local venv and install there.
+  if [ -f requirements.txt ]; then
+    python3 -m venv .venv || true
+    if [ -f .venv/bin/activate ]; then . .venv/bin/activate; fi
+    python3 -m pip install -U pip wheel || true
+    pip install -r requirements.txt || true
+  fi
+}
+
+cargo_install() {
+  [ -f Cargo.toml ] || return 0
+  if ! command -v cargo >/dev/null 2>&1; then echo "cargo not found in PATH"; return 1; fi
+  cargo fetch || true
+}
+
+primary_detect() {
+  if [ "${PRIMARY:-auto}" != "auto" ]; then echo "$PRIMARY"; return; fi
+  if [ -f foundry.toml ]; then echo foundry; return; fi
+  if ls hardhat.config.* >/dev/null 2>&1 || [ -f package.json ]; then echo javascript; return; fi
+  if [ -f Cargo.toml ]; then echo cargo; return; fi
+  if [ -f CMakeLists.txt ]; then echo cmake; return; fi
+  if [ -f pyproject.toml ] || [ -f requirements.txt ]; then echo python; return; fi
+  echo foundry
+}
+
+build_primary() {
+  local P; P="$(primary_detect)"
+  # Assist installs for common cross-deps
+  if [ "$P" = "foundry" ] && [ -f package.json ]; then node_install; fi
+  if [ "$P" = "javascript" ] && [ -f foundry.toml ]; then foundry_install; fi
+  if [ "$P" = "python" ] && [ -f Cargo.toml ]; then cargo_install; fi
+
+  case "$P" in
+    foundry) forge build ;;
+    javascript) npx hardhat compile || { command -v tsc >/dev/null 2>&1 && tsc -p .; } || true ;;
+    cargo) cargo test --no-run ;;
+    cmake) cmake -S . -B build && cmake --build build ;;
+    python) echo "Python: syntax-only; run tests to validate" ;;
+  esac
+}
+
+test_primary() {
+  local P; P="$(primary_detect)"
+  case "$P" in
+    foundry) forge test -vv ;;
+    javascript) npx hardhat test || npm test || true ;;
+    cargo) cargo test ;;
+    cmake) ctest --test-dir build || true ;;
+    python)
+      if [ -f .venv/bin/activate ]; then . .venv/bin/activate; fi
+      pytest -q || true
+      ;;
+  esac
+}
+
+case "${1:-all}" in
+  install) node_install; foundry_install; python_install; cargo_install ;;
+  build) build_primary ;;
+  test) test_primary ;;
+  all) node_install; foundry_install; python_install; cargo_install; build_primary; test_primary ;;
+esac
+"""
+
+        script_path.write_text(script_content, encoding="utf-8")
+        # Make executable
+        try:
+            os.chmod(script_path, 0o755)
+        except Exception:
+            # Non-fatal if chmod not permitted on some filesystems
+            pass
+
+        rel_path = script_path.relative_to(workspace)
+        result = {
+            "written": True,
+            "path": rel_path.as_posix(),
+            "content": script_content,
+        }
+        if primary:
+            result["primary_hint"] = str(primary)
+        return result
+    except Exception as e:
+        return {"written": False, "error": str(e)}
+
+
+def run_setup_script(
+    phase: str = "install",
+    working_dir: Optional[str] = None,
+    timeout: int = 600,
+) -> Dict[str, Any]:
+    """
+    Execute the generated scripts/setup_all.sh with the given phase.
+
+    Args:
+        phase: One of install, build, test, all
+        working_dir: Directory to run in (defaults to agent working_dir)
+        timeout: Command timeout in seconds
+
+    Returns:
+        Dict with {success: bool, stdout: str, stderr: str, returncode: int, script_path: str}
+    """
+    agent = _get_current_agent()
+    if agent is None:
+        return {"success": False, "error": "No agent context available"}
+
+    wd = _resolve_working_dir(working_dir)
+    workspace = Path(wd)
+
+    # Prefer scripts/setup_all.sh; tolerate older scripts/scripts/setup_all.sh
+    candidates = [
+        workspace / "scripts" / "setup_all.sh",
+        workspace / "scripts" / "scripts" / "setup_all.sh",
+    ]
+    script_path = None
+    for c in candidates:
+        if c.exists():
+            script_path = c
+            break
+    if script_path is None:
+        return {"success": False, "error": "setup_all.sh not found"}
+
+    try:
+        # Ensure executable
+        try:
+            os.chmod(script_path, 0o755)
+        except Exception:
+            pass
+
+        result = subprocess.run(
+            ["bash", str(script_path), str(phase)],
+            cwd=str(workspace),
+            capture_output=True,
+            text=True,
+            timeout=int(timeout),
+        )
+        return {
+            "success": result.returncode == 0,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode,
+            "script_path": str(script_path.relative_to(workspace)),
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "success": False,
+            "error": f"setup_all.sh {phase} timed out after {timeout}s",
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 def git_submodule_update(
@@ -239,13 +481,15 @@ def install_dependencies(
     timeout: int = 300,
 ) -> Dict[str, Any]:
     """
-    Install project dependencies using the detected framework's package manager.
+    DEPRECATED for guided usage via prompts. Prefer `write_setup_script(...)` and
+    invoking the generated scripts/setup_all.sh to provision dependencies and build/test.
+
+    This function remains for backward compatibility and direct calls. It installs
+    project dependencies using detected tool adapters and aggregates results.
 
     For Foundry projects, this uses `forge install` to install Solidity libraries.
     If no packages are specified, it automatically detects dependencies from .gitmodules.
-
-    This tool should be used BEFORE write_and_compile if git submodule update fails
-    or if the lib/ directory is missing dependencies.
+    On mixed repos (e.g., Foundry + Node), it will also run JS installs when package.json is present.
 
     Args:
         packages: Optional list of packages to install. Format depends on framework:

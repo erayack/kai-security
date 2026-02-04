@@ -135,6 +135,19 @@ After analysis, call `submit_verdict` with your findings.
   - "Economically infeasible - attacker loses X to cause Y damage"
   - "Known limitation with existing protection mechanisms"
 
+**If BLOCKED by upstream bug (Bug Eclipse):**
+
+When a PoC cannot be tested because an upstream bug blocks the code path:
+- `is_valid: false`
+- `blocked_by_root_cause: true`
+- `blocking_invariant_id: "<id of the blocking bug's invariant if known>"`
+- `rejection_reason: "Blocked by upstream bug - <describe the blocking issue>"`
+
+Use this when:
+- A function always reverts due to a bug (e.g., inverted require), blocking testing of downstream logic
+- The PoC cannot reach the target code due to an earlier bug in the call path
+- You identified a separate bug that prevents normal execution of this invariant's targets
+
 ## Tools Available
 
 **Test Execution:**
@@ -159,21 +172,27 @@ After analysis, call `submit_verdict` with your findings.
 
 Before submitting verdict, confirm:
 
-1. **Real code check:** Does the PoC use actual code from the codebase, or fabricated test doubles?
+1. **Target Relevance Check:** Is the PoC related to the invariant's targets?
+   - The PoC should exercise target_function_ids OR their callers/callees
+   - Use `dependency_graph_callers` and `dependency_graph_callees` to check connections
+   - If PoC targets a caller/callee, explain WHY the bug matters for the invariant
+   - The connection must be meaningful: the bug should affect the same state/behavior the invariant protects
 
-2. **Test logic check:** Does a PASSING test prove the exploit works? (Not a failing assertion)
+2. **Real code check:** Does the PoC use actual code from the codebase, or fabricated test doubles?
 
-3. **Attack feasibility:** Can an attacker realistically execute this?
+3. **Test logic check:** Does a PASSING test prove the exploit works? (Not a failing assertion)
+
+4. **Attack feasibility:** Can an attacker realistically execute this?
    - Do they need special permissions they wouldn't have?
    - Do they need capital they couldn't obtain?
    - Do they need timing/ordering that's impractical?
 
-4. **Impact assessment:** What's the worst-case outcome?
+5. **Impact assessment:** What's the worst-case outcome?
    - Who is affected? (single user, all users, protocol)
    - What's at risk? (funds, data, availability)
    - Is it reversible?
 
-5. **Economic viability:** Does the attack make sense economically?
+6. **Economic viability:** Does the attack make sense economically?
    - Profit motive: attacker gains value
    - Griefing motive: attacker causes harm (even at cost)
    - Neither: attack is pointless

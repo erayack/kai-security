@@ -3,7 +3,12 @@ from typing import Optional, List, Dict, Any, Literal
 
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 
-from kai.agents.settings import MAIN_DEFAULT_MODEL, SETUP_DEFAULT_MODEL, MAX_TOOL_TURNS, FALLBACK_MODEL
+from kai.agents.settings import (
+    MAIN_DEFAULT_MODEL,
+    SETUP_DEFAULT_MODEL,
+    MAX_TOOL_TURNS,
+    FALLBACK_MODEL,
+)
 from kai.utils.ids import generate_id
 
 # Adapter type literal for structured output validation
@@ -52,6 +57,29 @@ class AdapterSelection(BaseModel):
     reason: Optional[str] = None
 
 
+class ImportRecipe(BaseModel):
+    """
+    Validated import paths for a package, discovered by workspace validation.
+
+    This tells agents exactly how to import the target package in PoCs,
+    avoiding guesswork and mock-based tests.
+    """
+
+    # Primary import path from tests/poc/ directory (e.g., "../../index.js")
+    main_import: Optional[str] = None
+    # Package name if it can be imported directly (e.g., "undici")
+    package_name: Optional[str] = None
+    # Named exports available from main import
+    named_exports: List[str] = Field(default_factory=list)
+    # Map of key module names to their relative paths from tests/poc/
+    # e.g., {"RedirectHandler": "../../lib/handler/redirect-handler.js"}
+    submodule_paths: Dict[str, str] = Field(default_factory=dict)
+    # Example import statement that works
+    example_import: Optional[str] = None
+    # Whether the import was validated (actually tested)
+    validated: bool = False
+
+
 class MasterContext(BaseModel):
     """
     Immutable view of the built repository used by downstream agents.
@@ -73,6 +101,8 @@ class MasterContext(BaseModel):
     test_script_path: Optional[str] = None
     test_script: Optional[str] = None
     adapter: AdapterType = "solidity"  # Domain adapter for dependency graph analysis
+    # Validated import paths for PoC writing (discovered by workspace validation)
+    import_recipe: Optional[ImportRecipe] = None
 
 
 class AgentResponse(BaseModel):
@@ -118,6 +148,9 @@ class InvariantType(str, Enum):
     ORDERING = "ordering"  # State transition ordering
     VALUE_FLOW = "value_flow"  # Correct variable used in value calculations
     ECONOMIC = "economic"  # Economic correctness (distribution, basis)
+    EXCEPTION_SAFETY = (
+        "exception_safety"  # Uncaught exceptions from invalid args (CWE-248)
+    )
     OTHER = "other"  # Anything else
 
 
@@ -135,6 +168,7 @@ class Invariant(BaseModel):
     type: InvariantType
     rule: str  # Human-readable invariant statement
     explanation: str = ""  # LLM's reasoning for this invariant
+    principle: str = ""  # Abstract vulnerability pattern (e.g., "unchecked numeric input to string operation")
 
     # Grounded targets - all must be valid graph node IDs
     target_function_ids: List[str] = Field(default_factory=list)
@@ -302,6 +336,12 @@ class Verdict(BaseModel):
     is_known_limitation: bool = False  # Known design tradeoff vs actual bug?
     targets_real_implementation: bool = True  # Tests actual code, not just interface?
 
+    # Root cause blocking - when a global liveness bug prevents testing downstream invariants
+    blocked_by_root_cause: bool = False  # Could not verify due to upstream bug
+    blocking_invariant_id: Optional[str] = (
+        None  # ID of the root cause invariant blocking this one
+    )
+
     # Economic analysis
     attack_cost_estimate: Optional[str] = None  # e.g., "$1M donation to grief $1"
     attacker_profit_estimate: Optional[str] = None  # e.g., "Can extract $X"
@@ -358,6 +398,8 @@ class EnvironmentSetupInput(BaseModel):
     use_openai: bool = False
     execution_id: Optional[str] = None
     repo_path_override: Optional[str] = None
+    save_rollouts: bool = False
+    rollouts_dir: Optional[str] = None
 
 
 class EnvironmentSetupOutput(BaseModel):
@@ -390,6 +432,8 @@ class WorkspaceValidationInput(BaseModel):
     presets: List["WorkspacePreset"] = Field(default_factory=list)
     timeout_compile_s: int = 120
     timeout_test_s: int = 120
+    save_rollouts: bool = False
+    rollouts_dir: Optional[str] = None
 
 
 class WorkspaceValidationResult(BaseModel):
@@ -404,6 +448,8 @@ class WorkspaceValidationResult(BaseModel):
     tests_failed: int = 0
     raw_output: str = ""
     error: Optional[str] = None
+    # Discovered import recipe for PoC writing (how to import target code from tests/poc/)
+    import_recipe: Optional[ImportRecipe] = None
 
 
 class WorkspaceValidationOutput(BaseModel):

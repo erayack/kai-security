@@ -10,7 +10,7 @@ Provides domain knowledge for Python security analysis:
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from .base import DomainAdapter, LensDefinition
-from ..models import Node, NodeKind
+from ..models import Node, NodeKind, EdgeKind
 
 if TYPE_CHECKING:
     from ..graph import DependencyGraph
@@ -299,6 +299,83 @@ class PythonAdapter(DomainAdapter):
             "rate_limit",
             "cache",
         ]
+
+    # =========================================================================
+    # Lifecycle/Temporal detection overrides
+    # =========================================================================
+
+    def get_time_source_patterns(self) -> List[str]:
+        """Python-specific time source patterns."""
+        return [
+            "time.time()",
+            "datetime.now()",
+            "datetime.utcnow()",
+            "datetime.today()",
+            "time.monotonic()",
+            "time.perf_counter()",
+            "asyncio.get_event_loop().time()",
+            "timedelta",
+        ]
+
+    def get_reset_patterns(self) -> List[str]:
+        """Python-specific reset patterns."""
+        return [
+            "= false",
+            "= true",
+            "= 0",
+            "= none",
+            "= []",
+            "= {}",
+            ".clear()",
+            "reset",
+            "del ",
+        ]
+
+    def _get_var_names_from_edges(
+        self,
+        node: Node,
+        graph: "DependencyGraph",
+        edge_kind: EdgeKind,
+    ) -> List[str]:
+        """
+        Get variable names that a function reads/writes via graph edges.
+
+        Args:
+            node: The function node
+            graph: The dependency graph
+            edge_kind: EdgeKind.READS or EdgeKind.WRITES
+
+        Returns:
+            List of variable names
+        """
+        var_names: List[str] = []
+        try:
+            var_ids = list(
+                graph.neighbors(node.id, edge_kinds={edge_kind}, direction="out")
+            )
+            for var_id in var_ids:
+                var_node = graph.node(var_id)
+                if var_node and var_node.name:
+                    var_names.append(var_node.name)
+        except (KeyError, AttributeError):
+            pass
+        return var_names
+
+    def _get_source_code(self, node: Node, graph: "DependencyGraph") -> str:
+        """
+        Get source code for a node.
+
+        Args:
+            node: The function node
+            graph: The dependency graph
+
+        Returns:
+            Source code string, empty if not available
+        """
+        code = node.meta.get("source_code", "")
+        if code:
+            return code
+        return ""
 
     # =========================================================================
     # Lens-based invariant generation
@@ -702,6 +779,163 @@ Verify security headers:
             ]
             return any(p in name_lower for p in state_patterns)
 
+        # Lifecycle/Economic extractors using base classifiers
+        def extract_timerish_score(node: Node, graph: "DependencyGraph") -> int:
+            """Score indicating how likely function is timer-related (0-10)."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            # Python: property decorator or name starting with get_ suggests view
+            decorators = node.meta.get("decorators", [])
+            is_view = "property" in decorators or node.name.startswith("get_")
+            score, _ = self.classify_timerish(
+                node.name, code, read_vars, write_vars, is_view
+            )
+            return score
+
+        def extract_timerish_roles(node: Node, graph: "DependencyGraph") -> List[str]:
+            """List of timer-related roles for this function."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            decorators = node.meta.get("decorators", [])
+            is_view = "property" in decorators or node.name.startswith("get_")
+            _, roles = self.classify_timerish(
+                node.name, code, read_vars, write_vars, is_view
+            )
+            return roles
+
+        def extract_is_time_view(node: Node, graph: "DependencyGraph") -> bool:
+            """True if function is a time/countdown view."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            decorators = node.meta.get("decorators", [])
+            is_view = "property" in decorators or node.name.startswith("get_")
+            _, roles = self.classify_timerish(
+                node.name, code, read_vars, write_vars, is_view
+            )
+            return "time_view" in roles
+
+        def extract_is_time_guard_mutation(
+            node: Node, graph: "DependencyGraph"
+        ) -> bool:
+            """True if function has time guard and mutates state."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            decorators = node.meta.get("decorators", [])
+            is_view = "property" in decorators or node.name.startswith("get_")
+            _, roles = self.classify_timerish(
+                node.name, code, read_vars, write_vars, is_view
+            )
+            return "time_guard_mutation" in roles
+
+        def extract_is_time_reset(node: Node, graph: "DependencyGraph") -> bool:
+            """True if function resets lifecycle state."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            decorators = node.meta.get("decorators", [])
+            is_view = "property" in decorators or node.name.startswith("get_")
+            _, roles = self.classify_timerish(
+                node.name, code, read_vars, write_vars, is_view
+            )
+            return "time_reset" in roles
+
+        def extract_economic_score(node: Node, graph: "DependencyGraph") -> int:
+            """Score indicating how likely function is economic/value-flow related (0-10)."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            # Python: check for amount/value in params or name
+            params = node.meta.get("parameters", [])
+            params_lower = [p.lower() for p in params if isinstance(p, str)]
+            is_value_accepting = any(
+                "amount" in p or "value" in p for p in params_lower
+            )
+            score, _ = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_value_accepting
+            )
+            return score
+
+        def extract_economic_roles(node: Node, graph: "DependencyGraph") -> List[str]:
+            """List of economic-related roles for this function."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            params = node.meta.get("parameters", [])
+            params_lower = [p.lower() for p in params if isinstance(p, str)]
+            is_value_accepting = any(
+                "amount" in p or "value" in p for p in params_lower
+            )
+            _, roles = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_value_accepting
+            )
+            return roles
+
+        def extract_is_participation_entry(
+            node: Node, graph: "DependencyGraph"
+        ) -> bool:
+            """True if function is a participation entry point."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            params = node.meta.get("parameters", [])
+            params_lower = [p.lower() for p in params if isinstance(p, str)]
+            is_value_accepting = any(
+                "amount" in p or "value" in p for p in params_lower
+            )
+            _, roles = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_value_accepting
+            )
+            return "participation_entry" in roles
+
+        def extract_touches_accumulator(node: Node, graph: "DependencyGraph") -> bool:
+            """True if function touches accumulator/treasury vars."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            params = node.meta.get("parameters", [])
+            params_lower = [p.lower() for p in params if isinstance(p, str)]
+            is_value_accepting = any(
+                "amount" in p or "value" in p for p in params_lower
+            )
+            _, roles = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_value_accepting
+            )
+            return "touches_accumulator" in roles
+
+        def extract_touches_obligation(node: Node, graph: "DependencyGraph") -> bool:
+            """True if function touches obligation/pending vars."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            params = node.meta.get("parameters", [])
+            params_lower = [p.lower() for p in params if isinstance(p, str)]
+            is_value_accepting = any(
+                "amount" in p or "value" in p for p in params_lower
+            )
+            _, roles = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_value_accepting
+            )
+            return "touches_obligation" in roles
+
+        def extract_is_distribution(node: Node, graph: "DependencyGraph") -> bool:
+            """True if function distributes value from accumulator/obligation."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            params = node.meta.get("parameters", [])
+            params_lower = [p.lower() for p in params if isinstance(p, str)]
+            is_value_accepting = any(
+                "amount" in p or "value" in p for p in params_lower
+            )
+            _, roles = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_value_accepting
+            )
+            return "distribution" in roles
+
         return {
             "is_async": extract_is_async,
             "has_route_decorator": extract_has_route_decorator,
@@ -713,4 +947,17 @@ Verify security headers:
             "handles_files": extract_handles_files,
             "has_network_call": extract_has_network_call,
             "modifies_state": extract_modifies_state,
+            # Lifecycle/temporal extractors
+            "timerish_score": extract_timerish_score,
+            "timerish_roles": extract_timerish_roles,
+            "is_time_view": extract_is_time_view,
+            "is_time_guard_mutation": extract_is_time_guard_mutation,
+            "is_time_reset": extract_is_time_reset,
+            # Economic extractors
+            "economic_score": extract_economic_score,
+            "economic_roles": extract_economic_roles,
+            "is_participation_entry": extract_is_participation_entry,
+            "touches_accumulator": extract_touches_accumulator,
+            "touches_obligation": extract_touches_obligation,
+            "is_distribution": extract_is_distribution,
         }

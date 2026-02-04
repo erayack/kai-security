@@ -10,7 +10,7 @@ Provides domain knowledge for JavaScript/Node.js security analysis:
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from .base import DomainAdapter, LensDefinition
-from ..models import Node, NodeKind
+from ..models import Node, NodeKind, EdgeKind
 
 if TYPE_CHECKING:
     from ..graph import DependencyGraph
@@ -291,6 +291,81 @@ class JavaScriptAdapter(DomainAdapter):
         ]
 
     # =========================================================================
+    # Lifecycle/Temporal detection overrides
+    # =========================================================================
+
+    def get_time_source_patterns(self) -> List[str]:
+        """JavaScript-specific time source patterns."""
+        return [
+            "date.now()",
+            "new date(",
+            "gettime()",
+            "performance.now()",
+            "settimeout",
+            "setinterval",
+            "process.hrtime",
+        ]
+
+    def get_reset_patterns(self) -> List[str]:
+        """JavaScript-specific reset patterns."""
+        return [
+            "= false",
+            "= true",
+            "= 0",
+            "= null",
+            "= undefined",
+            "delete ",
+            "reset",
+            ".clear()",
+        ]
+
+    def _get_var_names_from_edges(
+        self,
+        node: Node,
+        graph: "DependencyGraph",
+        edge_kind: EdgeKind,
+    ) -> List[str]:
+        """
+        Get variable names that a function reads/writes via graph edges.
+
+        Args:
+            node: The function node
+            graph: The dependency graph
+            edge_kind: EdgeKind.READS or EdgeKind.WRITES
+
+        Returns:
+            List of variable names
+        """
+        var_names: List[str] = []
+        try:
+            var_ids = list(
+                graph.neighbors(node.id, edge_kinds={edge_kind}, direction="out")
+            )
+            for var_id in var_ids:
+                var_node = graph.node(var_id)
+                if var_node and var_node.name:
+                    var_names.append(var_node.name)
+        except (KeyError, AttributeError):
+            pass
+        return var_names
+
+    def _get_source_code(self, node: Node, graph: "DependencyGraph") -> str:
+        """
+        Get source code for a node.
+
+        Args:
+            node: The function node
+            graph: The dependency graph
+
+        Returns:
+            Source code string, empty if not available
+        """
+        code = node.meta.get("source_code", "")
+        if code:
+            return code
+        return ""
+
+    # =========================================================================
     # Lens-based invariant generation
     # =========================================================================
 
@@ -532,6 +607,107 @@ For EACH cookie operation:
                     "Cookies have security flags",
                 ],
             ),
+            LensDefinition(
+                name="redirect_sanitization",
+                description="HTTP redirect handling, credential forwarding, header sanitization completeness",
+                invariant_types=["ACCESS", "VALUE_FLOW", "OTHER"],
+                prompt_template="""
+## REDIRECT SANITIZATION LENS - HTTP Client Security
+
+Focus on security policy enforcement during HTTP redirects.
+
+### Cross-Origin Redirect Security
+When an HTTP client follows a redirect to a different origin, browser security policies require
+that sensitive/credential headers NOT be forwarded to the new origin. This prevents credential
+leakage to potentially malicious redirect targets.
+
+For EACH function involved in redirect handling:
+1. **Identify redirect detection**: How does the code detect 3xx responses?
+2. **Identify origin comparison**: How does it determine same-origin vs cross-origin?
+3. **Identify header filtering**: What logic decides which headers to strip?
+4. **Audit completeness**: Is the filtering logic complete or partial?
+
+### Patterns Indicating Incomplete Sanitization
+- Hardcoded lists of header names (may be missing entries)
+- Filtering based on header name length (may miss headers of different lengths)
+- Allowlist approach without comprehensive coverage
+- Case sensitivity issues in header name matching
+- Missing custom authentication headers common in the ecosystem
+
+### What to Look For
+- Functions named: redirect, Redirect, RedirectHandler, followRedirect
+- Methods: onHeaders, onRedirect, handleRedirect
+- Helper functions: shouldRemoveHeader, cleanHeaders, sanitizeHeaders, filterHeaders
+- Look at BOTH the public handler AND its internal helper functions
+
+### Generate Invariants For
+- "Header sanitization on cross-origin redirect covers all credential headers"
+- "Redirect handler strips sensitive headers when origin changes"
+- "Header filtering logic is comprehensive (not partial/hardcoded subset)"
+""",
+                checklist=[
+                    "Redirect handling identifies cross-origin redirects",
+                    "Credential headers are stripped on cross-origin redirect",
+                    "Header filtering is comprehensive (not just a partial list)",
+                    "Internal helper functions are included in analysis",
+                ],
+            ),
+            LensDefinition(
+                name="exception_safety",
+                description="Uncaught exceptions from built-in methods with invalid arguments (CWE-248)",
+                invariant_types=["EXCEPTION_SAFETY", "OTHER"],
+                prompt_template="""
+## EXCEPTION SAFETY LENS - JavaScript/TypeScript (CWE-248)
+
+Focus on uncaught exceptions from built-in methods that throw on invalid arguments.
+
+### Built-in Methods That Throw on Invalid Arguments
+JavaScript built-ins that throw RangeError/TypeError with invalid inputs:
+
+**String methods:**
+- `str.repeat(count)` - throws if count < 0 or Infinity
+- `str.padStart(len)` / `str.padEnd(len)` - throws if len not valid
+- `str.normalize(form)` - throws on invalid form
+
+**Array/Buffer constructors:**
+- `new Array(length)` - throws if length < 0 or > 2^32-1
+- `new ArrayBuffer(length)` - throws if length < 0
+- TypedArray constructors - similar bounds
+
+**Number methods:**
+- `num.toFixed(digits)` - throws if digits < 0 or > 100
+- `num.toPrecision(digits)` - throws if digits < 1 or > 100
+
+For EACH usage of these methods:
+1. Check if argument is computed (arithmetic, variable)
+2. Check if computation could produce invalid value
+3. Generate EXCEPTION_SAFETY invariant if unguarded
+
+### Arithmetic Before Built-in Calls
+Look for patterns where arithmetic feeds into throwing methods:
+- Subtraction that could go negative
+- Division that could produce non-integer
+- User-controlled values without validation
+
+### Functions Processing External/Untrusted Data
+For functions that:
+- Parse or process structured input
+- Handle position/offset/index values
+- Format or transform data for output
+
+Check if computed values flow into throwing built-ins unguarded.
+
+### Try-Catch Coverage
+- Throwing operations should be wrapped or arguments validated
+- Error handling code paths should not themselves throw
+""",
+                checklist=[
+                    "Arguments to throwing built-ins are validated",
+                    "Arithmetic results checked before use as counts/lengths",
+                    "External data validated before flowing to built-ins",
+                    "No unguarded throwing calls in error handling paths",
+                ],
+            ),
         ]
 
     def get_function_metadata_extractors(self) -> Dict[str, Callable]:
@@ -650,6 +826,253 @@ For EACH cookie operation:
             ]
             return any(p in name_lower for p in state_patterns)
 
+        def _get_calls_from_graph(node: Node, graph: "DependencyGraph") -> List[str]:
+            """Get call targets for a node from graph edges."""
+            from ..models import EdgeKind
+
+            calls = []
+            # Graph stores edges as Dict[(src, kind, dst), EdgeMeta]
+            for src, kind, dst in graph._edges.keys():
+                if src == node.id and kind == EdgeKind.CALLS:
+                    calls.append(dst)
+            return calls
+
+        def extract_uses_throwing_builtins(
+            node: Node, graph: "DependencyGraph"
+        ) -> bool:
+            """Check if function uses JS built-ins that throw on invalid args."""
+            calls = _get_calls_from_graph(node, graph)
+            calls_lower = [c.lower() for c in calls if isinstance(c, str)]
+            # JS built-in methods that throw RangeError/TypeError on invalid args
+            throwing_builtins = [
+                ".repeat",
+                ".padstart",
+                ".padend",
+                ".tofixed",
+                ".toprecision",
+                ".normalize",
+            ]
+            return any(m in c for c in calls_lower for m in throwing_builtins)
+
+        def extract_creates_sized_objects(node: Node, graph: "DependencyGraph") -> bool:
+            """Check if function creates arrays/buffers with size arguments."""
+            calls = _get_calls_from_graph(node, graph)
+            calls_lower = [c.lower() for c in calls if isinstance(c, str)]
+            # Constructors that throw on invalid size
+            sized_constructors = [
+                "array(",
+                "arraybuffer(",
+                "sharedarraybuffer(",
+                "uint8array(",
+                "uint16array(",
+                "uint32array(",
+                "int8array(",
+                "int16array(",
+                "int32array(",
+                "float32array(",
+                "float64array(",
+                "bigint64array(",
+                "biguint64array(",
+                "buffer.alloc",
+            ]
+            return any(c in calls_lower for c in sized_constructors)
+
+        def extract_handles_redirect(node: Node, graph: "DependencyGraph") -> bool:
+            """Check if function handles HTTP redirects or header sanitization."""
+            name_lower = node.name.lower()
+            file_path = (node.span.file if node.span else "").lower()
+
+            # Function name patterns related to redirect handling
+            redirect_patterns = [
+                "redirect",
+                "location",
+                "onheaders",
+                "cleanheaders",
+                "sanitizeheader",
+                "removeheader",
+                "filterheader",
+                "shouldremove",
+            ]
+            if any(p in name_lower for p in redirect_patterns):
+                return True
+
+            # File path patterns
+            if "redirect" in file_path or "handler" in file_path:
+                return True
+
+            # Check calls for redirect-related operations
+            calls = _get_calls_from_graph(node, graph)
+            calls_lower = [c.lower() for c in calls if isinstance(c, str)]
+            redirect_calls = ["redirect", "location", "header"]
+            if any(r in c for c in calls_lower for r in redirect_calls):
+                return True
+
+            return False
+
+        def extract_handles_headers(node: Node, graph: "DependencyGraph") -> bool:
+            """Check if function manipulates HTTP headers."""
+            name_lower = node.name.lower()
+
+            # Function name patterns related to header handling
+            header_patterns = [
+                "header",
+                "headers",
+                "setheader",
+                "getheader",
+                "removeheader",
+                "cleanheader",
+                "parseheader",
+            ]
+            if any(p in name_lower for p in header_patterns):
+                return True
+
+            # Check calls
+            calls = _get_calls_from_graph(node, graph)
+            calls_lower = [c.lower() for c in calls if isinstance(c, str)]
+            if any("header" in c for c in calls_lower):
+                return True
+
+            return False
+
+        # Lifecycle/Economic extractors using base classifiers
+        def extract_timerish_score(node: Node, graph: "DependencyGraph") -> int:
+            """Score indicating how likely function is timer-related (0-10)."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_view = node.meta.get("is_getter", False) or "get" in node.name.lower()
+            score, _ = self.classify_timerish(
+                node.name, code, read_vars, write_vars, is_view
+            )
+            return score
+
+        def extract_timerish_roles(node: Node, graph: "DependencyGraph") -> List[str]:
+            """List of timer-related roles for this function."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_view = node.meta.get("is_getter", False) or "get" in node.name.lower()
+            _, roles = self.classify_timerish(
+                node.name, code, read_vars, write_vars, is_view
+            )
+            return roles
+
+        def extract_is_time_view(node: Node, graph: "DependencyGraph") -> bool:
+            """True if function is a time/countdown view."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_view = node.meta.get("is_getter", False) or "get" in node.name.lower()
+            _, roles = self.classify_timerish(
+                node.name, code, read_vars, write_vars, is_view
+            )
+            return "time_view" in roles
+
+        def extract_is_time_guard_mutation(
+            node: Node, graph: "DependencyGraph"
+        ) -> bool:
+            """True if function has time guard and mutates state."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_view = node.meta.get("is_getter", False) or "get" in node.name.lower()
+            _, roles = self.classify_timerish(
+                node.name, code, read_vars, write_vars, is_view
+            )
+            return "time_guard_mutation" in roles
+
+        def extract_is_time_reset(node: Node, graph: "DependencyGraph") -> bool:
+            """True if function resets lifecycle state."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_view = node.meta.get("is_getter", False) or "get" in node.name.lower()
+            _, roles = self.classify_timerish(
+                node.name, code, read_vars, write_vars, is_view
+            )
+            return "time_reset" in roles
+
+        def extract_economic_score(node: Node, graph: "DependencyGraph") -> int:
+            """Score indicating how likely function is economic/value-flow related (0-10)."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            # JS doesn't have payable, check for value-related patterns
+            is_value_accepting = (
+                "amount" in node.name.lower() or "value" in code.lower()
+            )
+            score, _ = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_value_accepting
+            )
+            return score
+
+        def extract_economic_roles(node: Node, graph: "DependencyGraph") -> List[str]:
+            """List of economic-related roles for this function."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_value_accepting = (
+                "amount" in node.name.lower() or "value" in code.lower()
+            )
+            _, roles = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_value_accepting
+            )
+            return roles
+
+        def extract_is_participation_entry(
+            node: Node, graph: "DependencyGraph"
+        ) -> bool:
+            """True if function is a participation entry point."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_value_accepting = (
+                "amount" in node.name.lower() or "value" in code.lower()
+            )
+            _, roles = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_value_accepting
+            )
+            return "participation_entry" in roles
+
+        def extract_touches_accumulator(node: Node, graph: "DependencyGraph") -> bool:
+            """True if function touches accumulator/treasury vars."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_value_accepting = (
+                "amount" in node.name.lower() or "value" in code.lower()
+            )
+            _, roles = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_value_accepting
+            )
+            return "touches_accumulator" in roles
+
+        def extract_touches_obligation(node: Node, graph: "DependencyGraph") -> bool:
+            """True if function touches obligation/pending vars."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_value_accepting = (
+                "amount" in node.name.lower() or "value" in code.lower()
+            )
+            _, roles = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_value_accepting
+            )
+            return "touches_obligation" in roles
+
+        def extract_is_distribution(node: Node, graph: "DependencyGraph") -> bool:
+            """True if function distributes value from accumulator/obligation."""
+            read_vars = self._get_var_names_from_edges(node, graph, EdgeKind.READS)
+            write_vars = self._get_var_names_from_edges(node, graph, EdgeKind.WRITES)
+            code = self._get_source_code(node, graph)
+            is_value_accepting = (
+                "amount" in node.name.lower() or "value" in code.lower()
+            )
+            _, roles = self.classify_economic(
+                node.name, code, read_vars, write_vars, is_value_accepting
+            )
+            return "distribution" in roles
+
         return {
             "is_async": extract_is_async,
             "is_exported": extract_is_exported,
@@ -661,4 +1084,23 @@ For EACH cookie operation:
             "handles_dom": extract_handles_dom,
             "calls_external": extract_calls_external,
             "modifies_state": extract_modifies_state,
+            # Exception safety extractors - based on actual JS semantics
+            "uses_throwing_builtins": extract_uses_throwing_builtins,
+            "creates_sized_objects": extract_creates_sized_objects,
+            # Redirect/header sanitization extractors
+            "handles_redirect": extract_handles_redirect,
+            "handles_headers": extract_handles_headers,
+            # Lifecycle/temporal extractors
+            "timerish_score": extract_timerish_score,
+            "timerish_roles": extract_timerish_roles,
+            "is_time_view": extract_is_time_view,
+            "is_time_guard_mutation": extract_is_time_guard_mutation,
+            "is_time_reset": extract_is_time_reset,
+            # Economic extractors
+            "economic_score": extract_economic_score,
+            "economic_roles": extract_economic_roles,
+            "is_participation_entry": extract_is_participation_entry,
+            "touches_accumulator": extract_touches_accumulator,
+            "touches_obligation": extract_touches_obligation,
+            "is_distribution": extract_is_distribution,
         }

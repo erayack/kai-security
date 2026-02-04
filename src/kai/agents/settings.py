@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Agent model settings
-SETUP_DEFAULT_MODEL = "google/gemini-3-flash-preview"
-MAIN_DEFAULT_MODEL = "google/gemini-3-flash-preview"
+SETUP_DEFAULT_MODEL = "openai/gpt-5.2-codex"
+MAIN_DEFAULT_MODEL = "google/gemini-3-flash-preview"  # stepfun/step-3.5-flash:free x-ai/grok-code-fast-1 google/gemini-3-flash-preview
 GAMIFIED_DEFAULT_MODEL = "google/gemini-3-flash-preview"
 VERIFIER_DEFAULT_MODEL = "openai/gpt-5.2-codex"
 INVARIANT_DEFAULT_MODEL = "openai/gpt-5.2-codex"
@@ -20,9 +20,7 @@ FIXER_DEFAULT_MODEL = "openai/gpt-5.2-codex"
 FALLBACK_MODEL = "google/gemini-3-flash-preview"
 
 # Agent turn limits (centralized)
-DEFAULT_MAX_TURNS = (
-    32  # Default for most agents (state, quant, blackbox, gamified, fixer)
-)
+DEFAULT_MAX_TURNS = 32
 SETUP_MAX_TURNS = 32  # Setup agent
 PROFILER_MAX_TURNS = 24  # Profiler agent
 VERIFIER_MAX_TURNS = 16  # Verifier needs fewer turns

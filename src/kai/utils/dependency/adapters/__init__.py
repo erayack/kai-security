@@ -50,7 +50,7 @@ def get_adapter(name: str) -> DomainAdapter:
     Get an adapter instance by name.
 
     Args:
-        name: Adapter name (e.g., "solidity", "python", "javascript", "c")
+        name: Adapter name (e.g., "solidity", "python", "javascript", "typescript", "c")
 
     Returns:
         Instantiated adapter
@@ -59,6 +59,17 @@ def get_adapter(name: str) -> DomainAdapter:
         ValueError: If adapter name is unknown
     """
     name_lower = name.lower()
+
+    # Map aliases to canonical adapter names
+    alias_map = {
+        "typescript": "javascript",  # TypeScript uses JavaScript adapter
+        "ts": "javascript",
+        "js": "javascript",
+        "py": "python",
+        "sol": "solidity",
+    }
+    name_lower = alias_map.get(name_lower, name_lower)
+
     if name_lower not in ADAPTER_REGISTRY:
         available = list(ADAPTER_REGISTRY.keys())
         raise ValueError(f"Unknown adapter '{name}'. Available: {available}")

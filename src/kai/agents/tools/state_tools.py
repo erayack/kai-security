@@ -85,6 +85,14 @@ def run_test(
     # Get the adapter for framework-specific operations
     adapter = _get_adapter()
 
+    # Build framework_kwargs, auto-populating match_path from last write if not provided
+    fw = dict(framework_kwargs or {})
+    if "match_path" not in fw:
+        # Use the last PoC path from write_and_compile if available
+        last_poc_path = getattr(agent, "_last_poc_match_path", None)
+        if last_poc_path:
+            fw["match_path"] = last_poc_path
+
     # Run tests using the adapter
     test_result = adapter.run_test(
         workspace_path=workspace,
@@ -92,7 +100,7 @@ def run_test(
         match_test=match_test,
         verbosity=verbosity,
         additional_args=additional_args,
-        framework_kwargs=framework_kwargs,
+        framework_kwargs=fw if fw else None,
     )
 
     # Track test attempts

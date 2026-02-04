@@ -88,6 +88,7 @@ class GamifiedAgent(BaseAgent):
         model: Optional[str] = settings.GAMIFIED_DEFAULT_MODEL,
         use_openai: bool = False,
         execution_id: Optional[str] = None,
+        scope_paths: Optional[List[str]] = None,
     ):
         super().__init__(
             max_tool_turns=max_tool_turns,
@@ -96,6 +97,7 @@ class GamifiedAgent(BaseAgent):
             model=model,
             agent_type=AgentType.GAMIFIED,
             use_openai=use_openai,
+            scope_paths=scope_paths,
         )
 
         self.mission = mission
@@ -132,6 +134,8 @@ class GamifiedAgent(BaseAgent):
         inv_lines = []
         for inv in self.invariant_cluster:
             inv_lines.append(f"- {inv.id} ({inv.type.value}): {inv.rule}")
+            if inv.principle:
+                inv_lines.append(f"  Principle: {inv.principle}")
             if inv.explanation:
                 inv_lines.append(f"  Explanation: {inv.explanation}")
             if inv.target_function_ids:

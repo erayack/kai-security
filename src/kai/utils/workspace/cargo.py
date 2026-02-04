@@ -71,6 +71,9 @@ class CargoWorkspaceAdapter(WorkspaceAdapter):
                 shutil.copy2(item, workspace / item.name)
 
         self._make_writable(workspace)
+
+        # Reuse master's build artifacts when available to avoid rebuilding per agent
+        self._setup_target_symlink(workspace, master)
         return str(workspace)
 
     def detect_remappings(self, master: Path) -> str:
@@ -109,3 +112,16 @@ class CargoWorkspaceAdapter(WorkspaceAdapter):
                     p.chmod(p.stat().st_mode | 0o200)
                 except Exception:
                     pass
+
+    def _setup_target_symlink(self, workspace: Path, master: Path) -> None:
+        """Symlink workspace/target -> master/target when available."""
+        tgt_master = master / "target"
+        tgt_link = workspace / "target"
+        if tgt_link.exists():
+            return
+        if tgt_master.exists() and tgt_master.is_dir():
+            try:
+                rel_path = os.path.relpath(tgt_master, workspace)
+                tgt_link.symlink_to(rel_path)
+            except OSError:
+                pass

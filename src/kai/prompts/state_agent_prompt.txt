@@ -22,12 +22,17 @@ Fight this bias by exploring multiple interpretations.
 
 **IMPORTANT: Always write and compile a test before registering.**
 
+**WARNING: A test with NO assertions always passes - that is NOT a valid PoC.**
+A valid PoC must have actual exploit logic AND assertions that would fail if the bug didn't exist.
+
 For `exploit_found=true` (vulnerability found):
 - Test must PASS
-- Assertions prove something bad happened:
+- Test must contain ACTUAL CALLS to target functions (not just setup)
+- Test must contain ASSERTIONS that prove something bad happened:
   - Attacker extracted value they shouldn't have
   - Unauthorized action succeeded
   - Invariant broken in REAL contract state after exploit sequence
+- Empty tests or tests with only comments will be REJECTED
 
 For `exploit_found=false` (invariant holds):
 - Test must PASS
@@ -80,12 +85,28 @@ in the codebase and test that concrete scenario - do NOT create a fake implement
 - If you cannot compile after a few iterations, simplify and try again; do not guess.
 - Budget: {{max_tool_turns}} tool calls.
 
+## Target Anchoring
+
+1. **Context First**: Start with `dependency_graph_slice([target_function_ids])` to get relevant context.
+2. **Anchor Queries**: Start from target IDs, but you can explore callers, callees, and related state.
+3. **Exploration**: Follow call chains and data flows as needed. If you go far from targets, briefly explain the connection.
+
+## Principle-Based Interpretation
+
+**Interpret invariants by UNDERLYING PATTERN, not literal wording.**
+
+Invariants describe vulnerability classes. The specific method/variable names in the invariant are examples.
+If code exhibits the SAME vulnerability pattern with DIFFERENT names, that IS a valid finding.
+
+Do NOT dismiss because wording differs. DO check if the code exhibits the described vulnerability class.
+
 ## Context
 
 ### Target Invariant
 - **ID:** {{invariant_id}}
 - **Type:** {{invariant_type}}
 - **Rule:** {{invariant_rule}}
+- **Principle:** {{invariant_principle}}
 - **Explanation:** {{invariant_explanation}}
 - **Target Functions:** {{target_function_ids}}
 - **Target Variables:** {{target_var_ids}}
@@ -119,6 +140,11 @@ Repeat as needed:
    - Keep it minimal; deploy only needed contracts from the REAL codebase.
    - Do NOT create fake/mock contracts that violate invariants by design.
 
+   **CRITICAL: Every PoC MUST contain:**
+   - Actual calls to target contract functions (not just deployment)
+   - Assertions that FAIL if the bug doesn't exist (assert, require, assertTrue, etc.)
+   - A test with no assertions is INVALID and will be rejected
+
 4) **Prove it**
    - Run the test targeting your test contract.
    - A PASSING test with assertions proving bad state = valid exploit.
@@ -132,6 +158,45 @@ Repeat as needed:
 
    If you cannot construct a concrete violating scenario with specific values/calls,
    you have not adequately tested the invariant.
+
+## Lifecycle Sequence Checklist
+
+**Activate when invariant.type is LIVENESS, ORDERING, or targets time-related variables.**
+
+If the invariant involves deadlines, timers, epochs, rounds, or time-bounded behavior:
+
+1. **Identify the time boundary**: Find the deadline variable, any view that returns remaining time, and mutations gated by time.
+
+2. **Test at three critical points**: Pre-deadline, exact deadline, and post-deadline. Verify behavior matches invariant at each.
+
+3. **Verify view/mutation alignment**: If a time view indicates deadline passed, time-gated mutations must behave consistently. Watch for off-by-one errors in boundary operators.
+
+4. **Test reset ordering**: If applicable, verify reset only callable after round ends and obligations preserved.
+
+## Value Source Trace Checklist
+
+**Activate when invariant.type is VALUE_FLOW, ECONOMIC, or FEE_BOUND.**
+
+If the invariant involves fees, prices, or value calculations:
+
+1. **Identify value sources**: Distinguish between actual value (what was paid), threshold value (minimum required), and stale value (previous state).
+
+2. **Trace the calculation**: Which value is used as the base? Document: "Code uses [X] but invariant expects [Y]"
+
+3. **Test with concrete values**: Test at exact threshold and above threshold. Assert exact computed values.
+
+## Guardrails
+
+### BE CAREFUL:
+- **State manipulation in test setup** is OK for initial conditions
+- **State manipulation mid-exploit** to bypass guards = invalid (proves bug is unreachable)
+- **Privileged role impersonation** - explain how attacker could gain that role
+
+### REQUIRED:
+- **Exercise target functions or their callers/callees** - your attack path should flow through or reach `target_function_ids`
+- **Demonstrate realistic attack path** - show how to reach exploitable state from public entry
+- **Assert invariant breach** with specific state checks
+- **If you find a related bug** not in exact targets, explain how it connects to the invariant
 
 ## Framework-Specific PoC Guidance
 {{poc_guidance}}

@@ -28,19 +28,22 @@ class TypeScriptBuilder(JavaScriptBuilder):
 
     @property
     def file_extensions(self) -> List[str]:
-        return [".ts", ".tsx", ".mts", ".cts"]
+        # Include both TypeScript and JavaScript extensions for mixed projects
+        # TypeScript parser can handle JavaScript syntax
+        return [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs"]
 
     def _create_parser(self):
         """Create a tree-sitter parser for TypeScript."""
         try:
             from tree_sitter_language_pack import get_parser  # type: ignore[import-not-found]
+
             return get_parser("typescript")
         except ImportError:
             pass
 
         try:
             import tree_sitter
-            import tree_sitter_typescript  # type: ignore[import-not-found]
+            import tree_sitter_typescript
 
             parser = tree_sitter.Parser()
             parser.language = tree_sitter.Language(

@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import shutil
@@ -122,6 +123,10 @@ class EnvironmentSetupProcess(
             self._make_runtime_dirs_writable(master_context, master_repo_path)
         except Exception:
             pass
+
+        # Save setup agent rollout if requested
+        if input_data.save_rollouts:
+            self._save_setup_rollout(agent, repo_slug, input_data.rollouts_dir)
 
         setup_successful = (
             not exception_occurred
@@ -406,3 +411,66 @@ class EnvironmentSetupProcess(
         master_context.lib_path = _normalize_path(master_context.lib_path)
         master_context.test_path = _normalize_path(master_context.test_path)
         return master_context
+
+    def _save_setup_rollout(
+        self,
+        agent: SetupAgent,
+        repo_slug: str,
+        rollouts_dir: Optional[str] = None,
+    ) -> None:
+        """
+        Save setup agent conversation rollout to disk for debugging.
+
+        Args:
+            agent: The SetupAgent with messages attribute
+            repo_slug: Repository slug for the filename
+            rollouts_dir: Optional directory to save rollouts (defaults to output/rollouts)
+        """
+        try:
+            # Determine rollouts directory
+            if not rollouts_dir:
+                rollouts_dir = str(self._project_root() / "output" / "rollouts")
+
+            # Create directory structure: rollouts/setup/{repo_slug}.json
+            rollout_path = Path(rollouts_dir) / "setup"
+            rollout_path.mkdir(parents=True, exist_ok=True)
+
+            # Extract messages from agent
+            messages = getattr(agent, "messages", [])
+            if not messages:
+                self.logger.debug("No messages to save for setup rollout")
+                return
+
+            # Serialize messages
+            serialized = []
+            for msg in messages:
+                if hasattr(msg, "model_dump"):
+                    serialized.append(msg.model_dump())
+                elif hasattr(msg, "dict"):
+                    serialized.append(msg.dict())
+                else:
+                    serialized.append(str(msg))
+
+            # Build rollout data
+            rollout_data = {
+                "identifier": f"setup_{repo_slug}",
+                "type": "setup",
+                "model": getattr(agent, "model", "unknown"),
+                "agent_type": "setup",
+                "messages": serialized,
+                "total_tokens": getattr(agent, "total_tokens", {}),
+                "estimated_cost": getattr(agent, "estimated_cost", 0.0),
+                "master_context_registered": getattr(
+                    agent, "_registered_master_context", None
+                )
+                is not None,
+            }
+
+            # Write to file
+            output_file = rollout_path / f"setup_{repo_slug}.json"
+            with open(output_file, "w") as f:
+                json.dump(rollout_data, f, indent=2, default=str)
+            self.logger.info(f"Saved setup rollout: {output_file}")
+
+        except Exception as e:
+            self.logger.warning(f"Failed to save setup rollout for {repo_slug}: {e}")

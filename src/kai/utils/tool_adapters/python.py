@@ -126,7 +126,9 @@ class PythonToolAdapter(ToolAdapter):
         if venv_python is None:
             return CompileResult(
                 success=False,
-                errors=[f"No venv python found at {workspace_path}/.venv - workspace not properly provisioned"],
+                errors=[
+                    f"No venv python found at {workspace_path}/.venv - workspace not properly provisioned"
+                ],
                 raw_output="",
             )
 
@@ -165,12 +167,16 @@ class PythonToolAdapter(ToolAdapter):
             errors = []
             for line in raw_output.split("\n"):
                 line = line.strip()
-                if line and ("SyntaxError" in line or "Error" in line or "Invalid" in line):
+                if line and (
+                    "SyntaxError" in line or "Error" in line or "Invalid" in line
+                ):
                     errors.append(line[:200])
 
             return CompileResult(
                 success=False,
-                errors=errors[:10] if errors else ["Syntax check failed - see raw_output"],
+                errors=errors[:10]
+                if errors
+                else ["Syntax check failed - see raw_output"],
                 warnings=[],
                 raw_output=raw_output[:3000] if len(raw_output) > 3000 else raw_output,
             )
@@ -493,6 +499,7 @@ class PythonToolAdapter(ToolAdapter):
 
         if additional_args:
             import shlex
+
             cmd.extend(shlex.split(additional_args))
 
         # Always add --noconftest to avoid project conftest.py conflicts
@@ -623,7 +630,7 @@ class PythonToolAdapter(ToolAdapter):
         # Strip leading test directories
         for prefix in ["tests/poc/", "test/poc/", "tests/", "test/", "poc/"]:
             if normalized.startswith(prefix):
-                normalized = normalized[len(prefix):]
+                normalized = normalized[len(prefix) :]
                 break
 
         # Ensure proper extension

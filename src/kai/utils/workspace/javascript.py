@@ -45,6 +45,9 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
         # NOTE: Must happen BEFORE creating poc directories to avoid conflicts
         self._setup_source_symlinks(workspace, master, master_context)
 
+        # Make copied dirs writable (they may have been copied from read-only master)
+        self._make_writable(workspace)
+
         # Create PoC directory structure (inside existing test dirs if they exist)
         (workspace / "tests" / "poc").mkdir(parents=True, exist_ok=True)
         (workspace / "__tests__" / "poc").mkdir(parents=True, exist_ok=True)
@@ -52,8 +55,9 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
         # Copy config files
         self._copy_config_files(workspace, master)
 
-        # Install dependencies
-        self._install_dependencies(workspace, logger)
+        # Reuse master node_modules when available; otherwise install
+        if not self._setup_node_modules_symlink(workspace, master):
+            self._install_dependencies(workspace, logger)
 
         # Run build if needed (for TypeScript projects where dist/ is gitignored)
         self._run_build_if_needed(workspace, logger)
@@ -97,8 +101,9 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
             # CLEAN/WRITEABLE - selective copy
             self._copy_with_excludes(master, workspace, exclude_dirs)
 
-        # Install dependencies with fresh node_modules
-        self._install_dependencies(workspace, logger)
+        # Reuse master node_modules when available; otherwise install
+        if not self._setup_node_modules_symlink(workspace, master):
+            self._install_dependencies(workspace, logger)
 
         # Run build if needed (for TypeScript projects where dist/ is gitignored)
         self._run_build_if_needed(workspace, logger)
@@ -119,6 +124,24 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
     def detect_remappings(self, master: Path) -> str:
         """JavaScript doesn't use remappings - return empty string."""
         return ""
+
+    def _setup_node_modules_symlink(self, workspace: Path, master: Path) -> bool:
+        """Symlink workspace/node_modules -> master/node_modules when available.
+
+        Returns True if the symlink was created or already exists; False otherwise.
+        """
+        nm_master = master / "node_modules"
+        nm_link = workspace / "node_modules"
+        if nm_link.exists():
+            return True
+        if nm_master.exists() and nm_master.is_dir():
+            try:
+                rel_path = os.path.relpath(nm_master, workspace)
+                nm_link.symlink_to(rel_path)
+                return True
+            except OSError:
+                pass
+        return False
 
     def infer_src_path(self, master: Path) -> Path:
         """
@@ -201,7 +224,12 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
         """Symlink/copy source directories from master to workspace."""
         # Source directories can be symlinked - they're imported by other code
         symlink_dirs = [
-            "src", "lib", "app", "source", "components", "utils",
+            "src",
+            "lib",
+            "app",
+            "source",
+            "components",
+            "utils",
         ]
 
         # These directories must be COPIED, not symlinked, because:
@@ -210,8 +238,11 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
         # - dist/build contain executable code that imports dependencies
         # - test directories run code that imports dependencies
         copy_dirs = [
-            "dist", "build",  # Build output that may import dependencies
-            "test", "tests", "__tests__",  # Test directories
+            "dist",
+            "build",  # Build output that may import dependencies
+            "test",
+            "tests",
+            "__tests__",  # Test directories
         ]
 
         for src_dir in symlink_dirs:
@@ -228,19 +259,22 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
                     workspace_dir.symlink_to(rel_path)
                 except OSError:
                     # Symlink might fail on Windows, copy instead
-                    shutil.copytree(master_dir, workspace_dir)
+                    # Use symlinks=True to preserve symlinks (e.g., label symlinks in test suites)
+                    shutil.copytree(
+                        master_dir, workspace_dir, symlinks=True, dirs_exist_ok=True
+                    )
 
         # Copy directories that contain executable code (for correct module resolution)
         for copy_dir in copy_dirs:
             master_dir = master / copy_dir
             workspace_dir = workspace / copy_dir
 
-            if (
-                master_dir.exists()
-                and master_dir.is_dir()
-                and not workspace_dir.exists()
-            ):
-                shutil.copytree(master_dir, workspace_dir)
+            if master_dir.exists() and master_dir.is_dir():
+                # Use symlinks=True to preserve symlinks (e.g., label symlinks in test suites)
+                # Use dirs_exist_ok=True in case the directory already exists
+                shutil.copytree(
+                    master_dir, workspace_dir, symlinks=True, dirs_exist_ok=True
+                )
 
     def _copy_config_files(self, workspace: Path, master: Path) -> None:
         """Copy JavaScript/TypeScript config files to workspace."""
@@ -271,7 +305,9 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
 
         # Copy TypeScript declaration files from root (needed for tsd, type imports)
         for src in master.iterdir():
-            if src.is_file() and (src.name.endswith(".d.ts") or src.name.endswith(".d.mts")):
+            if src.is_file() and (
+                src.name.endswith(".d.ts") or src.name.endswith(".d.mts")
+            ):
                 shutil.copy2(src, workspace / src.name)
 
     def _install_dependencies(
@@ -313,15 +349,16 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
         self, workspace: Path, logger: Optional[Any] = None
     ) -> None:
         """
-        Run build step if dist/ doesn't exist but package.json has a build script.
+        Run build step if dist/ is empty/missing but package.json has a build script.
 
         This handles TypeScript and other projects where dist/ is gitignored
         and must be generated before tests can run.
         """
-        # Skip if dist/ already exists (pre-built or symlinked from master)
-        if (workspace / "dist").exists():
+        # Skip if dist/ already exists AND has content (pre-built)
+        dist_path = workspace / "dist"
+        if dist_path.exists() and any(dist_path.iterdir()):
             if logger:
-                logger.debug("dist/ exists - skipping build step")
+                logger.debug("dist/ exists with content - skipping build step")
             return
 
         # Check if package.json has a build script
@@ -397,7 +434,12 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
 
             dest_path = dst / item.name
 
-            if item.is_dir():
+            # Preserve symlinks (e.g., label symlinks in test suites)
+            if item.is_symlink():
+                # Copy the symlink itself, not its target
+                linkto = os.readlink(item)
+                dest_path.symlink_to(linkto)
+            elif item.is_dir():
                 if not item.name.startswith(".") or item.name in {".github", ".vscode"}:
                     self._copy_with_excludes(item, dest_path, excludes)
             else:

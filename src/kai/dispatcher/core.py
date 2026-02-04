@@ -72,7 +72,7 @@ class DispatcherConfig:
     max_campaigns: int = 10
     include_exploration: bool = True
     default_budget: CampaignBudget = field(default_factory=CampaignBudget)
-    workspace_dir: str = "./kai_workspaces"  # TODO: check if it respects workspace_dir
+    workspace_dir: str = "./kai_workspaces"
     # Model settings for agents
     model: str = settings.MAIN_DEFAULT_MODEL
     verifier_model: str = settings.VERIFIER_DEFAULT_MODEL
@@ -355,7 +355,9 @@ class Dispatcher:
         agent_data["cost"] += cost
         agent_data["count"] += 1
 
-    def _aggregate_agent_usage(self, agent: Any, phase: str, agent_type: str = "unknown") -> None:
+    def _aggregate_agent_usage(
+        self, agent: Any, phase: str, agent_type: str = "unknown"
+    ) -> None:
         """Aggregate token usage from an agent."""
         agent_tokens = getattr(agent, "total_tokens", {})
         self._aggregate_usage(
@@ -430,6 +432,8 @@ class Dispatcher:
                     model_name=self.config.setup_model,
                     use_openai=use_openai,
                     repo_path_override=repo_path,
+                    save_rollouts=self.config.save_rollouts,
+                    rollouts_dir=self.config.rollouts_dir,
                 )
                 env_output = await env_process.run(env_input)
 
@@ -494,6 +498,8 @@ class Dispatcher:
                         ],
                         timeout_compile_s=120,
                         timeout_test_s=120,
+                        save_rollouts=self.config.save_rollouts,
+                        rollouts_dir=self.config.rollouts_dir,
                     )
                 )
                 if not ws_output.success:
@@ -510,6 +516,14 @@ class Dispatcher:
                     return False
 
                 self.logger.info("Workspace validation passed")
+                try:
+                    for r in ws_output.results:
+                        ir = getattr(r, "import_recipe", None)
+                        if ir and getattr(ir, "validated", False):
+                            self.master_context.import_recipe = ir
+                            break
+                except Exception:
+                    pass
             else:
                 self.logger.info(
                     "Skipping workspace validation (config.skip_workspace_validation=True)"
@@ -625,7 +639,9 @@ class Dispatcher:
             self.logger.error(f"Boot failed: {e}", exc_info=True)
             return False
 
-    def _infer_adapter_from_framework(self, frameworks: Optional[List[str]]) -> Optional[str]:
+    def _infer_adapter_from_framework(
+        self, frameworks: Optional[List[str]]
+    ) -> Optional[str]:
         """
         Infer the adapter type from the detected framework(s).
 
@@ -634,42 +650,30 @@ class Dispatcher:
         if not frameworks:
             return None
 
-        # Framework to adapter mapping
-        framework_to_adapter = {
-            # Solidity frameworks
-            "foundry": "solidity",
-            "forge": "solidity",
-            "hardhat": "solidity",
-            # Python frameworks
-            "python": "python",
-            "py": "python",
-            "uv": "python",
-            "pip": "python",
-            "poetry": "python",
-            # JavaScript frameworks
-            "javascript": "javascript",
-            "js": "javascript",
-            "node": "javascript",
-            "npm": "javascript",
-            "yarn": "javascript",
-            "pnpm": "javascript",
-            # TypeScript frameworks
-            "typescript": "typescript",
-            "ts": "typescript",
-            # C/C++ frameworks
-            "c": "c",
-            "cmake": "c",
-            "make": "c",
-            "gcc": "c",
-            # Rust frameworks
-            "cargo": "c",  # Using C builder for now as we don't have a Rust builder
-            "rust": "c",
-        }
+        # Priority-based inference across possibly mixed frameworks
+        fw = {str(x).lower() for x in frameworks}
 
-        for fw in frameworks:
-            fw_lower = fw.lower()
-            if fw_lower in framework_to_adapter:
-                return framework_to_adapter[fw_lower]
+        # Prefer Solidity if present (we have a robust builder)
+        if fw & {"foundry", "forge", "hardhat"}:
+            return "solidity"
+
+        # Python
+        if fw & {"python", "py", "uv", "pip", "poetry"}:
+            return "python"
+
+        # TypeScript / JavaScript
+        if fw & {"typescript", "ts"}:
+            return "typescript"
+        if fw & {"javascript", "js", "node", "npm", "yarn", "pnpm"}:
+            return "javascript"
+
+        # C/C++
+        if fw & {"c", "cmake", "make", "gcc"}:
+            return "c"
+
+        # Rust only: we do not support a Rust builder yet
+        if fw and fw <= {"cargo", "rust"}:
+            return "__unsupported_rust__"
 
         return None
 
@@ -694,7 +698,14 @@ class Dispatcher:
         adapter = self.master_context.adapter
         if adapter == "solidity" and self.master_context.frameworks:
             # Check if frameworks suggest a different adapter
-            inferred = self._infer_adapter_from_framework(self.master_context.frameworks)
+            inferred = self._infer_adapter_from_framework(
+                self.master_context.frameworks
+            )
+            if inferred == "__unsupported_rust__":
+                self.logger.error(
+                    "Unsupported project: only Cargo/Rust detected. Rust adapter is not available yet."
+                )
+                return None
             if inferred and inferred != "solidity":
                 self.logger.info(
                     f"Adapter inferred from frameworks {self.master_context.frameworks}: {inferred}"
@@ -707,9 +718,31 @@ class Dispatcher:
                 )
 
         if not adapter:
-            raise RuntimeError("MasterContext.adapter must be set before building dependency graph")
+            raise RuntimeError(
+                "MasterContext.adapter must be set before building dependency graph"
+            )
 
         adapter = adapter.lower()
+
+        # If adapter is "javascript", check if there are TypeScript files
+        # and upgrade to "typescript" adapter to ensure .ts files are parsed
+        if adapter == "javascript":
+            master_root_check = Path(self.master_context.root_path).resolve()
+            # Check for .ts files in src/ or root (common TypeScript project layouts)
+            has_ts_files = (
+                any(master_root_check.glob("src/**/*.ts"))
+                or any(master_root_check.glob("*.ts"))
+                or any(master_root_check.glob("lib/**/*.ts"))
+            )
+            if has_ts_files:
+                self.logger.info(
+                    "TypeScript files detected - upgrading adapter from 'javascript' to 'typescript'"
+                )
+                adapter = "typescript"
+                self.master_context = self.master_context.model_copy(
+                    update={"adapter": "typescript"}
+                )
+
         needs_writable_workspace = adapter == "solidity"
 
         master_root = Path(self.master_context.root_path).resolve()
@@ -1001,7 +1034,9 @@ class Dispatcher:
                 self._aggregate_agent_usage(
                     agent=agent,
                     phase="run_loop",
-                    agent_type=mission.agent_type.value if mission.agent_type else "unknown",
+                    agent_type=mission.agent_type.value
+                    if mission.agent_type
+                    else "unknown",
                 )
                 try:
                     await agent.close()
@@ -1180,16 +1215,18 @@ class Dispatcher:
         findings = []
         for v in verdicts:
             c = candidate_map.get((v.mission_id, v.invariant_id))
-            findings.append({
-                "mission_id": v.mission_id,
-                "invariant_id": v.invariant_id,
-                "vulnerability_class": v.vulnerability_class or "unknown",
-                "severity": v.severity.value if v.severity else "unknown",
-                "target_file": c.target_file if c else "",
-                "target_function": c.target_function if c else "",
-                "description": c.description[:500] if c and c.description else "",
-                "mechanism": c.mechanism[:300] if c and c.mechanism else "",
-            })
+            findings.append(
+                {
+                    "mission_id": v.mission_id,
+                    "invariant_id": v.invariant_id,
+                    "vulnerability_class": v.vulnerability_class or "unknown",
+                    "severity": v.severity.value if v.severity else "unknown",
+                    "target_file": c.target_file if c else "",
+                    "target_function": c.target_function if c else "",
+                    "description": c.description[:500] if c and c.description else "",
+                    "mechanism": c.mechanism[:300] if c and c.mechanism else "",
+                }
+            )
 
         prompt = DEDUPE_EXPLOITS_PROMPT.replace(
             "{{num_findings}}", str(len(findings))
@@ -1246,21 +1283,21 @@ class Dispatcher:
         Called after all missions complete. Deduplicates by root cause, then
         runs FixerAgent on each unique exploit concurrently (limited by semaphore).
         """
-        if self.config.disable_fixer:
-            self.logger.info(
-                "Fixer disabled (config.disable_fixer=True), skipping fix generation"
-            )
-            return
-
         valid_verdicts = [v for v in self.verdicts if v.is_valid]
 
         if not valid_verdicts:
             self.logger.info("No verified exploits to fix")
             return
 
-        # Deduplicate by root cause before fixing (if enabled)
+        # Deduplicate by root cause (always runs if enabled, even when fixer disabled)
         if self.config.enable_deduplication:
             valid_verdicts = await self._dedupe_verified_exploits(valid_verdicts)
+
+        if self.config.disable_fixer:
+            self.logger.info(
+                "Fixer disabled (config.disable_fixer=True), skipping fix generation"
+            )
+            return
 
         self.logger.info(
             f"Generating fixes for {len(valid_verdicts)} verified exploit(s) "
@@ -1583,21 +1620,34 @@ class Dispatcher:
     def get_verification_stats(self) -> Dict[str, Any]:
         """Get verification statistics."""
         verified = [v for v in self.verdicts if v.is_valid]
-        rejected = [v for v in self.verdicts if not v.is_valid]
+        rejected = [
+            v for v in self.verdicts if not v.is_valid and not v.blocked_by_root_cause
+        ]
+        blocked = [v for v in self.verdicts if v.blocked_by_root_cause]
 
         severity_counts: Dict[str, int] = {}
         for verdict in verified:
             sev = verdict.severity.value
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
 
+        # Track which invariants are blocking others
+        blocking_invariants: Dict[str, int] = {}
+        for v in blocked:
+            if v.blocking_invariant_id:
+                blocking_invariants[v.blocking_invariant_id] = (
+                    blocking_invariants.get(v.blocking_invariant_id, 0) + 1
+                )
+
         return {
             "total_candidates": len(self.exploit_candidates),
             "verified_count": len(verified),
             "rejected_count": len(rejected),
+            "blocked_by_root_cause_count": len(blocked),
             "by_severity": severity_counts,
             "rejection_reasons": [
                 v.rejection_reason for v in rejected if v.rejection_reason
             ],
+            "blocking_invariants": blocking_invariants,
         }
 
     def export_results(self, output_path: str) -> None:
@@ -1626,7 +1676,16 @@ class Dispatcher:
             "total_exploit_candidates": len(self.exploit_candidates),
             "total_verdicts": len(self.verdicts),
             "verified_exploits": len([v for v in self.verdicts if v.is_valid]),
-            "rejected_exploits": len([v for v in self.verdicts if not v.is_valid]),
+            "rejected_exploits": len(
+                [
+                    v
+                    for v in self.verdicts
+                    if not v.is_valid and not v.blocked_by_root_cause
+                ]
+            ),
+            "blocked_by_root_cause": len(
+                [v for v in self.verdicts if v.blocked_by_root_cause]
+            ),
         }
 
         # Cost tracking

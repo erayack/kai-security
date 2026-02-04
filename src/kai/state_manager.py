@@ -181,7 +181,7 @@ class KaiStateManager(ABC):
     ) -> bool:
         """
         Update the dedupe_id field on an exploit candidate.
-        
+
         Called during deduplication to mark duplicate exploits.
         The implementation should find the representative exploit by its
         mission_id and use that exploit's document ID as the dedupeId.

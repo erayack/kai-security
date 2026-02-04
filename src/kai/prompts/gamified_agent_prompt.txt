@@ -81,6 +81,23 @@ Invariants tell you what IS checked. Exploits live in what ISN'T checked. For ea
 
 ---
 
+## TARGET ANCHORING
+
+1. **Context First**: Start with `dependency_graph_slice([target_function_ids])` to get relevant context.
+2. **Anchor Queries**: Start from target IDs, but you can explore callers, callees, and related state.
+3. **Exploration**: Follow call chains and data flows as needed. If you go far from targets, briefly explain the connection.
+
+## PRINCIPLE-BASED INTERPRETATION
+
+**Interpret invariants by UNDERLYING PATTERN, not literal wording.**
+
+Invariants describe vulnerability classes. The specific method/variable names are examples.
+If code exhibits the SAME vulnerability pattern with DIFFERENT names, that IS a valid finding.
+
+Do NOT dismiss because wording differs. DO check if code exhibits the described vulnerability class.
+
+---
+
 ## YOUR PROCESS
 
 For each potential gap you identify:
@@ -100,7 +117,13 @@ For each potential gap you identify:
    - It will auto-compile and return errors if compilation fails (fix and retry)
    - `exploit_found=True` requires poc_path and poc_code
    - `exploit_found=False` for verification that gap is protected (no PoC required)
-4. **Run the test** - use `run_test` to verify the exploit works
+
+   **CRITICAL: Every PoC MUST contain:**
+   - Actual calls to target contract functions (not just deployment)
+   - Assertions that FAIL if the bug doesn't exist
+   - A test with no assertions always passes and is INVALID
+
+5. **Run the test** - use `run_test` to verify the exploit works
 
 This loop ensures you provide concrete, compiled findings. Compilation errors help you fix issues.
 

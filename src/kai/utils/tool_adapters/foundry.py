@@ -663,6 +663,32 @@ Write Foundry test files (.t.sol) in test/poc/.
 - Assertions prove the exploit: assertGt, assertEq, assertTrue, etc.
 - A PASSING test with assertions proving bad state = valid exploit
 
+## Cheatcode Guidelines
+
+### In setUp() - ALLOWED:
+- `vm.store()` - setting initial protocol state (deployer could have set these)
+- `vm.prank(deployer/admin)` - simulating deployment/configuration
+- Any state setup that represents a legitimate starting point
+
+### In test_*() - BE CAREFUL:
+- `vm.store()` to bypass guards mid-exploit = INVALID (proves bug is unreachable)
+- `vm.store()` to simulate result of N legitimate transactions = ACCEPTABLE (explain why)
+- `vm.prank(privilegedRole)` - only if you explain how attacker could gain that role
+
+### ALWAYS ACCEPTABLE:
+- `vm.warp(timestamp)` - time passes naturally
+- `vm.roll(blockNumber)` - blocks are mined
+- `vm.deal(attacker, amount)` - attacker can have ETH
+- `vm.prank(attacker)` / `vm.prank(regularUser)` - legitimate callers
+- `vm.expectRevert()` - testing failure cases
+
+### Target Anchoring:
+Your PoC should exercise functions in or reachable from `target_function_ids`:
+- Direct calls to target functions
+- Calls to functions that CALL the targets (callers)
+- Calls to functions that targets CALL (triggering vulnerable callees)
+- If you find a bug in related code, explain how it connects to the invariant
+
 ## Solidity-Specific Negative-Space Patterns
 
 ### Missing Setters for State Flags
@@ -702,4 +728,84 @@ Flag admin-controlled states that can brick the contract:
 - Pause without unpause
 - Blacklist without whitelist removal
 - Fee set to 100% with no cap
-- Owner renounced but admin functions still needed"""
+- Owner renounced but admin functions still needed
+
+## Lifecycle/Time Boundary Testing (Foundry-specific)
+
+Use `vm.warp()` to test time-dependent invariants at critical boundaries:
+
+```solidity
+function test_boundary_at_deadline() public {
+    uint256 deadline = contract.deadline();
+
+    // Test pre-deadline: action should succeed
+    vm.warp(deadline - 1);
+    contract.participate{value: 1 ether}();  // Should work
+
+    // Test exact deadline: check boundary operator
+    vm.warp(deadline);
+    // Depending on implementation (>= vs >), this may or may not work
+
+    // Test post-deadline: participation should fail
+    vm.warp(deadline + 1);
+    vm.expectRevert();
+    contract.participate{value: 1 ether}();  // Should revert
+}
+
+function test_view_mutation_alignment() public {
+    uint256 deadline = contract.deadline();
+
+    // At deadline, verify view and mutation agree
+    vm.warp(deadline);
+    uint256 remaining = contract.getRemainingTime();
+
+    if (remaining == 0) {
+        // View says deadline passed, mutation should fail
+        vm.expectRevert();
+        contract.participate{value: 1 ether}();
+    }
+    // If remaining > 0, mutation may succeed
+}
+
+function test_finalize_after_deadline() public {
+    uint256 deadline = contract.deadline();
+    vm.warp(deadline + 1);
+
+    // Post-deadline, finalize should succeed
+    contract.finalize();  // Should work
+    assertTrue(contract.ended());
+}
+```
+
+## Value Source Testing (Foundry-specific)
+
+Test fee/progression calculations with exact values:
+
+```solidity
+function test_fee_uses_correct_base() public {
+    uint256 threshold = 1 ether;
+    uint256 overpayment = 2 ether;
+
+    // Send more than threshold
+    contract.participate{value: overpayment}();
+
+    // Check: is fee calculated on threshold (correct) or msg.value (wrong)?
+    uint256 expectedFee = threshold * feePercent / 100;  // If based on threshold
+    // uint256 wrongFee = overpayment * feePercent / 100;  // If based on msg.value
+
+    assertEq(contract.platformFee(), expectedFee, "Fee should use threshold, not msg.value");
+}
+
+function test_obligation_preserved_on_reset() public {
+    // Setup: create pending withdrawal
+    contract.participate{value: 1 ether}();
+    contract.finalize();
+    uint256 pending = contract.pendingWithdrawals(previousHolder);
+
+    // Reset to new round
+    contract.startNewRound();
+
+    // Verify: pending obligation preserved
+    assertEq(contract.pendingWithdrawals(previousHolder), pending, "Obligation lost on reset");
+}
+```"""

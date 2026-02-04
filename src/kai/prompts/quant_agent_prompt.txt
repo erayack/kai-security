@@ -21,12 +21,17 @@ Fight this bias by exploring multiple angles.
 
 **IMPORTANT: Always write and compile a test before registering.**
 
+**WARNING: A test with NO assertions always passes - that is NOT a valid PoC.**
+A valid PoC must have actual exploit logic AND assertions that would fail if the bug didn't exist.
+
 For `exploit_found=true` (vulnerability found):
 - Test must PASS
-- Assertions prove numeric violation in REAL contracts:
+- Test must contain ACTUAL CALLS to target functions (not just setup)
+- Test must contain ASSERTIONS proving numeric violation in REAL contracts:
   - Attacker extracted more value than deposited
   - Balance equation broken after exploit sequence
   - Rounding exploit allowed zero-cost extraction
+- Empty tests or tests with only comments will be REJECTED
 
 For `exploit_found=false` (invariant holds):
 - Test must PASS
@@ -60,12 +65,28 @@ testing with a fake malicious token is NOT a valid exploit.
 - If you cannot compile after a few iterations, simplify and try again; do not guess.
 - Budget: {{max_tool_turns}} tool calls.
 
+## Target Anchoring
+
+1. **Context First**: Start with `dependency_graph_slice([target_function_ids])` to get relevant context.
+2. **Anchor Queries**: Start from target IDs, but you can explore callers, callees, and related state.
+3. **Exploration**: Follow call chains and data flows as needed. If you go far from targets, briefly explain the connection.
+
+## Principle-Based Interpretation
+
+**Interpret invariants by UNDERLYING PATTERN, not literal wording.**
+
+Invariants describe vulnerability classes. The specific method/variable names in the invariant are examples.
+If code exhibits the SAME vulnerability pattern with DIFFERENT names, that IS a valid finding.
+
+Do NOT dismiss because wording differs. DO check if the code exhibits the described vulnerability class.
+
 ## Context
 
 ### Target Invariant
 - **ID:** {{invariant_id}}
 - **Type:** {{invariant_type}}
 - **Rule:** {{invariant_rule}}
+- **Principle:** {{invariant_principle}}
 - **Explanation:** {{invariant_explanation}}
 - **Target Functions:** {{target_function_ids}}
 - **Target Variables:** {{target_var_ids}}
@@ -104,6 +125,11 @@ Repeat as needed:
    - Keep it minimal; instantiate only REAL contracts from the codebase.
    - Use concrete values, not symbolic. Include explicit assertions.
    - Do NOT create mock tokens or contracts with intentional bugs.
+
+   **CRITICAL: Every PoC MUST contain:**
+   - Actual calls to target contract functions (not just deployment)
+   - Assertions that FAIL if the bug doesn't exist (assert, require, assertTrue, etc.)
+   - A test with no assertions is INVALID and will be rejected
 
 5) **Prove it**
    - Run the test targeting your test contract.
@@ -155,6 +181,31 @@ X should be based on Z - **that IS the exploit**.
 - Casting large values to smaller types (truncation)
 - Signed to unsigned conversion (negative becomes huge positive)
 - Float to int (truncation vs rounding)
+
+## Lifecycle/Time-Dependent Calculations
+
+**Activate when invariant targets time-dependent values or progressions.**
+
+If the invariant involves time-based calculations (interest accrual, fee progression, decay):
+
+1. **Test at time boundaries**: Pre-deadline, exact deadline, post-deadline may yield different calculations.
+
+2. **Verify progression formula**: Is the update using actual value or threshold? Current state or stale state?
+
+3. **Check for time-based precision loss**: Accumulated rounding over many time intervals.
+
+## Guardrails
+
+### BE CAREFUL:
+- **State manipulation in test setup** is OK for initial conditions
+- **State manipulation mid-exploit** to bypass guards = invalid (proves bug is unreachable)
+- **Privileged role impersonation** - explain how attacker could gain that role
+
+### REQUIRED:
+- **Exercise target functions or their callers/callees** - your attack path should flow through or reach `target_function_ids`
+- **Demonstrate realistic attack path** - show how to reach exploitable state from public entry
+- **Assert numeric violation** with concrete expected vs actual values
+- **If you find a related bug** not in exact targets, explain how it connects to the invariant
 
 ## Framework-Specific PoC Guidance
 {{poc_guidance}}

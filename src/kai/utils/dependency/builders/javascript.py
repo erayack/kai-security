@@ -246,10 +246,8 @@ class JavaScriptBuilder(TreeSitterBuilder):
         if parent_id:
             edges.append((parent_id, func_id, EdgeKind.DEFINES))
 
-        # Extract calls within body
-        body = self._find_child_by_type(node, "statement_block")
-        if body:
-            self._extract_calls(body, func_id, source_bytes, edges)
+        # Extract calls within body (recursively handles nested functions)
+        self._extract_calls(node, func_id, source_bytes, edges)
 
     def _extract_method(
         self,
@@ -312,10 +310,8 @@ class JavaScriptBuilder(TreeSitterBuilder):
         nodes.append(method_node)
         edges.append((class_id, method_id, EdgeKind.DEFINES))
 
-        # Extract calls within body
-        body = self._find_child_by_type(node, "statement_block")
-        if body:
-            self._extract_calls(body, method_id, source_bytes, edges)
+        # Extract calls within body (recursively handles nested functions)
+        self._extract_calls(node, method_id, source_bytes, edges)
 
     def _extract_field(
         self,
@@ -484,11 +480,9 @@ class JavaScriptBuilder(TreeSitterBuilder):
         )
         nodes.append(func_node)
 
-        # Extract calls within body
+        # Extract calls within body (recursively handles curried functions too)
         if func_node_ast:
-            body = self._find_child_by_type(func_node_ast, "statement_block")
-            if body:
-                self._extract_calls(body, func_id, source_bytes, edges)
+            self._extract_calls(func_node_ast, func_id, source_bytes, edges)
 
     def _extract_export(
         self,

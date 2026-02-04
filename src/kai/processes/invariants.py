@@ -159,7 +159,24 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
                 total_tokens["prompt_tokens"] += tokens.get("prompt_tokens", 0)
                 total_tokens["completion_tokens"] += tokens.get("completion_tokens", 0)
 
-            self.logger.info(f"Generated {len(raw_invariants)} raw invariants")
+            self.logger.info(f"Generated {len(raw_invariants)} raw invariants from LLM")
+
+            # Step 4b: Synthesis pass - generate cross-function invariants from graph
+            self.logger.info("Running synthesis pass for cross-function invariants...")
+            synthesized = self._synthesize_cross_function_invariants(
+                engine=engine,
+                vocab=vocab,
+                functions_with_metadata=functions_with_metadata,
+            )
+            if synthesized:
+                self.logger.info(
+                    f"Synthesized {len(synthesized)} additional invariants"
+                )
+                raw_invariants.extend(synthesized)
+            else:
+                self.logger.info("No cross-function invariants synthesized")
+
+            self.logger.info(f"Total raw invariants: {len(raw_invariants)}")
 
             # Step 5: Validate
             valid_set = self._build_valid_id_sets(vocab)
@@ -245,6 +262,9 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
         """
         Build vocabulary tables from graph + ActorMatrix.
 
+        Includes protocol entrypoints AND their immediate callees (internal helpers)
+        to ensure security-critical helper functions are in scope for invariant generation.
+
         Returns: {functions: [...], vars: [...], files: [...]}
         """
         # Build role lookup from ActorMatrix
@@ -255,12 +275,32 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
 
         # Get protocol entrypoints
         entrypoints = engine.protocol_entrypoints()
+        entrypoint_ids = {ep.id for ep in entrypoints}
+
+        # Expand to include immediate callees (internal helper functions)
+        # This ensures functions like shouldRemoveHeader are included when
+        # their caller (onHeaders) is an entrypoint
+        callee_refs = []
+        for ep in entrypoints:
+            callees = engine.callees(ep.id)
+            for callee in callees:
+                # Only include callees that are in the same file (internal helpers)
+                # and not already entrypoints
+                if callee.id not in entrypoint_ids and callee.file == ep.file:
+                    # Also skip library/test files for callees
+                    if callee.file and not self.adapter.is_library_file(callee.file):
+                        if not self.adapter.is_test_file(callee.file):
+                            callee_refs.append(callee)
+                            entrypoint_ids.add(callee.id)  # Avoid duplicates
+
+        # Combine entrypoints and callees
+        all_functions = list(entrypoints) + callee_refs
 
         functions: List[FunctionVocabEntry] = []
         vars_map: Dict[str, VarVocabEntry] = {}  # var_id -> entry
         files_map: Dict[str, Set[str]] = defaultdict(set)  # file -> contracts
 
-        for ep in entrypoints:
+        for ep in all_functions:
             # Get reads/writes
             reads = engine.neighbors(ep.id, [EdgeKind.READS], "out")
             writes = engine.neighbors(ep.id, [EdgeKind.WRITES], "out")
@@ -490,6 +530,7 @@ Respond with a JSON object containing an "invariants" array:
     {{
       "type": "{lens.invariant_types[0] if lens.invariant_types else "OTHER"}",
       "rule": "Human-readable invariant statement",
+      "principle": "Abstract vulnerability pattern (language-agnostic, e.g., 'unchecked numeric input')",
       "explanation": "Why this invariant matters and how it could be violated",
       "target_function_ids": ["exact_function_id_from_vocab"],
       "target_var_ids": ["exact_var_id_from_vocab"],
@@ -502,6 +543,7 @@ Respond with a JSON object containing an "invariants" array:
 
 IMPORTANT:
 - Every ID in target_*_ids MUST exist in the vocabulary above
+- The `principle` should be abstract (e.g., "unchecked numeric input to string operation" not "padStart with negative")
 - Focus ONLY on {lens.name} concerns for this pass
 - Generate focused, high-quality invariants (prefer quality over quantity)
 - Do NOT include IDs that aren't in the vocabulary
@@ -533,6 +575,7 @@ IMPORTANT:
                     Invariant(
                         type=inv_type,
                         rule=item.get("rule", ""),
+                        principle=item.get("principle", ""),
                         explanation=item.get("explanation", ""),
                         target_function_ids=item.get("target_function_ids", []),
                         target_var_ids=item.get("target_var_ids", []),
@@ -634,3 +677,226 @@ IMPORTANT:
             merged.append(group[0])
 
         return merged
+
+    # =========================================================================
+    # Synthesis Pass: Cross-function invariants from graph analysis
+    # =========================================================================
+
+    def _synthesize_cross_function_invariants(
+        self,
+        engine: GraphQueryEngine,
+        vocab: Dict[str, List[Any]],
+        functions_with_metadata: List[Dict[str, Any]],
+    ) -> List[Invariant]:
+        """
+        Synthesize cross-function invariants from graph analysis.
+
+        This generates grounded invariants based on:
+        1. Co-read patterns: view + mutation reading same timer vars
+        2. Role-based patterns: time_view + time_guard_mutation pairs
+        3. Economic patterns: participation_entry + distribution pairs
+
+        These invariants are grounded in the actual code structure,
+        not hallucinated by the LLM.
+        """
+        synthesized: List[Invariant] = []
+
+        # Build function metadata lookup
+        func_meta: Dict[str, Dict[str, Any]] = {
+            f["id"]: f for f in functions_with_metadata
+        }
+
+        # Get valid function IDs from vocab
+        valid_func_ids = {f.id for f in vocab["functions"]}
+
+        # Find functions by role
+        time_views: List[str] = []
+        time_guard_mutations: List[str] = []
+        time_resets: List[str] = []
+        participation_entries: List[str] = []
+        distributions: List[str] = []
+
+        for fid, meta in func_meta.items():
+            if fid not in valid_func_ids:
+                continue
+
+            timerish_roles = meta.get("timerish_roles", [])
+            economic_roles = meta.get("economic_roles", [])
+
+            if "time_view" in timerish_roles:
+                time_views.append(fid)
+            if "time_guard_mutation" in timerish_roles:
+                time_guard_mutations.append(fid)
+            if "time_reset" in timerish_roles:
+                time_resets.append(fid)
+            if "participation_entry" in economic_roles:
+                participation_entries.append(fid)
+            if "distribution" in economic_roles:
+                distributions.append(fid)
+
+        # Synthesize view/mutation boundary alignment invariants
+        for view_id in time_views:
+            for mutation_id in time_guard_mutations:
+                # Check if they share timer-related variables (co-read)
+                view_meta = func_meta.get(view_id, {})
+                mutation_meta = func_meta.get(mutation_id, {})
+
+                # Get reads from vocab entries
+                view_entry = next(
+                    (f for f in vocab["functions"] if f.id == view_id), None
+                )
+                mutation_entry = next(
+                    (f for f in vocab["functions"] if f.id == mutation_id), None
+                )
+
+                if not view_entry or not mutation_entry:
+                    continue
+
+                view_reads = set(view_entry.reads)
+                mutation_reads = set(mutation_entry.reads)
+                shared_vars = view_reads & mutation_reads
+
+                # Check if shared vars look like timer vars
+                time_var_pats = self.adapter.get_time_var_patterns()
+                shared_timer_vars = [
+                    v
+                    for v in shared_vars
+                    if any(p.lower() in v.lower() for p in time_var_pats)
+                ]
+
+                if shared_timer_vars:
+                    view_name = view_entry.name
+                    mutation_name = mutation_entry.name
+
+                    synthesized.append(
+                        Invariant(
+                            type=InvariantType.ORDERING,
+                            rule=(
+                                f"Boundary alignment: If {view_name}() returns 0 (deadline passed), "
+                                f"then {mutation_name}() must revert. "
+                                f"If {view_name}() > 0, then {mutation_name}() may succeed."
+                            ),
+                            principle="view/mutation boundary consistency on shared timer variable",
+                            explanation=(
+                                f"Functions {view_name} (view) and {mutation_name} (mutation) "
+                                f"both read timer variables: {', '.join(shared_timer_vars)}. "
+                                f"Their boundary behavior must be consistent - if the view indicates "
+                                f"the deadline has passed, the mutation should not allow the action."
+                            ),
+                            target_function_ids=[view_id, mutation_id],
+                            target_var_ids=[],
+                            target_file_ids=[],
+                            confidence=0.7,
+                            source="synthesis",
+                            chunk_id="synthesis_boundary",
+                        )
+                    )
+
+        # Synthesize post-expiry gating invariants
+        for mutation_id in time_guard_mutations:
+            mutation_entry = next(
+                (f for f in vocab["functions"] if f.id == mutation_id), None
+            )
+            if not mutation_entry:
+                continue
+
+            mutation_name = mutation_entry.name
+            mutation_reads = set(mutation_entry.reads)
+
+            # Check if reads timer vars
+            time_var_pats = self.adapter.get_time_var_patterns()
+            timer_vars = [
+                v
+                for v in mutation_reads
+                if any(p.lower() in v.lower() for p in time_var_pats)
+            ]
+
+            if timer_vars:
+                synthesized.append(
+                    Invariant(
+                        type=InvariantType.LIVENESS,
+                        rule=(
+                            f"Post-expiry gating: {mutation_name}() must revert when "
+                            f"block.timestamp >= deadline (or equivalent time condition)"
+                        ),
+                        principle="time-gated function must enforce deadline",
+                        explanation=(
+                            f"Function {mutation_name} reads timer variables: {', '.join(timer_vars)}. "
+                            f"If this is a participation/entry function, it must enforce that "
+                            f"the action cannot occur after the time window closes."
+                        ),
+                        target_function_ids=[mutation_id],
+                        target_var_ids=[],
+                        target_file_ids=[],
+                        confidence=0.6,
+                        source="synthesis",
+                        chunk_id="synthesis_expiry",
+                    )
+                )
+
+        # Synthesize reset ordering invariants
+        for reset_id in time_resets:
+            reset_entry = next(
+                (f for f in vocab["functions"] if f.id == reset_id), None
+            )
+            if not reset_entry:
+                continue
+
+            reset_name = reset_entry.name
+
+            synthesized.append(
+                Invariant(
+                    type=InvariantType.ORDERING,
+                    rule=(
+                        f"Reset ordering: {reset_name}() must only be callable "
+                        f"after the current round/epoch has ended (ended == true or equivalent)"
+                    ),
+                    principle="reset function gated by end-of-round flag",
+                    explanation=(
+                        f"Function {reset_name} appears to reset round state. "
+                        f"It should only be callable after the current round is properly finished, "
+                        f"not while a round is still active."
+                    ),
+                    target_function_ids=[reset_id],
+                    target_var_ids=[],
+                    target_file_ids=[],
+                    confidence=0.5,
+                    source="synthesis",
+                    chunk_id="synthesis_reset",
+                )
+            )
+
+        # Synthesize obligation preservation on reset
+        if time_resets and distributions:
+            for reset_id in time_resets:
+                reset_entry = next(
+                    (f for f in vocab["functions"] if f.id == reset_id), None
+                )
+                if not reset_entry:
+                    continue
+
+                reset_name = reset_entry.name
+
+                synthesized.append(
+                    Invariant(
+                        type=InvariantType.VALUE_FLOW,
+                        rule=(
+                            f"Obligation preservation: {reset_name}() must not clear "
+                            f"pending withdrawals or outstanding obligations when resetting round state"
+                        ),
+                        principle="reset preserves accumulated obligations",
+                        explanation=(
+                            f"When {reset_name} resets the round/epoch, any pending withdrawals "
+                            f"or claimable balances must be preserved. Users should not lose "
+                            f"their accumulated rewards due to a round reset."
+                        ),
+                        target_function_ids=[reset_id],
+                        target_var_ids=[],
+                        target_file_ids=[],
+                        confidence=0.6,
+                        source="synthesis",
+                        chunk_id="synthesis_obligation",
+                    )
+                )
+
+        return synthesized
