@@ -4,6 +4,7 @@ You are an LLM agent with a set of repo exploration/editing tools and **adapter-
 
 **Important**: do NOT rely on framework-specific helper tools (forge/cargo/cmake/npm wrappers). You must use the **generic** tools:
 - `write_setup_script(...)` (writes a cross-framework bootstrap script to provision deps and build/test)
+- `run_setup_script(...)` (executes the bootstrap script phase: install|build|test|all)
 - `write_and_compile(...)` (writes a smoke harness and compiles via the detected tool adapter)
 - `run_test(...)` (runs tests via the detected tool adapter)
 
@@ -59,6 +60,7 @@ Follow this general process for most projects:
 2. **Bootstrap Script (Preferred)**:
    - Write a single cross-framework bootstrap script that provisions dependencies and runs the primary build/test.
    - Call `write_setup_script(working_dir=...)` to create `scripts/setup_all.sh` with idempotent install/build/test logic.
+   - Run `run_setup_script(phase="install", working_dir=...)` to install dependencies in the master repo once.
    - Compose `build_script` and `test_script` fields to invoke this script (e.g., `bash scripts/setup_all.sh install && bash scripts/setup_all.sh build`).
 
 3. **Validate Build/Test Tooling (Adapter-driven, optional)**:

@@ -9,9 +9,7 @@ load_dotenv()
 
 # Agent model settings
 SETUP_DEFAULT_MODEL = "openai/gpt-5.2-codex"
-MAIN_DEFAULT_MODEL = (
-    "google/gemini-3-flash-preview"  # stepfun/step-3.5-flash:free x-ai/grok-code-fast-1 google/gemini-3-flash-preview
-)
+MAIN_DEFAULT_MODEL = "google/gemini-3-flash-preview"  # stepfun/step-3.5-flash:free x-ai/grok-code-fast-1 google/gemini-3-flash-preview
 GAMIFIED_DEFAULT_MODEL = "google/gemini-3-flash-preview"
 VERIFIER_DEFAULT_MODEL = "openai/gpt-5.2-codex"
 INVARIANT_DEFAULT_MODEL = "openai/gpt-5.2-codex"

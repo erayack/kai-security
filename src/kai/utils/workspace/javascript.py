@@ -55,8 +55,9 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
         # Copy config files
         self._copy_config_files(workspace, master)
 
-        # Install dependencies
-        self._install_dependencies(workspace, logger)
+        # Reuse master node_modules when available; otherwise install
+        if not self._setup_node_modules_symlink(workspace, master):
+            self._install_dependencies(workspace, logger)
 
         # Run build if needed (for TypeScript projects where dist/ is gitignored)
         self._run_build_if_needed(workspace, logger)
@@ -100,8 +101,9 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
             # CLEAN/WRITEABLE - selective copy
             self._copy_with_excludes(master, workspace, exclude_dirs)
 
-        # Install dependencies with fresh node_modules
-        self._install_dependencies(workspace, logger)
+        # Reuse master node_modules when available; otherwise install
+        if not self._setup_node_modules_symlink(workspace, master):
+            self._install_dependencies(workspace, logger)
 
         # Run build if needed (for TypeScript projects where dist/ is gitignored)
         self._run_build_if_needed(workspace, logger)
@@ -122,6 +124,24 @@ class JavaScriptWorkspaceAdapter(WorkspaceAdapter):
     def detect_remappings(self, master: Path) -> str:
         """JavaScript doesn't use remappings - return empty string."""
         return ""
+
+    def _setup_node_modules_symlink(self, workspace: Path, master: Path) -> bool:
+        """Symlink workspace/node_modules -> master/node_modules when available.
+
+        Returns True if the symlink was created or already exists; False otherwise.
+        """
+        nm_master = master / "node_modules"
+        nm_link = workspace / "node_modules"
+        if nm_link.exists():
+            return True
+        if nm_master.exists() and nm_master.is_dir():
+            try:
+                rel_path = os.path.relpath(nm_master, workspace)
+                nm_link.symlink_to(rel_path)
+                return True
+            except OSError:
+                pass
+        return False
 
     def infer_src_path(self, master: Path) -> Path:
         """

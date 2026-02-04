@@ -41,8 +41,9 @@ class PythonWorkspaceAdapter(WorkspaceAdapter):
         # Create directory structure
         (workspace / "tests" / "poc").mkdir(parents=True, exist_ok=True)
 
-        # Create virtual environment
-        self._create_venv(workspace, logger)
+        # Reuse master's virtualenv if available to avoid reinstall; otherwise create one
+        if not self._setup_venv_symlink(workspace, master):
+            self._create_venv(workspace, logger)
 
         # Symlink source directories
         self._setup_source_symlinks(workspace, master, master_context)
@@ -94,8 +95,9 @@ class PythonWorkspaceAdapter(WorkspaceAdapter):
             # CLEAN/WRITEABLE - selective copy
             self._copy_with_excludes(master, workspace, exclude_dirs)
 
-        # Create fresh venv
-        self._create_venv(workspace, logger)
+        # Reuse master's virtualenv if available to avoid reinstall; otherwise create one
+        if not self._setup_venv_symlink(workspace, master):
+            self._create_venv(workspace, logger)
 
         # Install dependencies
         self._install_dependencies(workspace, logger)
@@ -300,6 +302,24 @@ class PythonWorkspaceAdapter(WorkspaceAdapter):
                 )
             except Exception:
                 pass
+
+    def _setup_venv_symlink(self, workspace: Path, master: Path) -> bool:
+        """Symlink workspace/.venv -> master/.venv when available.
+
+        Returns True if the symlink was created or already exists; False otherwise.
+        """
+        venv_master = master / ".venv"
+        venv_link = workspace / ".venv"
+        if venv_link.exists():
+            return True
+        if venv_master.exists() and venv_master.is_dir():
+            try:
+                rel_path = os.path.relpath(venv_master, workspace)
+                venv_link.symlink_to(rel_path)
+                return True
+            except OSError:
+                pass
+        return False
 
     def _create_conftest(
         self,

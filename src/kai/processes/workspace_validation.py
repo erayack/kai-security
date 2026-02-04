@@ -372,6 +372,28 @@ class WorkspaceValidationProcess(
                 workspace = Path(workspace_path).resolve()
                 workspace_path = str(workspace)
 
+                # Compute timeouts and attempt to speed up Foundry compiles by disabling via_ir
+                # in the workspace only (foundry.local.toml). If this write fails, increase compile timeout
+                # and log a warning.
+                compile_timeout = int(input_data.timeout_compile_s)
+                test_timeout = int(input_data.timeout_test_s)
+                try:
+                    if framework.lower() in {"foundry", "forge"}:
+                        (workspace / "foundry.local.toml").write_text(
+                            "[profile.default]\nvia_ir = false\n",
+                            encoding="utf-8",
+                        )
+                except Exception as e:
+                    if framework.lower() in {"foundry", "forge"}:
+                        compile_timeout = max(compile_timeout, 600)
+                        try:
+                            self.logger.warning(
+                                f"workspace_validation: failed to write foundry.local.toml (via_ir=false): {e}. "
+                                f"Increasing compile timeout to {compile_timeout}s."
+                            )
+                        except Exception:
+                            pass
+
                 # Delegate smoke compile/test to WorkspaceValidationAgent (tool-calling).
                 # The agent operates on the already provisioned workspace (no provisioning tools needed).
                 use_openai = bool(
@@ -412,8 +434,8 @@ class WorkspaceValidationProcess(
                             prompt_lines.append(f"framework={framework_hint}")
                         prompt_lines.extend(
                             [
-                                f"timeout_compile_s={int(input_data.timeout_compile_s)}",
-                                f"timeout_test_s={int(input_data.timeout_test_s)}",
+                                f"timeout_compile_s={compile_timeout}",
+                                f"timeout_test_s={test_timeout}",
                                 "Do NOT call list_files unless debugging an unexpected failure (it can be huge).",
                                 "Use this exact smoke test content and path:",
                                 f"- file_path: {rel_stem}",
@@ -470,7 +492,7 @@ class WorkspaceValidationProcess(
 
                     compile_result = tool_adapter.compile(
                         workspace_path=workspace,
-                        timeout=int(input_data.timeout_compile_s),
+                        timeout=compile_timeout,
                     )
                     compiled = bool(compile_result.success)
                     compile_errors = list(compile_result.errors or [])
@@ -496,7 +518,7 @@ class WorkspaceValidationProcess(
                                 match_contract="WorkspaceSmokeTest",
                                 match_test="test_smoke",
                                 verbosity=2,
-                                timeout=int(input_data.timeout_test_s),
+                                timeout=test_timeout,
                                 framework_kwargs={"match_path": smoke_relpath},
                             )
                         elif fw == "cargo":
@@ -504,14 +526,14 @@ class WorkspaceValidationProcess(
                                 workspace_path=workspace,
                                 match_test="test_smoke",
                                 verbosity=1,
-                                timeout=int(input_data.timeout_test_s),
+                                timeout=test_timeout,
                                 framework_kwargs={"match_path": smoke_relpath},
                             )
                         elif fw == "cmake":
                             test_result = tool_adapter.run_test(
                                 workspace_path=workspace,
                                 verbosity=1,
-                                timeout=int(input_data.timeout_test_s),
+                                timeout=test_timeout,
                                 framework_kwargs={"build_dir": "build"},
                             )
                         elif fw == "python":
@@ -519,7 +541,7 @@ class WorkspaceValidationProcess(
                                 workspace_path=workspace,
                                 match_test="test_smoke",
                                 verbosity=1,
-                                timeout=int(input_data.timeout_test_s),
+                                timeout=test_timeout,
                                 framework_kwargs={"match_path": smoke_relpath},
                             )
                         elif fw in {"javascript", "js"}:
@@ -527,21 +549,21 @@ class WorkspaceValidationProcess(
                                 workspace_path=workspace,
                                 match_test="smoke",
                                 verbosity=1,
-                                timeout=int(input_data.timeout_test_s),
+                                timeout=test_timeout,
                                 framework_kwargs={"match_path": smoke_relpath},
                             )
                         elif fw == "c":
                             test_result = tool_adapter.run_test(
                                 workspace_path=workspace,
                                 verbosity=1,
-                                timeout=int(input_data.timeout_test_s),
+                                timeout=test_timeout,
                                 framework_kwargs={"build_dir": "build"},
                             )
                         else:
                             test_result = tool_adapter.run_test(
                                 workspace_path=workspace,
                                 verbosity=1,
-                                timeout=int(input_data.timeout_test_s),
+                                timeout=test_timeout,
                                 framework_kwargs={"match_path": smoke_relpath},
                             )
                         test_success = bool(test_result.success)

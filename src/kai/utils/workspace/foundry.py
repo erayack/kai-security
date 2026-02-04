@@ -46,6 +46,9 @@ class FoundryWorkspaceAdapter(WorkspaceAdapter):
         # Symlink to parent's lib folder for dependencies
         self._setup_lib_symlink(workspace, master)
 
+        # Symlink to parent's node_modules if present (for NPM-based Solidity deps)
+        self._setup_node_modules_symlink(workspace, master)
+
         # Symlink to parent's contracts/src folder for source access
         self._setup_contracts_symlink(workspace, master, master_context)
 
@@ -101,6 +104,10 @@ class FoundryWorkspaceAdapter(WorkspaceAdapter):
 
         # Master repos are made read-only; ensure the provisioned workspace is writable.
         self._make_writable(workspace)
+
+        # Prefer symlink for heavy dependency trees to avoid reinstall per agent
+        # If master has node_modules, expose it in workspace for remapping resolution
+        self._setup_node_modules_symlink(workspace, master)
 
         if logger:
             logger.debug(
@@ -263,6 +270,18 @@ class FoundryWorkspaceAdapter(WorkspaceAdapter):
                     contracts_link.symlink_to(rel_path)
                 except OSError:
                     pass  # Skip symlink if it fails
+
+    def _setup_node_modules_symlink(self, workspace: Path, master: Path) -> None:
+        """Symlink workspace/node_modules -> master/node_modules when available."""
+        nm_master = master / "node_modules"
+        nm_link = workspace / "node_modules"
+        if nm_master.exists() and nm_master.is_dir() and not nm_link.exists():
+            try:
+                rel_path = os.path.relpath(nm_master, workspace)
+                nm_link.symlink_to(rel_path)
+            except OSError:
+                # Symlink might fail (e.g., on Windows). Skip silently.
+                pass
 
     def _write_foundry_config(
         self,

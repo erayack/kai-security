@@ -650,42 +650,30 @@ class Dispatcher:
         if not frameworks:
             return None
 
-        # Framework to adapter mapping
-        framework_to_adapter = {
-            # Solidity frameworks
-            "foundry": "solidity",
-            "forge": "solidity",
-            "hardhat": "solidity",
-            # Python frameworks
-            "python": "python",
-            "py": "python",
-            "uv": "python",
-            "pip": "python",
-            "poetry": "python",
-            # JavaScript frameworks
-            "javascript": "javascript",
-            "js": "javascript",
-            "node": "javascript",
-            "npm": "javascript",
-            "yarn": "javascript",
-            "pnpm": "javascript",
-            # TypeScript frameworks
-            "typescript": "typescript",
-            "ts": "typescript",
-            # C/C++ frameworks
-            "c": "c",
-            "cmake": "c",
-            "make": "c",
-            "gcc": "c",
-            # Rust frameworks
-            "cargo": "c",  # Using C builder for now as we don't have a Rust builder
-            "rust": "c",
-        }
+        # Priority-based inference across possibly mixed frameworks
+        fw = {str(x).lower() for x in frameworks}
 
-        for fw in frameworks:
-            fw_lower = fw.lower()
-            if fw_lower in framework_to_adapter:
-                return framework_to_adapter[fw_lower]
+        # Prefer Solidity if present (we have a robust builder)
+        if fw & {"foundry", "forge", "hardhat"}:
+            return "solidity"
+
+        # Python
+        if fw & {"python", "py", "uv", "pip", "poetry"}:
+            return "python"
+
+        # TypeScript / JavaScript
+        if fw & {"typescript", "ts"}:
+            return "typescript"
+        if fw & {"javascript", "js", "node", "npm", "yarn", "pnpm"}:
+            return "javascript"
+
+        # C/C++
+        if fw & {"c", "cmake", "make", "gcc"}:
+            return "c"
+
+        # Rust only: we do not support a Rust builder yet
+        if fw and fw <= {"cargo", "rust"}:
+            return "__unsupported_rust__"
 
         return None
 
@@ -713,6 +701,11 @@ class Dispatcher:
             inferred = self._infer_adapter_from_framework(
                 self.master_context.frameworks
             )
+            if inferred == "__unsupported_rust__":
+                self.logger.error(
+                    "Unsupported project: only Cargo/Rust detected. Rust adapter is not available yet."
+                )
+                return None
             if inferred and inferred != "solidity":
                 self.logger.info(
                     f"Adapter inferred from frameworks {self.master_context.frameworks}: {inferred}"
