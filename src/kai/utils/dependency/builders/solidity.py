@@ -260,10 +260,10 @@ class SolidityBuilder(BaseBuilder):
         # Import Slither (handle version/package layout differences robustly)
         # Prefer top-level export; fall back to submodule. If unavailable, return empty graph.
         try:
-            from slither import Slither as _Slither  # type: ignore
+            from slither import Slither as _Slither
         except Exception:
             try:
-                from slither.slither import Slither as _Slither  # type: ignore
+                from slither.slither import Slither as _Slither
             except Exception:
                 return graph
 
