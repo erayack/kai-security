@@ -477,28 +477,55 @@ class MissionPlanner:
 
     def create_missions_for_invariant(
         self, invariant: Invariant, base_id: int
-    ) -> List[Mission]:
-        """Create missions for a single dynamically discovered invariant."""
-        agent_types = self._select_agent_types([invariant])
-        missions: List[Mission] = []
+    ) -> Tuple[CampaignBrief, List[Mission]]:
+        """
+        Create a campaign and missions for a single dynamically discovered invariant.
 
+        Args:
+            invariant: The dynamically discovered invariant
+            base_id: Base ID for mission numbering
+
+        Returns:
+            Tuple of (CampaignBrief, List[Mission]) for the dynamic invariant
+        """
+        agent_types = self._select_agent_types([invariant])
+
+        # Get framework from master context if available
+        framework = None
+        if self.master_context and self.master_context.frameworks:
+            framework = self.master_context.frameworks[0]
+
+        # Create a proper campaign for the dynamic invariant
+        campaign = CampaignBrief(
+            mode=CampaignMode.INVARIANT_BOUNDED,
+            agent_types=agent_types,
+            framework=framework,
+            workspace_preset=WorkspacePreset.WRITEABLE,
+            scope=CampaignScope(),
+            invariants=[invariant],
+            objectives=CampaignObjectives(notes=f"Dynamic: {invariant.rule}"),
+            budget=self.default_budget,
+            priority=1,
+        )
+
+        missions: List[Mission] = []
         for agent_type in agent_types:
             missions.append(
                 Mission(
                     mission_id=generate_mission_id(),
-                    campaign_id="CMP_DYNAMIC",
+                    campaign_id=campaign.campaign_id,
                     invariant_id=invariant.id,
                     invariant=invariant,
                     agent_type=agent_type,
-                    scope=CampaignScope(),
-                    workspace_preset=WorkspacePreset.WRITEABLE,
-                    objectives=CampaignObjectives(notes=f"Dynamic: {invariant.rule}"),
+                    scope=campaign.scope,
+                    workspace_preset=campaign.workspace_preset,
+                    objectives=campaign.objectives,
                     max_turns=self.default_budget.max_turns_per_agent,
                     status="pending",
                 )
             )
 
-        return missions
+        return campaign, missions
 
     def build_gamified_campaigns(
         self, invariants: List[Invariant]
