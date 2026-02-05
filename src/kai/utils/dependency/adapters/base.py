@@ -287,7 +287,6 @@ class DomainAdapter(ABC):
                 - "time_guard_mutation": uses time guard and mutates state
                 - "time_reset": resets end flags/accumulators for new round
         """
-        name_l = (fn_name or "").lower()
         code_l = (code_snippet or "").lower()
         reads_l = [v.lower() for v in (read_var_names or [])]
         writes_l = [v.lower() for v in (write_var_names or [])]
@@ -375,7 +374,6 @@ class DomainAdapter(ABC):
                 - "touches_obligation": reads/writes pending/withdrawable
                 - "distribution": sends value to multiple recipients
         """
-        name_l = (fn_name or "").lower()
         code_l = (code_snippet or "").lower()
         reads_l = [v.lower() for v in (read_var_names or [])]
         writes_l = [v.lower() for v in (write_var_names or [])]

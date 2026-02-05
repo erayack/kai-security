@@ -514,12 +514,78 @@ def create_gamified_agent(
     return agent
 
 
+def create_http_agent(
+    mission: Mission,
+    workspace_path: str,
+    master_context: MasterContext,
+    dependency_graph: Optional[DependencyGraph] = None,
+    actor_matrix: Optional[ActorMatrix] = None,
+    target_hosts: Optional[dict[str, str]] = None,
+    model: str = settings.MAIN_DEFAULT_MODEL,
+    use_openai: bool = False,
+    execution_id: Optional[str] = None,
+    extra_instructions: Optional[str] = None,
+):
+    """
+    Factory function to create a properly configured HTTPAgent.
+
+    HTTPAgent makes actual HTTP requests to running services and produces
+    PoC scripts that can be verified.
+
+    Args:
+        mission: The mission to execute
+        workspace_path: Path to the provisioned workspace
+        master_context: MasterContext from preprocessing
+        dependency_graph: Optional DependencyGraph for code analysis tools
+        actor_matrix: Optional ActorMatrix for auth/privilege analysis
+        target_hosts: Dict of service name to URL (e.g., {"app": "http://localhost:8080"})
+        model: Model to use for inference
+        use_openai: Whether to use OpenAI API directly
+        execution_id: Optional execution ID for logging
+        extra_instructions: Additional instructions (e.g., task-specific hints)
+
+    Returns:
+        Configured HTTPAgent ready for chat_with_tools()
+    """
+    from kai.agents.agent_types.http_agent import HTTPAgent
+
+    # Validate target_hosts
+    if not target_hosts:
+        raise ValueError("target_hosts is required (dict of service name to URL)")
+    # Validate at least one URL is valid
+    valid_urls = [url for url in target_hosts.values() if url.startswith("http")]
+    if not valid_urls:
+        raise ValueError("target_hosts must contain at least one valid http URL")
+
+    agent = HTTPAgent(
+        mission=mission,
+        master_context=master_context,
+        target_hosts=target_hosts,
+        dependency_graph=dependency_graph,
+        actor_matrix=actor_matrix,
+        max_tool_turns=mission.max_turns,
+        repo_path=workspace_path,
+        model=model,
+        use_openai=use_openai,
+        execution_id=execution_id,
+    )
+
+    # Set workspace path for tools
+    agent.workspace_path = workspace_path
+
+    # Set up toolcalling prompt
+    agent.set_toolcalling_prompt(extra_instructions=extra_instructions or "")
+
+    return agent
+
+
 # Registry of agent factories by type
 AGENT_FACTORIES: Dict[MissionAgentType, Any] = {
     MissionAgentType.STATE: create_state_agent,
     MissionAgentType.QUANT: create_quant_agent,
     MissionAgentType.BLACKBOX: create_blackbox_agent,
     MissionAgentType.GAMIFIED: create_gamified_agent,
+    MissionAgentType.HTTP: create_http_agent,
 }
 
 

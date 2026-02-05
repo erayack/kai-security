@@ -113,8 +113,10 @@ def get_agent_framework() -> str:
     """
     Get the tool framework from the current agent context.
 
-    Checks master_context.frameworks for supported tool frameworks (foundry, cargo,
-    python, javascript, c, etc.), then falls back to agent.framework attribute if set.
+    Priority order:
+    1. agent.framework (explicit setting by process, e.g., WorkspaceValidationProcess)
+    2. master_context.frameworks (detected during setup)
+    3. Default to "foundry"
 
     Note: master_context.adapter is the domain/language adapter (e.g., "solidity", "rust")
     for dependency graph analysis, NOT the build/test framework. Don't use it here.
@@ -128,7 +130,13 @@ def get_agent_framework() -> str:
     if agent is None:
         return "foundry"
 
-    # Check master_context.frameworks for supported tool framework
+    # Check agent.framework first (explicit setting takes priority)
+    # This allows processes like WorkspaceValidationProcess to override the framework
+    framework = getattr(agent, "framework", None)
+    if framework:
+        return framework.lower()
+
+    # Fall back to master_context.frameworks for supported tool framework
     master_context = getattr(agent, "master_context", None)
     if master_context:
         frameworks = getattr(master_context, "frameworks", None) or []
@@ -137,11 +145,6 @@ def get_agent_framework() -> str:
             fw_lower = fw.lower()
             if fw_lower in supported:
                 return fw_lower
-
-    # Try framework attribute directly on agent
-    framework = getattr(agent, "framework", None)
-    if framework:
-        return framework.lower()
 
     return "foundry"
 

@@ -75,6 +75,9 @@ class VerifierAgent(BaseAgent):
         use_openai: bool = False,
         execution_id: Optional[str] = None,
         fallback_model: Optional[str] = settings.FALLBACK_MODEL,
+        # HTTP agent configuration (for verifying HTTP exploits)
+        enable_http_agent: bool = False,
+        http_target_hosts: Optional[dict[str, str]] = None,
     ):
         # Initialize with minimal system prompt - will be replaced by set_toolcalling_prompt()
         super().__init__(
@@ -93,6 +96,10 @@ class VerifierAgent(BaseAgent):
         self.dependency_graph = dependency_graph
         self.workspace_path: Optional[str] = None
         self.fallback_model = fallback_model
+
+        # HTTP configuration for verifying HTTP exploits
+        self.enable_http_agent = enable_http_agent
+        self.target_hosts = http_target_hosts or {}
 
         if execution_id:
             self.execution_id = execution_id
@@ -125,6 +132,13 @@ class VerifierAgent(BaseAgent):
             except Exception:
                 pass
 
+        # Add HTTP-specific guidance if HTTP agent is enabled
+        if getattr(self, "enable_http_agent", False):
+            http_guidance = self._get_http_verification_guidance()
+            poc_guidance = (
+                f"{poc_guidance}\n\n{http_guidance}" if poc_guidance else http_guidance
+            )
+
         # Substitute template variables
         replacements = {
             "{{max_tool_turns}}": str(self.max_tool_turns),
@@ -145,12 +159,58 @@ class VerifierAgent(BaseAgent):
         self.system_prompt = prompt
         self.messages = [ChatMessage(role=Role.SYSTEM, content=prompt)]
 
+    def _get_http_verification_guidance(self) -> str:
+        """Return HTTP-specific verification guidance for the prompt."""
+        target_hosts = getattr(self, "target_hosts", {}) or {}
+
+        # Format hosts for display
+        hosts_display = "\n".join(
+            f"  - {name}: {url}" for name, url in target_hosts.items()
+        ) if target_hosts else "  (none configured)"
+
+        return f"""
+## HTTP Exploit Verification
+
+This is an HTTP exploit that targets a live network service. Use the HTTP tools to verify it.
+
+**Available Target Hosts:**
+{hosts_display}
+
+### Verification Steps for HTTP Exploits:
+
+1. **Execute the HTTP PoC** using `execute_http_poc(poc_code, service)`:
+   - Specify which service to target (e.g., "app", "postgres")
+   - The tool will substitute ${{TARGET_HOST}} with the service URL
+   - Check if the script exits with code 0 (success)
+   - Examine stdout/stderr for exploit indicators
+
+2. **Verify server-side effects** using `check_container_file(container, path)`:
+   - Some exploits create files inside Docker containers
+   - Check if expected verification artifacts exist
+
+3. **Make direct HTTP requests** if needed:
+   - Use `http_request(method, url, service, ...)` to probe the service
+   - Specify the service name to target
+
+### Important Notes:
+- HTTP PoCs use `${{TARGET_HOST}}` placeholder - this is CORRECT, not an error
+- The placeholder gets substituted at runtime with the chosen service's URL
+- Do NOT reject exploits just because they contain ${{TARGET_HOST}}
+- Focus on whether the exploit logic is sound and would work against a real service
+"""
+
     def check_termination(self, response: str, python_code: str) -> bool:
         """VerifierAgent terminates when verdict is submitted or no more tool calls."""
         return self._verdict is not None
 
     def get_tools_module(self) -> str:
-        """Return the tools module for VerifierAgent."""
+        """Return the tools module for VerifierAgent.
+
+        Returns HTTP-enabled tools module if enable_http_agent is True,
+        otherwise returns the standard verifier tools.
+        """
+        if getattr(self, "enable_http_agent", False):
+            return "kai.agents.tools.verifier_tools_http"
         return "kai.agents.tools.verifier_tools"
 
     def extract_final_result(

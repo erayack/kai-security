@@ -302,6 +302,8 @@ class MissionPlanner:
     def _select_workspace_preset(
         self, agent_types: List[MissionAgentType]
     ) -> WorkspacePreset:
+        if MissionAgentType.HTTP in agent_types:
+            return WorkspacePreset.LIGHTWEIGHT  # HTTP agents don't need full workspace
         if (
             MissionAgentType.GAMIFIED in agent_types
             or MissionAgentType.BLACKBOX in agent_types
@@ -569,3 +571,51 @@ class MissionPlanner:
             missions.extend(campaign_missions)
 
         return campaigns, missions
+
+    def build_http_campaign(
+        self,
+        invariants: Optional[List[Invariant]] = None,
+    ) -> Tuple[CampaignBrief, List[Mission]]:
+        """
+        Build HTTP exploitation campaign and missions.
+
+        HTTP agents make actual HTTP requests to running services. They can
+        work with or without invariants (exploratory or targeted).
+
+        Args:
+            invariants: Optional list of invariants to target. If None, creates
+                        exploratory HTTP campaign.
+
+        Returns:
+            Tuple of (campaign, missions) for HTTP agents
+        """
+        framework = None
+        if self.master_context and self.master_context.frameworks:
+            framework = self.master_context.frameworks[0]
+
+        # HTTP campaigns are exploratory by default, targeted if invariants provided
+        mode = (
+            CampaignMode.INVARIANT_BOUNDED if invariants else CampaignMode.EXPLORATORY
+        )
+        notes = "HTTP exploitation"
+        if invariants:
+            notes = f"HTTP exploitation targeting {len(invariants)} invariant(s)"
+
+        campaign = CampaignBrief(
+            mode=mode,
+            agent_types=[MissionAgentType.HTTP],
+            framework=framework,
+            workspace_preset=WorkspacePreset.LIGHTWEIGHT,  # HTTP agents don't need full workspace
+            scope=CampaignScope(),
+            invariants=invariants or [],
+            objectives=CampaignObjectives(
+                reward_model=RewardModel.NONE,
+                notes=notes,
+            ),
+            budget=self.default_budget,
+            master_context=self.master_context,
+            priority=1,  # Same priority as state/quant
+        )
+
+        missions = self._spawn_missions_from_campaign(campaign, base_id=0)
+        return campaign, missions

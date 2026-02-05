@@ -68,11 +68,17 @@ WORKSPACE_VALIDATION_AGENT_PROMPT_PATH = (
 FIXER_AGENT_PROMPT_PATH = PROMPTS_DIR / "fixer_agent_prompt.txt"
 GAMIFIED_AGENT_PROMPT_PATH = PROMPTS_DIR / "gamified_agent_prompt.txt"
 BUCKETING_AGENT_PROMPT_PATH = PROMPTS_DIR / "bucketing_agent_prompt.txt"
+HTTP_AGENT_PROMPT_PATH = PROMPTS_DIR / "http_agent_prompt.txt"
 
 # Conversation defaults
 SAVE_CONVERSATION_PATH = "output/conversations/"
 EXPLOITS_PATH = "exploits.json"
 TEST_SCRIPTS_PATH = "test/"
+
+# Tool output truncation settings
+# These help prevent context overflow when tool outputs (e.g., npm errors) are very large
+TOOL_OUTPUT_MAX_LENGTH = 50_000  # Max characters per tool output (default: 50k chars ~12.5k tokens)
+TOOL_OUTPUT_TRUNCATION_MESSAGE = "\n\n... [OUTPUT TRUNCATED - exceeded {max_len} characters] ..."
 
 # Logging settings
 MONGO_URI: Optional[str] = os.getenv("MONGO_URI")

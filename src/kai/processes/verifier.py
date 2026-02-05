@@ -67,6 +67,9 @@ class VerifierProcess(BaseProcess[VerifierProcessInput, VerifierProcessOutput]):
             use_openai=input_data.use_openai,
             execution_id=workspace_id,
             fallback_model=input_data.fallback_model,
+            # Pass HTTP config for verifying HTTP exploits
+            enable_http_agent=input_data.enable_http_agent,
+            http_target_hosts=input_data.http_target_hosts,
         )
 
         # Set workspace path so tools can write/run tests

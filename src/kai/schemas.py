@@ -724,12 +724,14 @@ class MissionAgentType(str, Enum):
     Non-dependent (exploration):
     - BLACKBOX: Anomaly detection, surfaces observations → new invariants
     - GAMIFIED: Game-theoretic exploitation (maximize attacker payoff)
+    - HTTP: HTTP-based exploitation of live network services
     """
 
     QUANT = "quant"
     STATE = "state"
     BLACKBOX = "blackbox"
     GAMIFIED = "gamified"
+    HTTP = "http"
 
 
 class CampaignMode(str, Enum):
@@ -1000,6 +1002,9 @@ class VerifierProcessInput(BaseModel):
     use_openai: bool = False
     max_turns: int = 16
     fallback_model: Optional[str] = FALLBACK_MODEL
+    # HTTP agent configuration (for verifying HTTP exploits)
+    enable_http_agent: bool = False
+    http_target_hosts: Optional[dict[str, str]] = None
 
 
 class VerifierProcessOutput(BaseModel):

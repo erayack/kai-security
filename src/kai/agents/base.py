@@ -21,7 +21,7 @@ from kai.agents.utils import (
 from kai.inference import (
     create_openai_client,
     create_vllm_client,
-    get_model_pricing,
+    async_get_model_pricing,
     get_model_response_with_tools,
 )
 from kai.schemas import AgentResponse, ChatMessage, Role
@@ -156,7 +156,7 @@ class BaseAgent(ABC):
         else:
             self._client = create_openai_client(use_openai=use_openai)
 
-    def calculate_cost(self, usage_data: Dict[str, int]) -> float:
+    async def calculate_cost(self, usage_data: Dict[str, int]) -> float:
         """
         Calculate cost from usage data using dynamic pricing.
 
@@ -166,12 +166,12 @@ class BaseAgent(ABC):
         Returns:
             Cost in dollars
         """
-        pricing = get_model_pricing(self.model, self.use_openai)
+        pricing = await async_get_model_pricing(self.model, self.use_openai)
         prompt_cost = usage_data.get("prompt_tokens", 0) * pricing["prompt"]
         completion_cost = usage_data.get("completion_tokens", 0) * pricing["completion"]
         return prompt_cost + completion_cost
 
-    def update_budget(self, usage_data: Dict[str, Any]):
+    async def update_budget(self, usage_data: Dict[str, Any]):
         """
         Update token usage and estimated cost.
 
@@ -186,7 +186,7 @@ class BaseAgent(ABC):
         if "cost" in usage_data and usage_data["cost"] is not None:
             cost = usage_data["cost"]
         else:
-            cost = self.calculate_cost(usage_data)
+            cost = await self.calculate_cost(usage_data)
 
         self.estimated_cost += cost
 
@@ -312,7 +312,7 @@ class BaseAgent(ABC):
             )
 
             # Update budget
-            self.update_budget(usage_data)
+            await self.update_budget(usage_data)
             tool_calls_made.extend(calls_made)
 
             # Replace message history with the tool-calling payload so subsequent rounds

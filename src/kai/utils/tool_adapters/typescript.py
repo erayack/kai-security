@@ -38,7 +38,12 @@ class TypeScriptToolAdapter(JavaScriptToolAdapter):
         return ".ts"
 
     def normalize_test_path(self, file_path: str, workspace: Path) -> Path:
-        """Normalize test path for TypeScript projects."""
+        """Normalize test path for TypeScript projects.
+
+        All test files are placed under tests/poc/ for consistency with
+        PoC discovery in _discover_poc_file() which looks for files in
+        tests/poc/, test/poc/, and __tests__/poc/.
+        """
         p = Path(file_path)
 
         if p.is_absolute():
@@ -58,7 +63,7 @@ class TypeScriptToolAdapter(JavaScriptToolAdapter):
                     return workspace / "tests" / "poc" / normalized
                 break
 
-        for prefix in ["tests/", "test/", "__tests__/", "src/"]:
+        for prefix in ["tests/", "test/", "__tests__/", "src/", "poc/"]:
             if normalized.startswith(prefix):
                 normalized = normalized[len(prefix) :]
                 break
@@ -68,12 +73,12 @@ class TypeScriptToolAdapter(JavaScriptToolAdapter):
             stem = Path(normalized).stem
             return workspace / "tests" / "poc" / f"{stem}.mts"
 
-        # Default: Ensure .test.ts extension
+        # Default: Ensure .test.ts extension and place in tests/poc/
         stem = Path(normalized).stem
         if stem.endswith(".test"):
             stem = stem[:-5]
 
-        return workspace / "tests" / f"{stem}.test.ts"
+        return workspace / "tests" / "poc" / f"{stem}.test.ts"
 
     def get_poc_guidance(self) -> str:
         """Return TypeScript-specific PoC guidance."""
