@@ -737,10 +737,6 @@ IMPORTANT:
         # Synthesize view/mutation boundary alignment invariants
         for view_id in time_views:
             for mutation_id in time_guard_mutations:
-                # Check if they share timer-related variables (co-read)
-                view_meta = func_meta.get(view_id, {})
-                mutation_meta = func_meta.get(mutation_id, {})
-
                 # Get reads from vocab entries
                 view_entry = next(
                     (f for f in vocab["functions"] if f.id == view_id), None

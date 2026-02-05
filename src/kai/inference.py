@@ -2,6 +2,7 @@ from openai import AsyncOpenAI
 from typing import Optional, Union, Dict, Tuple, List, Any, Callable
 
 import json
+import httpx
 import requests
 
 from kai.agents.settings import (
@@ -9,6 +10,8 @@ from kai.agents.settings import (
     OPENROUTER_BASE_URL,
     MAIN_DEFAULT_MODEL,
     OPENAI_API_KEY,
+    TOOL_OUTPUT_MAX_LENGTH,
+    TOOL_OUTPUT_TRUNCATION_MESSAGE,
 )
 from kai.schemas import ChatMessage, Role
 
@@ -85,6 +88,49 @@ def get_model_pricing(model_name: str, use_openai: bool = False) -> Dict[str, fl
     }
     _pricing_cache[model_name] = default_pricing
     return default_pricing
+
+
+async def async_get_model_pricing(
+    model_name: str, use_openai: bool = False
+) -> Dict[str, float]:
+    """
+    Get pricing for a model from OpenRouter or use defaults for OpenAI.
+    Async version that doesn't block the event loop.
+
+    Returns:
+        Dict with 'prompt' and 'completion' keys (cost per token in dollars)
+    """
+    # Check cache first
+    if model_name in _pricing_cache:
+        return _pricing_cache[model_name]
+
+    if use_openai:
+        # OpenAI pricing not tracked
+        return {"prompt": 0, "completion": 0}
+
+    # Fetch from OpenRouter API using async httpx
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(
+                "https://openrouter.ai/api/v1/models",
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+            )
+            if response.status_code == 200:
+                models = response.json().get("data", [])
+                for model in models:
+                    if model.get("id") == model_name:
+                        pricing = model.get("pricing", {})
+                        result = {
+                            "prompt": float(pricing.get("prompt", 0)),
+                            "completion": float(pricing.get("completion", 0)),
+                        }
+                        _pricing_cache[model_name] = result
+                        return result
+    except Exception:
+        pass  # Fall through to zero pricing
+
+    # No pricing found
+    return {"prompt": 0, "completion": 0}
 
 
 def _as_dict(msg: Union[ChatMessage, dict]) -> dict:
@@ -405,6 +451,15 @@ async def get_model_response_with_tools(
         # Fallback: string representation (better than crashing tool calling).
         return str(obj)
 
+    def _truncate_tool_output(output: str, max_len: int = TOOL_OUTPUT_MAX_LENGTH) -> str:
+        """Truncate tool output if it exceeds max length to prevent context overflow."""
+        if len(output) <= max_len:
+            return output
+        # Keep first and last portions for context
+        half = max_len // 2
+        truncation_msg = TOOL_OUTPUT_TRUNCATION_MESSAGE.format(max_len=max_len)
+        return output[:half] + truncation_msg + output[-half:]
+
     last_content: str = ""
 
     for _ in range(max_tool_rounds):
@@ -509,6 +564,9 @@ async def get_model_response_with_tools(
                     )
                 except Exception as e:
                     result_str = json.dumps({"error": str(e)})
+
+                # Truncate large tool outputs to prevent context overflow
+                result_str = _truncate_tool_output(result_str)
 
                 # Add tool result to messages
                 messages_payload.append(

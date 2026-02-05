@@ -24,6 +24,7 @@ class AgentType(Enum):
     FIXER = settings.FIXER_AGENT_PROMPT_PATH
     GAMIFIED = settings.GAMIFIED_AGENT_PROMPT_PATH
     BUCKETING = settings.BUCKETING_AGENT_PROMPT_PATH
+    HTTP = settings.HTTP_AGENT_PROMPT_PATH
 
 
 def agent_type_to_kind(agent_type: AgentType) -> str:
@@ -50,6 +51,8 @@ def agent_type_to_kind(agent_type: AgentType) -> str:
         return "gamified"
     if agent_type == AgentType.BUCKETING:
         return "bucketing"
+    if agent_type == AgentType.HTTP:
+        return "http"
     return "unknown"
 
 
@@ -77,6 +80,7 @@ def load_system_prompt(
         AgentType.FIXER,
         AgentType.GAMIFIED,
         AgentType.BUCKETING,
+        AgentType.HTTP,
     }:
         raise ValueError(f"Unsupported agent type for Kai v2 scope: {agent_type}")
 

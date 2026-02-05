@@ -11,7 +11,6 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from kai.inference import get_structured_response
 
-from pydantic import BaseModel
 
 # Load dedupe prompt template
 DEDUPE_PROMPT_PATH = (
@@ -29,7 +28,6 @@ from kai.schemas import (  # noqa: E402
     ActorMatrix,
     CampaignBrief,
     CampaignBudget,
-    DedupeGroup,
     DedupeResponse,
     ExploitCandidate,
     Fix,
@@ -53,6 +51,11 @@ from kai.dispatcher.agent_factories import AGENT_FACTORIES as DEFAULT_AGENT_FACT
 
 # Type alias for shutdown trigger callable
 ShutdownTrigger = Callable[[], bool]
+
+# Mission queue priority constants (lower = higher priority)
+PRIORITY_BLACKBOX = 0  # Phase 0: Blackbox runs first
+PRIORITY_STATE_QUANT_HTTP = 1  # Phase 1: State/Quant/HTTP run together
+PRIORITY_GAMIFIED = 2  # Phase 2: Gamified runs last
 
 if TYPE_CHECKING:
     from kai.agents.base import BaseAgent
@@ -111,6 +114,11 @@ class DispatcherConfig:
     validation_max_turns: int = settings.VALIDATION_MAX_TURNS
     # Concurrent fixer limit
     max_concurrent_fixers: int = settings.MAX_CONCURRENT_FIXERS
+    # Enable HTTP agent (for HTTP-based exploitation of live services)
+    enable_http_agent: bool = False
+    # HTTP agent configuration - maps service names to URLs
+    # e.g., {"app": "http://localhost:8080", "db": "http://localhost:5432"}
+    http_target_hosts: Optional[dict[str, str]] = None
 
 
 class Dispatcher:
@@ -836,6 +844,12 @@ class Dispatcher:
         # Phase 1: State/Quant (plan with all invariants including any from blackbox)
         self.logger.info("Phase 1: State/Quant...")
         await self._plan_state_quant_missions()
+
+        # Queue HTTP missions if enabled (runs alongside state/quant)
+        if self.config.enable_http_agent:
+            self.logger.info("Queueing HTTP exploitation missions...")
+            await self._queue_http_missions()
+
         await self._drain_mission_queue()
         self.logger.info(f"Phase 1 done: {len(self.completed_missions)} missions")
 
@@ -888,7 +902,7 @@ class Dispatcher:
                 else None
             )
         for mission in missions:
-            self.mission_queue.put_nowait((0, mission.mission_id, mission))
+            self.mission_queue.put_nowait((PRIORITY_BLACKBOX, mission.mission_id, mission))
 
     async def _plan_state_quant_missions(self) -> None:
         """Plan state/quant missions with all invariants (phase 1)."""
@@ -911,7 +925,7 @@ class Dispatcher:
                 else None
             )
         for mission in missions:
-            self.mission_queue.put_nowait((1, mission.mission_id, mission))
+            self.mission_queue.put_nowait((PRIORITY_STATE_QUANT_HTTP, mission.mission_id, mission))
 
     async def _queue_gamified_missions(self) -> None:
         """Queue gamified missions from invariant clusters (phase 2)."""
@@ -934,7 +948,29 @@ class Dispatcher:
                 else None
             )
         for mission in missions:
-            self.mission_queue.put_nowait((2, mission.mission_id, mission))
+            self.mission_queue.put_nowait((PRIORITY_GAMIFIED, mission.mission_id, mission))
+
+    async def _queue_http_missions(self) -> None:
+        """Queue HTTP exploitation missions (runs alongside state/quant)."""
+        if not self._planner:
+            return
+        # HTTP can be exploratory (no invariants) or targeted (with invariants)
+        invariants = list(self.invariants.values()) if self.invariants else None
+        campaign, missions = self._planner.build_http_campaign(invariants)
+        self.campaigns.append(campaign)
+        await self._persist(
+            self._state_manager.save_campaigns([campaign])
+            if self._state_manager
+            else None
+        )
+        if missions:
+            await self._persist(
+                self._state_manager.save_missions(missions)
+                if self._state_manager
+                else None
+            )
+        for mission in missions:
+            self.mission_queue.put_nowait((PRIORITY_STATE_QUANT_HTTP, mission.mission_id, mission))
 
     async def _execute_mission(self, mission: Mission) -> None:
         """Execute a single mission with an agent."""
@@ -968,18 +1004,25 @@ class Dispatcher:
             # Provision workspace
             workspace_path = self._provision_workspace(mission)
 
+            # Build factory kwargs based on agent type
+            factory_kwargs: Dict[str, Any] = {
+                "mission": mission,
+                "workspace_path": workspace_path,
+                "master_context": self.master_context,
+                "dependency_graph": self.dependency_graph,
+                "actor_matrix": self.actor_matrix,
+                "model": self.config.model,
+                "use_openai": self.config.use_openai,
+                "execution_id": mission.mission_id,
+                "extra_instructions": self.config.extra_instructions,
+            }
+
+            # Add HTTP-specific config for HTTP agents
+            if mission.agent_type == MissionAgentType.HTTP:
+                factory_kwargs["target_hosts"] = self.config.http_target_hosts
+
             # Create agent instance via factory with full context
-            agent = factory(
-                mission=mission,
-                workspace_path=workspace_path,
-                master_context=self.master_context,
-                dependency_graph=self.dependency_graph,
-                actor_matrix=self.actor_matrix,
-                model=self.config.model,
-                use_openai=self.config.use_openai,
-                execution_id=mission.mission_id,
-                extra_instructions=self.config.extra_instructions,
-            )
+            agent = factory(**factory_kwargs)
 
             self.logger.info(
                 f"Executing {mission.mission_id} with {mission.agent_type.value}"
@@ -1001,6 +1044,10 @@ class Dispatcher:
             elif mission.agent_type == MissionAgentType.GAMIFIED:
                 await agent.chat_with_tools("Begin.")
                 await self._handle_gamified_agent_result(mission, agent)
+
+            elif mission.agent_type == MissionAgentType.HTTP:
+                await agent.chat_with_tools("Begin.")
+                await self._handle_http_agent_result(mission, agent)
 
             else:
                 raise ValueError(f"Unsupported agent type: {mission.agent_type}")
@@ -1127,6 +1174,9 @@ class Dispatcher:
                 use_openai=self.config.use_openai,
                 max_turns=self.config.verifier_max_turns,
                 fallback_model=self.config.fallback_model,
+                # Pass HTTP config for verifying HTTP exploits
+                enable_http_agent=self.config.enable_http_agent,
+                http_target_hosts=self.config.http_target_hosts,
             )
 
             output = await process.run(process_input)
@@ -1536,6 +1586,48 @@ class Dispatcher:
             if candidate.compiled and self.master_context:
                 await self._verify_candidate(candidate)
 
+    async def _handle_http_agent_result(self, mission: Mission, agent: Any) -> None:
+        """
+        Extract and handle results from HTTPAgent.
+
+        HTTPAgent implements get_exploit_candidates() which returns registered exploits.
+        HTTP exploits are always marked as compiled=True since they're Python scripts.
+        """
+        candidates = agent.get_exploit_candidates()
+
+        if not candidates:
+            self.logger.info(f"No exploit candidates from HTTP {mission.mission_id}")
+            return
+
+        self.logger.info(
+            f"HTTPAgent {mission.mission_id} found {len(candidates)} exploit candidate(s)"
+        )
+
+        for candidate in candidates:
+            # Tag candidate with mission context
+            if hasattr(candidate, "mission_id") and not candidate.mission_id:
+                candidate.mission_id = mission.mission_id
+            if (
+                hasattr(candidate, "invariant_id")
+                and not candidate.invariant_id
+                and mission.invariant
+            ):
+                candidate.invariant_id = mission.invariant.id
+
+            self.exploit_candidates.append(candidate)
+
+            # Persist exploit candidate
+            await self._persist(
+                self._state_manager.save_exploit_candidate(candidate)
+                if self._state_manager
+                else None
+            )
+
+            # HTTP exploits are always compiled (they're Python scripts)
+            # Verify if we have a master context
+            if candidate.compiled and self.master_context:
+                await self._verify_candidate(candidate)
+
     async def _synthesize_invariant(
         self, observation: Observation
     ) -> Optional[Invariant]:
@@ -1586,7 +1678,7 @@ class Dispatcher:
             )
 
         for mission in missions:
-            self.mission_queue.put_nowait((1, mission.mission_id, mission))
+            self.mission_queue.put_nowait((PRIORITY_STATE_QUANT_HTTP, mission.mission_id, mission))
 
     def _provision_workspace(self, mission: Mission) -> str:
         if not self.master_context:
