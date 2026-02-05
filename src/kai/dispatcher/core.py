@@ -1163,6 +1163,12 @@ class Dispatcher:
 
         self.logger.info(f"Verifying exploit candidate: {candidate.mission_id}")
 
+        # Determine verifier type based on the mission's agent type, not global config
+        mission = self.active_missions.get(candidate.mission_id)
+        is_http_candidate = (
+            mission is not None and mission.agent_type == MissionAgentType.HTTP
+        )
+
         try:
             process = VerifierProcess(context=self.master_context)
             process_input = VerifierProcessInput(
@@ -1174,9 +1180,11 @@ class Dispatcher:
                 use_openai=self.config.use_openai,
                 max_turns=self.config.verifier_max_turns,
                 fallback_model=self.config.fallback_model,
-                # Pass HTTP config for verifying HTTP exploits
-                enable_http_agent=self.config.enable_http_agent,
-                http_target_hosts=self.config.http_target_hosts,
+                # Pass HTTP config based on candidate's source agent type
+                enable_http_agent=is_http_candidate,
+                http_target_hosts=self.config.http_target_hosts
+                if is_http_candidate
+                else None,
             )
 
             output = await process.run(process_input)
