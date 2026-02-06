@@ -498,7 +498,6 @@ class Dispatcher:
                         presets=[
                             WorkspacePreset.LIGHTWEIGHT,
                             WorkspacePreset.CLEAN,
-                            WorkspacePreset.WRITEABLE,
                             WorkspacePreset.SANDBOX,
                         ],
                         timeout_compile_s=self.config.timeout_compile_s,
