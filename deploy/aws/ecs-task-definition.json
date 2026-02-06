@@ -1,0 +1,73 @@
+{
+  "family": "kai-security-analysis",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "4096",
+  "memory": "16384",
+  "executionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/kai-task-role",
+  "containerDefinitions": [
+    {
+      "name": "kai-runner",
+      "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/kai-security:latest",
+      "essential": true,
+      "environment": [
+        {
+          "name": "LIMIT",
+          "value": "2"
+        },
+        {
+          "name": "MAIN_MODEL",
+          "value": "anthropic/claude-opus-4.5"
+        },
+        {
+          "name": "VERIFIER_MODEL",
+          "value": "google/gemini-3-flash-preview"
+        },
+        {
+          "name": "COMPILE_TIMEOUT",
+          "value": "600"
+        },
+        {
+          "name": "TEST_TIMEOUT",
+          "value": "300"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "OPENROUTER_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:kai/openrouter-api-key"
+        },
+        {
+          "name": "MONGO_URI",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:kai/mongo-uri"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/kai-security-analysis",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "kai"
+        }
+      },
+      "mountPoints": [
+        {
+          "sourceVolume": "kai-output",
+          "containerPath": "/app/output",
+          "readOnly": false
+        }
+      ]
+    }
+  ],
+  "volumes": [
+    {
+      "name": "kai-output",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "${EFS_FILE_SYSTEM_ID}",
+        "rootDirectory": "/kai-output",
+        "transitEncryption": "ENABLED"
+      }
+    }
+  ]
+}

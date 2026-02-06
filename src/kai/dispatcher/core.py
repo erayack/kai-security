@@ -99,6 +99,8 @@ class DispatcherConfig:
     dedupe_model: str = settings.DEDUPE_DEFAULT_MODEL
     # Fixer agent settings
     fixer_model: str = settings.FIXER_DEFAULT_MODEL
+    # Gamified agent settings
+    gamified_model: str = settings.GAMIFIED_DEFAULT_MODEL
     # Fallback model (used when primary model fails after retries)
     fallback_model: str = settings.FALLBACK_MODEL
     # Output directory (if None, derives from rollouts_dir or workspace_dir)
@@ -111,6 +113,9 @@ class DispatcherConfig:
     validation_max_turns: int = settings.VALIDATION_MAX_TURNS
     # Concurrent fixer limit
     max_concurrent_fixers: int = settings.MAX_CONCURRENT_FIXERS
+    # Workspace validation timeouts (seconds)
+    timeout_compile_s: int = 120
+    timeout_test_s: int = 120
 
 
 class Dispatcher:
@@ -496,8 +501,8 @@ class Dispatcher:
                             WorkspacePreset.WRITEABLE,
                             WorkspacePreset.SANDBOX,
                         ],
-                        timeout_compile_s=120,
-                        timeout_test_s=120,
+                        timeout_compile_s=self.config.timeout_compile_s,
+                        timeout_test_s=self.config.timeout_test_s,
                         save_rollouts=self.config.save_rollouts,
                         rollouts_dir=self.config.rollouts_dir,
                     )
@@ -968,6 +973,11 @@ class Dispatcher:
             # Provision workspace
             workspace_path = self._provision_workspace(mission)
 
+            # Select model based on agent type
+            agent_model = self.config.model  # default for STATE/QUANT
+            if mission.agent_type == MissionAgentType.GAMIFIED:
+                agent_model = self.config.gamified_model
+
             # Create agent instance via factory with full context
             agent = factory(
                 mission=mission,
@@ -975,7 +985,7 @@ class Dispatcher:
                 master_context=self.master_context,
                 dependency_graph=self.dependency_graph,
                 actor_matrix=self.actor_matrix,
-                model=self.config.model,
+                model=agent_model,
                 use_openai=self.config.use_openai,
                 execution_id=mission.mission_id,
                 extra_instructions=self.config.extra_instructions,

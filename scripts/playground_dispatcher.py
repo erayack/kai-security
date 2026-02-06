@@ -10,22 +10,38 @@ Full Kai v2 pipeline for security analysis:
 
 Usage:
     # Basic run (State/Quant only, no exploration)
-    uv run python scripts/playground_dispatcher.py --repo-path ./master/your-contracts
+    python scripts/playground_dispatcher.py --repo-path ./test-repos/your-contracts
+
+    # With custom models for each agent
+    python scripts/playground_dispatcher.py --repo-path ./test-repos/your-contracts \
+        --model anthropic/claude-opus-4.5 \
+        --setup-model openai/gpt-4.1-mini \
+        --verifier-model anthropic/claude-opus-4.5 \
+        --invariant-model openai/gpt-4.1-mini \
+        --fixer-model openai/gpt-4.1-mini \
+        --compile-timeout 900 --test-timeout 300
 
     # With exploration (Blackbox + Gamified phases)
-    uv run python scripts/playground_dispatcher.py --repo-path ./master/your-contracts --exploration
+    python scripts/playground_dispatcher.py --repo-path ./test-repos/your-contracts --exploration
 
-    # Save rollouts for debugging (conversation logs per mission/verifier)
-    uv run python scripts/playground_dispatcher.py --repo-path ./master/your-contracts --save-rollouts
+Model Options:
+    --model           Main model for State/Quant agents
+    --setup-model     Model for setup/workspace validation
+    --verifier-model  Model for exploit verification
+    --invariant-model Model for invariant synthesis
+    --fixer-model     Model for fix generation
+    --dedupe-model    Model for exploit deduplication
+    --gamified-model  Model for gamified exploration
+    --fallback-model  Fallback when primary model fails
 
-    # Custom model
-    uv run python scripts/playground_dispatcher.py --repo-path ./master/your-contracts --model anthropic/claude-sonnet-4
+Timeout Options:
+    --compile-timeout Compilation timeout in seconds (default: 120)
+    --test-timeout    Test timeout in seconds (default: 120)
 
-Options:
+Other Options:
     --repo-path       Path to target repository (required)
-    --model           Main model for State/Quant agents (default: settings.MAIN_DEFAULT_MODEL)
     --concurrent      Max concurrent agents (default: 2)
-    --max-turns       Max turns per agent (default: settings.MAX_TOOL_TURNS)
+    --max-turns       Max turns per agent (default: 32)
     --exploration     Enable Blackbox/Gamified exploration phases
     --save-rollouts   Save agent conversation rollouts to output/rollouts/
     --no-fixer        Disable fixer agent to reduce costs during debugging
@@ -69,11 +85,20 @@ logger = logging.getLogger("playground")
 async def run_dispatcher_demo(
     repo_path: str,
     model: str = settings.MAIN_DEFAULT_MODEL,
+    setup_model: str = settings.SETUP_DEFAULT_MODEL,
+    verifier_model: str = settings.VERIFIER_DEFAULT_MODEL,
+    invariant_model: str = settings.INVARIANT_DEFAULT_MODEL,
+    fixer_model: str = settings.FIXER_DEFAULT_MODEL,
+    dedupe_model: str = settings.DEDUPE_DEFAULT_MODEL,
+    gamified_model: str = settings.GAMIFIED_DEFAULT_MODEL,
+    fallback_model: str = settings.FALLBACK_MODEL,
     max_concurrent: int = 2,
     max_turns: int = settings.MAX_TOOL_TURNS,
     include_exploration: bool = False,
     save_rollouts: bool = False,
     disable_fixer: bool = False,
+    compile_timeout: int = 120,
+    test_timeout: int = 120,
 ) -> None:
     """
     Run the full dispatcher pipeline and print results.
@@ -93,9 +118,15 @@ async def run_dispatcher_demo(
     print(f"Output: {output_dir}")
     print("\nModels:")
     print(f"  Main (State/Quant): {model}")
-    print(f"  Setup:              {settings.SETUP_DEFAULT_MODEL}")
-    print(f"  Verifier:           {settings.VERIFIER_DEFAULT_MODEL}")
-    print(f"  Gamified:           {settings.GAMIFIED_DEFAULT_MODEL}")
+    print(f"  Setup:              {setup_model}")
+    print(f"  Verifier:           {verifier_model}")
+    print(f"  Invariant:          {invariant_model}")
+    print(f"  Fixer:              {fixer_model}")
+    print(f"  Dedupe:             {dedupe_model}")
+    print(f"  Gamified:           {gamified_model}")
+    print(f"  Fallback:           {fallback_model}")
+    print(f"\nTimeouts:")
+    print(f"  Compile: {compile_timeout}s | Test: {test_timeout}s")
     print(f"\nExploration: {'enabled' if include_exploration else 'disabled'}")
     print(f"Fixer: {'disabled' if disable_fixer else 'enabled'}")
     print(f"Save rollouts: {'enabled' if save_rollouts else 'disabled'}")
@@ -114,11 +145,19 @@ async def run_dispatcher_demo(
         ),
         workspace_dir=str(output_dir / "workspaces"),
         model=model,
-        verifier_model=settings.VERIFIER_DEFAULT_MODEL,
+        setup_model=setup_model,
+        verifier_model=verifier_model,
+        invariant_model=invariant_model,
+        fixer_model=fixer_model,
+        dedupe_model=dedupe_model,
+        gamified_model=gamified_model,
+        fallback_model=fallback_model,
         use_openai=False,
         save_rollouts=save_rollouts,
         rollouts_dir=str(output_dir / "rollouts") if save_rollouts else None,
         disable_fixer=disable_fixer,
+        timeout_compile_s=compile_timeout,
+        timeout_test_s=test_timeout,
     )
 
     # Create dispatcher (no state manager for simplicity)
@@ -286,12 +325,69 @@ def main():
         required=True,
         help="Path to target repository",
     )
+    # Model configurations
     parser.add_argument(
         "--model",
         type=str,
         default=settings.MAIN_DEFAULT_MODEL,
-        help=f"Model to use (default: {settings.MAIN_DEFAULT_MODEL})",
+        help=f"Main model for State/Quant agents (default: {settings.MAIN_DEFAULT_MODEL})",
     )
+    parser.add_argument(
+        "--setup-model",
+        type=str,
+        default=settings.SETUP_DEFAULT_MODEL,
+        help=f"Model for setup agent (default: {settings.SETUP_DEFAULT_MODEL})",
+    )
+    parser.add_argument(
+        "--verifier-model",
+        type=str,
+        default=settings.VERIFIER_DEFAULT_MODEL,
+        help=f"Model for verifier agent (default: {settings.VERIFIER_DEFAULT_MODEL})",
+    )
+    parser.add_argument(
+        "--invariant-model",
+        type=str,
+        default=settings.INVARIANT_DEFAULT_MODEL,
+        help=f"Model for invariant synthesis (default: {settings.INVARIANT_DEFAULT_MODEL})",
+    )
+    parser.add_argument(
+        "--fixer-model",
+        type=str,
+        default=settings.FIXER_DEFAULT_MODEL,
+        help=f"Model for fixer agent (default: {settings.FIXER_DEFAULT_MODEL})",
+    )
+    parser.add_argument(
+        "--dedupe-model",
+        type=str,
+        default=settings.DEDUPE_DEFAULT_MODEL,
+        help=f"Model for deduplication (default: {settings.DEDUPE_DEFAULT_MODEL})",
+    )
+    parser.add_argument(
+        "--gamified-model",
+        type=str,
+        default=settings.GAMIFIED_DEFAULT_MODEL,
+        help=f"Model for gamified agent (default: {settings.GAMIFIED_DEFAULT_MODEL})",
+    )
+    parser.add_argument(
+        "--fallback-model",
+        type=str,
+        default=settings.FALLBACK_MODEL,
+        help=f"Fallback model for failures (default: {settings.FALLBACK_MODEL})",
+    )
+    # Timeout configurations
+    parser.add_argument(
+        "--compile-timeout",
+        type=int,
+        default=120,
+        help="Compilation timeout in seconds (default: 120)",
+    )
+    parser.add_argument(
+        "--test-timeout",
+        type=int,
+        default=120,
+        help="Test timeout in seconds (default: 120)",
+    )
+    # Agent configurations
     parser.add_argument(
         "--concurrent",
         type=int,
@@ -335,11 +431,20 @@ def main():
         run_dispatcher_demo(
             repo_path=str(repo_path),
             model=args.model,
+            setup_model=args.setup_model,
+            verifier_model=args.verifier_model,
+            invariant_model=args.invariant_model,
+            fixer_model=args.fixer_model,
+            dedupe_model=args.dedupe_model,
+            gamified_model=args.gamified_model,
+            fallback_model=args.fallback_model,
             max_concurrent=args.concurrent,
             max_turns=args.max_turns,
             include_exploration=args.exploration,
             save_rollouts=args.save_rollouts,
             disable_fixer=args.no_fixer,
+            compile_timeout=args.compile_timeout,
+            test_timeout=args.test_timeout,
         )
     )
 

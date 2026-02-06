@@ -57,7 +57,7 @@ python scripts/playground_dispatcher.py --repo-path ./path/to/contracts
 ```
 
 Options:
-- `--model`: Model to use (default: `openai/gpt-4o`)
+- `--model`: Model to use (default: `google/gemini-3-flash-preview`)
 - `--concurrent`: Max concurrent agents (default: 2)
 - `--max-turns`: Max turns per agent (default: 24)
 

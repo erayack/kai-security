@@ -58,3 +58,10 @@ kai_workspaces/
 
 # evaluation_output
 evaluation_output/
+
+# test repos (local clones)
+test-repos/
+temp_clones/
+
+# claude code
+.claude/
