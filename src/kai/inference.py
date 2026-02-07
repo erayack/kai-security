@@ -1,5 +1,5 @@
-from openai import AsyncOpenAI
-from typing import Optional, Union, Dict, Tuple, List, Any, Callable
+from openai import AsyncOpenAI, NOT_GIVEN
+from typing import Optional, Union, Dict, Tuple, List, Any, Callable, cast
 
 import json
 import httpx
@@ -257,7 +257,7 @@ async def get_structured_response(
             extra_body=extra_body,
         )
 
-        response_text = completion.choices[0].message.content
+        response_text: str = completion.choices[0].message.content or ""
 
         # Parse and validate with Pydantic
         response_text = response_text.strip()
@@ -290,7 +290,7 @@ async def get_model_response(
     client: Optional[AsyncOpenAI] = None,
     use_vllm: bool = False,
     use_openai: bool = False,
-) -> Tuple[str, Dict[str, int]]:
+) -> Tuple[str, Dict[str, Any]]:
     """
     Get a response from a model using OpenRouter or vLLM (async).
 
@@ -320,7 +320,7 @@ async def get_model_response(
             client = create_openai_client(use_openai=use_openai)
 
     # Build message history
-    messages_payload: list[dict] = []
+    messages_payload: List[Dict[str, Any]] = []
     if messages is None:
         if system_prompt:
             messages_payload.append(
@@ -337,11 +337,11 @@ async def get_model_response(
         extra_body = _get_extra_body(use_openai, use_vllm)
         completion = await client.chat.completions.create(
             model=model,
-            messages=messages_payload,
+            messages=cast(Any, messages_payload),
             extra_body=extra_body,
         )
 
-        response_text = completion.choices[0].message.content
+        response_text = completion.choices[0].message.content or ""
         usage_dict = _extract_usage(completion.usage)
 
         return response_text, usage_dict
@@ -400,7 +400,7 @@ async def get_model_response_with_tools(
         else:
             client = create_openai_client(use_openai=use_openai)
 
-    messages_payload = [_as_dict(m) for m in messages]
+    messages_payload: List[Dict[str, Any]] = [_as_dict(m) for m in messages]
     total_usage: Dict[str, Any] = {
         "prompt_tokens": 0,
         "completion_tokens": 0,
@@ -451,7 +451,9 @@ async def get_model_response_with_tools(
         # Fallback: string representation (better than crashing tool calling).
         return str(obj)
 
-    def _truncate_tool_output(output: str, max_len: int = TOOL_OUTPUT_MAX_LENGTH) -> str:
+    def _truncate_tool_output(
+        output: str, max_len: int = TOOL_OUTPUT_MAX_LENGTH
+    ) -> str:
         """Truncate tool output if it exceeds max length to prevent context overflow."""
         if len(output) <= max_len:
             return output
@@ -466,9 +468,9 @@ async def get_model_response_with_tools(
         try:
             completion = await client.chat.completions.create(
                 model=model,
-                messages=messages_payload,
-                tools=tools if tools else None,
-                tool_choice="auto" if tools else None,
+                messages=cast(Any, messages_payload),
+                tools=cast(Any, tools if tools else NOT_GIVEN),
+                tool_choice=cast(Any, "auto" if tools else NOT_GIVEN),
                 extra_body=extra_body,
             )
         except Exception as e:
@@ -515,6 +517,13 @@ async def get_model_response_with_tools(
             # Capture reasoning that accompanies tool calls
             reasoning = message.content or ""
 
+            # Filter to function tool calls only (skip custom tool calls)
+            from openai.types.chat import ChatCompletionMessageToolCall
+            func_tool_calls = [
+                tc for tc in message.tool_calls
+                if isinstance(tc, ChatCompletionMessageToolCall)
+            ]
+
             # Add assistant message with tool calls to history
             messages_payload.append(
                 {
@@ -529,14 +538,14 @@ async def get_model_response_with_tools(
                                 "arguments": tc.function.arguments,
                             },
                         }
-                        for tc in message.tool_calls
+                        for tc in func_tool_calls
                     ],
                 }
             )
 
             # Execute each tool call
             first_in_batch = True
-            for tool_call in message.tool_calls:
+            for tool_call in func_tool_calls:
                 func_name = tool_call.function.name
                 try:
                     func_args = json.loads(tool_call.function.arguments)

@@ -49,6 +49,7 @@ class BlackboxAgent(BaseAgent):
         self.master_context = campaign_brief.master_context
         self.dependency_graph = self._coerce_dependency_graph(dependency_graph)
         self.blackbox_observations: List[Observation] = []
+        self._no_observation_nudges = 0
 
         if execution_id:
             self.execution_id = execution_id
@@ -107,6 +108,50 @@ class BlackboxAgent(BaseAgent):
 
         self.system_prompt = prompt
         self.messages = [ChatMessage(role=Role.SYSTEM, content=prompt)]
+
+    def _post_tool_call_hook(
+        self, calls_made: list, remaining_turns: int, current_turn: int
+    ) -> Optional[str]:
+        """Nudge blackbox agent toward recording observations."""
+        if (
+            not self.blackbox_observations
+            and remaining_turns > 1
+            and self._no_observation_nudges < 2
+        ):
+            self._no_observation_nudges += 1
+            return (
+                "BLACKBOX: Continue investigating. "
+                "Make your next step a concrete tool call based on the latest tool output "
+                "(e.g., read targeted files/symbols, query the graph, or run an experiment). "
+                "Do NOT emit <done>."
+            )
+        if (
+            len(self.blackbox_observations) == 1
+            and current_turn >= max(6, self.max_tool_turns // 2)
+            and remaining_turns > 1
+            and self._no_observation_nudges < 4
+        ):
+            self._no_observation_nudges += 1
+            return (
+                "BLACKBOX: Keep recording observations as you go. "
+                "Prefer multiple focused observations (one experiment/hypothesis each) "
+                "instead of bundling everything into a single summary. "
+                "Include concrete evidence from tool outputs (negative results are OK). "
+                "Do NOT emit <done>."
+            )
+        return None
+
+    def _on_idle(self, remaining_turns: int) -> Optional[str]:
+        """Force blackbox agent to keep investigating until budget exhausted."""
+        if remaining_turns > 1:
+            return (
+                "BLACKBOX: Continue investigating. "
+                "Call at least one tool. Prefer concrete exploration "
+                "(graph queries, reading targeted code) and experiments "
+                "(write_campaign_file + run_forge_campaign) when useful. "
+                "Do NOT emit <done>."
+            )
+        return None
 
     @staticmethod
     def _coerce_dependency_graph(graph: Any):

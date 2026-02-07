@@ -154,9 +154,11 @@ class HTTPAgent(BaseAgent):
         )
 
         # Format target hosts for display
-        target_hosts_display = "\n".join(
-            f"  - {name}: {url}" for name, url in self.target_hosts.items()
-        ) if self.target_hosts else "  (none configured)"
+        target_hosts_display = (
+            "\n".join(f"  - {name}: {url}" for name, url in self.target_hosts.items())
+            if self.target_hosts
+            else "  (none configured)"
+        )
 
         # Substitute template variables
         replacements = {

@@ -199,7 +199,8 @@ def filter_actor_context(
     return "\n".join(lines)
 
 
-def create_state_agent(
+def _create_invariant_agent(
+    agent_cls,
     mission: Mission,
     workspace_path: str,
     master_context: MasterContext,
@@ -211,8 +212,10 @@ def create_state_agent(
     extra_instructions: Optional[str] = None,
 ):
     """
-    Factory function to create a properly configured StateAgent.
+    Shared factory logic for invariant-based agents (StateAgent, QuantAgent).
+
     Args:
+        agent_cls: The agent class to instantiate
         mission: The mission to execute
         workspace_path: Path to the provisioned workspace
         master_context: MasterContext from preprocessing
@@ -224,15 +227,13 @@ def create_state_agent(
         extra_instructions: Additional instructions (e.g., CWE hints)
 
     Returns:
-        Configured StateAgent ready for chat_with_tools()
+        Configured agent ready for chat_with_tools()
     """
-    from kai.agents.agent_types.state_agent import StateAgent
-
     # Derive scope paths from invariant targets
     scope_paths = derive_scope_paths(mission.invariant, dependency_graph)
 
     # Create agent with scope paths for focus
-    agent = StateAgent(
+    agent = agent_cls(
         mission=mission,
         master_context=master_context,
         dependency_graph=dependency_graph,
@@ -279,6 +280,34 @@ def create_state_agent(
     return agent
 
 
+def create_state_agent(
+    mission: Mission,
+    workspace_path: str,
+    master_context: MasterContext,
+    dependency_graph: Optional[DependencyGraph] = None,
+    actor_matrix: Optional[ActorMatrix] = None,
+    model: str = settings.MAIN_DEFAULT_MODEL,
+    use_openai: bool = False,
+    execution_id: Optional[str] = None,
+    extra_instructions: Optional[str] = None,
+):
+    """Factory function to create a properly configured StateAgent."""
+    from kai.agents.agent_types.state_agent import StateAgent
+
+    return _create_invariant_agent(
+        StateAgent,
+        mission,
+        workspace_path,
+        master_context,
+        dependency_graph,
+        actor_matrix,
+        model,
+        use_openai,
+        execution_id,
+        extra_instructions,
+    )
+
+
 def create_quant_agent(
     mission: Mission,
     workspace_path: str,
@@ -290,72 +319,21 @@ def create_quant_agent(
     execution_id: Optional[str] = None,
     extra_instructions: Optional[str] = None,
 ):
-    """
-    Factory function to create a properly configured QuantAgent.
-    Args:
-        mission: The mission to execute
-        workspace_path: Path to the provisioned workspace
-        master_context: MasterContext from preprocessing
-        dependency_graph: Optional DependencyGraph for code analysis tools
-        actor_matrix: Optional ActorMatrix for actor context filtering
-        model: Model to use for inference
-        use_openai: Whether to use OpenAI API directly
-        execution_id: Optional execution ID for logging
-        extra_instructions: Additional instructions (e.g., CWE hints)
-
-    Returns:
-        Configured QuantAgent ready for chat_with_tools()
-    """
+    """Factory function to create a properly configured QuantAgent."""
     from kai.agents.agent_types.quant_agent import QuantAgent
 
-    # Derive scope paths from invariant targets
-    scope_paths = derive_scope_paths(mission.invariant, dependency_graph)
-
-    # Create agent with scope paths for focus
-    agent = QuantAgent(
-        mission=mission,
-        master_context=master_context,
-        dependency_graph=dependency_graph,
-        max_tool_turns=mission.max_turns,
-        repo_path=workspace_path,
-        model=model,
-        use_openai=use_openai,
-        execution_id=execution_id,
-        scope_paths=scope_paths,
+    return _create_invariant_agent(
+        QuantAgent,
+        mission,
+        workspace_path,
+        master_context,
+        dependency_graph,
+        actor_matrix,
+        model,
+        use_openai,
+        execution_id,
+        extra_instructions,
     )
-
-    # Set workspace path for tools
-    agent.workspace_path = workspace_path
-
-    # Set up toolcalling prompt with invariant context
-    if mission.invariant:
-        actor_context = filter_actor_context(actor_matrix, mission.invariant)
-        # Add scope paths info to extra instructions
-        scope_info = ""
-        if scope_paths:
-            scope_info = f"\n\n### Scoped Files\nFocus analysis on these files: {', '.join(scope_paths)}"
-        import_info = ""
-        try:
-            ir = getattr(master_context, "import_recipe", None)
-            if ir and getattr(ir, "validated", False):
-                ex = (
-                    getattr(ir, "example_import", None)
-                    or getattr(ir, "main_import", None)
-                    or ""
-                )
-                if ex:
-                    import_info = (
-                        f"\n\n### Validated Import\nUse this import in PoCs: {ex}"
-                    )
-        except Exception:
-            pass
-        agent.set_toolcalling_prompt(
-            invariant=mission.invariant,
-            actor_context=actor_context,
-            extra_instructions=(extra_instructions or "") + scope_info + import_info,
-        )
-
-    return agent
 
 
 def create_blackbox_agent(

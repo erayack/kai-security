@@ -77,8 +77,12 @@ TEST_SCRIPTS_PATH = "test/"
 
 # Tool output truncation settings
 # These help prevent context overflow when tool outputs (e.g., npm errors) are very large
-TOOL_OUTPUT_MAX_LENGTH = 50_000  # Max characters per tool output (default: 50k chars ~12.5k tokens)
-TOOL_OUTPUT_TRUNCATION_MESSAGE = "\n\n... [OUTPUT TRUNCATED - exceeded {max_len} characters] ..."
+TOOL_OUTPUT_MAX_LENGTH = (
+    50_000  # Max characters per tool output (default: 50k chars ~12.5k tokens)
+)
+TOOL_OUTPUT_TRUNCATION_MESSAGE = (
+    "\n\n... [OUTPUT TRUNCATED - exceeded {max_len} characters] ..."
+)
 
 # Logging settings
 MONGO_URI: Optional[str] = os.getenv("MONGO_URI")

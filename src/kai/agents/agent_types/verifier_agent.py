@@ -164,9 +164,11 @@ class VerifierAgent(BaseAgent):
         target_hosts = getattr(self, "target_hosts", {}) or {}
 
         # Format hosts for display
-        hosts_display = "\n".join(
-            f"  - {name}: {url}" for name, url in target_hosts.items()
-        ) if target_hosts else "  (none configured)"
+        hosts_display = (
+            "\n".join(f"  - {name}: {url}" for name, url in target_hosts.items())
+            if target_hosts
+            else "  (none configured)"
+        )
 
         return f"""
 ## HTTP Exploit Verification

@@ -659,7 +659,12 @@ class Dispatcher:
                 f"Boot complete: {len(self.invariants)} invariants, planner ready"
             )
 
-        except (EnvironmentSetupError, StaticAnalysisError, WorkspaceValidationError, ActorAnalysisError):
+        except (
+            EnvironmentSetupError,
+            StaticAnalysisError,
+            WorkspaceValidationError,
+            ActorAnalysisError,
+        ):
             # Re-raise our custom exceptions as-is
             raise
         except Exception as e:
@@ -921,7 +926,9 @@ class Dispatcher:
                 else None
             )
         for mission in missions:
-            self.mission_queue.put_nowait((PRIORITY_BLACKBOX, mission.mission_id, mission))
+            self.mission_queue.put_nowait(
+                (PRIORITY_BLACKBOX, mission.mission_id, mission)
+            )
 
     async def _plan_state_quant_missions(self) -> None:
         """Plan state/quant missions with all invariants (phase 1)."""
@@ -944,7 +951,9 @@ class Dispatcher:
                 else None
             )
         for mission in missions:
-            self.mission_queue.put_nowait((PRIORITY_STATE_QUANT_HTTP, mission.mission_id, mission))
+            self.mission_queue.put_nowait(
+                (PRIORITY_STATE_QUANT_HTTP, mission.mission_id, mission)
+            )
 
     async def _queue_gamified_missions(self) -> None:
         """Queue gamified missions from invariant clusters (phase 2)."""
@@ -967,7 +976,9 @@ class Dispatcher:
                 else None
             )
         for mission in missions:
-            self.mission_queue.put_nowait((PRIORITY_GAMIFIED, mission.mission_id, mission))
+            self.mission_queue.put_nowait(
+                (PRIORITY_GAMIFIED, mission.mission_id, mission)
+            )
 
     async def _queue_http_missions(self) -> None:
         """Queue HTTP exploitation missions (runs alongside state/quant)."""
@@ -989,7 +1000,9 @@ class Dispatcher:
                 else None
             )
         for mission in missions:
-            self.mission_queue.put_nowait((PRIORITY_STATE_QUANT_HTTP, mission.mission_id, mission))
+            self.mission_queue.put_nowait(
+                (PRIORITY_STATE_QUANT_HTTP, mission.mission_id, mission)
+            )
 
     async def _execute_mission(self, mission: Mission) -> None:
         """Execute a single mission with an agent."""
@@ -1047,29 +1060,8 @@ class Dispatcher:
                 f"Executing {mission.mission_id} with {mission.agent_type.value}"
             )
 
-            # Agent-type specific execution
-            if mission.agent_type == MissionAgentType.STATE:
-                await agent.chat_with_tools("Begin.")
-                await self._handle_state_agent_result(mission, agent)
-
-            elif mission.agent_type == MissionAgentType.QUANT:
-                await agent.chat_with_tools("Begin.")
-                await self._handle_state_agent_result(mission, agent)
-
-            elif mission.agent_type == MissionAgentType.BLACKBOX:
-                await agent.chat_with_tools("Begin.")
-                await self._handle_blackbox_agent_result(mission, agent)
-
-            elif mission.agent_type == MissionAgentType.GAMIFIED:
-                await agent.chat_with_tools("Begin.")
-                await self._handle_gamified_agent_result(mission, agent)
-
-            elif mission.agent_type == MissionAgentType.HTTP:
-                await agent.chat_with_tools("Begin.")
-                await self._handle_http_agent_result(mission, agent)
-
-            else:
-                raise ValueError(f"Unsupported agent type: {mission.agent_type}")
+            await agent.chat_with_tools("Begin.")
+            await self._handle_agent_result(mission, agent)
 
             mission.status = "completed"
             await self._persist(
@@ -1113,45 +1105,81 @@ class Dispatcher:
             # Cleanup workspace
             self._cleanup_workspace(mission)
 
-    async def _handle_state_agent_result(self, mission: Mission, agent: Any) -> None:
+    async def _handle_agent_result(self, mission: Mission, agent: Any) -> None:
         """
-        Extract and handle results from StateAgent/QuantAgent.
+        Unified result handler for all agent types.
 
-        These agents implement get_exploit_candidates() which returns registered exploits.
+        Processes exploit candidates (tag, persist, verify) and observations
+        (persist, synthesize invariants, schedule missions).
         """
+        # --- Exploit candidates ---
         candidates = agent.get_exploit_candidates()
 
-        if not candidates:
-            self.logger.info(f"No exploit candidates from {mission.mission_id}")
-            return
+        if candidates:
+            self.logger.info(
+                f"{mission.agent_type.value} {mission.mission_id} found "
+                f"{len(candidates)} exploit candidate(s)"
+            )
 
-        self.logger.info(
-            f"StateAgent {mission.mission_id} found {len(candidates)} exploit candidate(s)"
-        )
+            for candidate in candidates:
+                # Tag candidate with mission context
+                if hasattr(candidate, "mission_id") and not candidate.mission_id:
+                    candidate.mission_id = mission.mission_id
+                if (
+                    hasattr(candidate, "invariant_id")
+                    and not candidate.invariant_id
+                    and mission.invariant
+                ):
+                    candidate.invariant_id = mission.invariant.id
 
-        for candidate in candidates:
-            # Tag candidate with mission context
-            if hasattr(candidate, "mission_id") and not candidate.mission_id:
-                candidate.mission_id = mission.mission_id
-            if (
-                hasattr(candidate, "invariant_id")
-                and not candidate.invariant_id
-                and mission.invariant
-            ):
-                candidate.invariant_id = mission.invariant.id
+                self.exploit_candidates.append(candidate)
 
-            self.exploit_candidates.append(candidate)
+                # Persist exploit candidate
+                await self._persist(
+                    self._state_manager.save_exploit_candidate(candidate)
+                    if self._state_manager
+                    else None
+                )
 
-            # Persist exploit candidate
+                # Verify compiled candidates
+                if candidate.compiled and self.master_context:
+                    await self._verify_candidate(candidate)
+
+        # --- Observations ---
+        observations = agent.get_observations()
+
+        if observations:
+            self.logger.info(
+                f"{mission.agent_type.value} {mission.mission_id} recorded "
+                f"{len(observations)} observation(s)"
+            )
+
+            # Persist observations
             await self._persist(
-                self._state_manager.save_exploit_candidate(candidate)
+                self._state_manager.save_observations(observations)
                 if self._state_manager
                 else None
             )
 
-            # Verify compiled candidates
-            if candidate.compiled and self.master_context:
-                await self._verify_candidate(candidate)
+            new_invariants: List[Invariant] = []
+            for obs in observations:
+                # Synthesize invariant from observation
+                new_inv = await self._synthesize_invariant(obs)
+                if new_inv and new_inv.id not in self.invariants:
+                    self.logger.info(f"New invariant discovered: {new_inv.id}")
+                    self.invariants[new_inv.id] = new_inv
+                    new_invariants.append(new_inv)
+                    await self._schedule_missions_for_invariant(new_inv)
+
+            if new_invariants:
+                await self._persist(
+                    self._state_manager.save_invariants(new_invariants)
+                    if self._state_manager
+                    else None
+                )
+
+        if not candidates and not observations:
+            self.logger.info(f"No results from {mission.mission_id}")
 
     async def _verify_candidate(self, candidate: ExploitCandidate) -> Optional[Verdict]:
         """
@@ -1532,129 +1560,6 @@ class Dispatcher:
             except Exception:
                 pass
 
-    async def _handle_blackbox_agent_result(self, mission: Mission, agent: Any) -> None:
-        """
-        Extract and handle results from BlackboxAgent.
-
-        BlackboxAgent implements get_observations() which returns recorded observations.
-        """
-        observations = agent.get_observations()
-
-        if not observations:
-            self.logger.info(f"No observations from {mission.mission_id}")
-            return
-
-        self.logger.info(
-            f"BlackboxAgent {mission.mission_id} recorded {len(observations)} observation(s)"
-        )
-
-        # Persist observations
-        await self._persist(
-            self._state_manager.save_observations(observations)
-            if self._state_manager
-            else None
-        )
-
-        new_invariants: List[Invariant] = []
-        for obs in observations:
-            # Synthesize invariant from observation
-            new_inv = await self._synthesize_invariant(obs)
-            if new_inv and new_inv.id not in self.invariants:
-                self.logger.info(f"New invariant discovered: {new_inv.id}")
-                self.invariants[new_inv.id] = new_inv
-                new_invariants.append(new_inv)
-                await self._schedule_missions_for_invariant(new_inv)
-
-        if new_invariants:
-            await self._persist(
-                self._state_manager.save_invariants(new_invariants)
-                if self._state_manager
-                else None
-            )
-
-    async def _handle_gamified_agent_result(self, mission: Mission, agent: Any) -> None:
-        """
-        Extract and handle results from GamifiedAgent.
-
-        GamifiedAgent discovers exploitation opportunities by reasoning about gaps
-        between invariants in a cluster. It implements get_exploit_candidates() which
-        returns registered exploits (same as StateAgent/QuantAgent).
-        """
-        candidates = agent.get_exploit_candidates()
-
-        if not candidates:
-            self.logger.info(
-                f"No exploit candidates from gamified {mission.mission_id}"
-            )
-            return
-
-        self.logger.info(
-            f"GamifiedAgent {mission.mission_id} found {len(candidates)} exploit candidate(s)"
-        )
-
-        for candidate in candidates:
-            # Tag candidate with mission context
-            if hasattr(candidate, "mission_id") and not candidate.mission_id:
-                candidate.mission_id = mission.mission_id
-
-            # Gamified agents work on clusters, so invariant_id might be "gap_exploit"
-            # or set by the register_finding tool
-
-            self.exploit_candidates.append(candidate)
-
-            # Persist exploit candidate
-            await self._persist(
-                self._state_manager.save_exploit_candidate(candidate)
-                if self._state_manager
-                else None
-            )
-
-            # Verify compiled candidates
-            if candidate.compiled and self.master_context:
-                await self._verify_candidate(candidate)
-
-    async def _handle_http_agent_result(self, mission: Mission, agent: Any) -> None:
-        """
-        Extract and handle results from HTTPAgent.
-
-        HTTPAgent implements get_exploit_candidates() which returns registered exploits.
-        HTTP exploits are always marked as compiled=True since they're Python scripts.
-        """
-        candidates = agent.get_exploit_candidates()
-
-        if not candidates:
-            self.logger.info(f"No exploit candidates from HTTP {mission.mission_id}")
-            return
-
-        self.logger.info(
-            f"HTTPAgent {mission.mission_id} found {len(candidates)} exploit candidate(s)"
-        )
-
-        for candidate in candidates:
-            # Tag candidate with mission context
-            if hasattr(candidate, "mission_id") and not candidate.mission_id:
-                candidate.mission_id = mission.mission_id
-            if (
-                hasattr(candidate, "invariant_id")
-                and not candidate.invariant_id
-                and mission.invariant
-            ):
-                candidate.invariant_id = mission.invariant.id
-
-            self.exploit_candidates.append(candidate)
-
-            # Persist exploit candidate
-            await self._persist(
-                self._state_manager.save_exploit_candidate(candidate)
-                if self._state_manager
-                else None
-            )
-
-            # HTTP exploits are always compiled (they're Python scripts)
-            # Verify if we have a master context
-            if candidate.compiled and self.master_context:
-                await self._verify_candidate(candidate)
-
     async def _synthesize_invariant(
         self, observation: Observation
     ) -> Optional[Invariant]:
@@ -1695,7 +1600,9 @@ class Dispatcher:
             return
 
         base_id = len(self.completed_missions) + self.mission_queue.qsize()
-        campaign, missions = self._planner.create_missions_for_invariant(invariant, base_id)
+        campaign, missions = self._planner.create_missions_for_invariant(
+            invariant, base_id
+        )
 
         # Save the campaign first
         await self._persist(
@@ -1712,7 +1619,9 @@ class Dispatcher:
             )
 
         for mission in missions:
-            self.mission_queue.put_nowait((PRIORITY_STATE_QUANT_HTTP, mission.mission_id, mission))
+            self.mission_queue.put_nowait(
+                (PRIORITY_STATE_QUANT_HTTP, mission.mission_id, mission)
+            )
 
     def _provision_workspace(self, mission: Mission) -> str:
         if not self.master_context:

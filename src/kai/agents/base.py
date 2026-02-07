@@ -278,7 +278,6 @@ class BaseAgent(ABC):
         remaining_turns = self.max_tool_turns
         final_response = ""
         tool_calls_made = []
-        no_observation_nudges = 0
 
         while remaining_turns > 0:
             current_turn = self.max_tool_turns - remaining_turns + 1
@@ -329,82 +328,26 @@ class BaseAgent(ABC):
             if response:
                 final_response = response
 
-            # If the blackbox agent is actively using tools but has not recorded any observations yet:
-            # - early on: don't force an observation (it can stall exploration)
-            # - later: ensure at least one observation gets recorded with evidence
-            if (
-                self.agent_type == AgentType.BLACKBOX
-                and calls_made
-                and not getattr(self, "blackbox_observations", [])
-                and remaining_turns > 1
-                and no_observation_nudges < 2
-            ):
-                self._add_message(
-                    ChatMessage(
-                        role=Role.USER,
-                        content=(
-                            "BLACKBOX: Continue investigating. "
-                            "Make your next step a concrete tool call based on the latest tool output "
-                            "(e.g., read targeted files/symbols, query the graph, or run an experiment). "
-                            "Do NOT emit <done>."
-                        ),
-                    )
+            # Post-tool-call hook (subclass nudging)
+            if calls_made:
+                nudge = self._post_tool_call_hook(
+                    calls_made, remaining_turns, current_turn
                 )
-                no_observation_nudges += 1
-            elif (
-                self.agent_type == AgentType.BLACKBOX
-                and calls_made
-                and len(getattr(self, "blackbox_observations", []) or []) == 1
-                and current_turn >= max(6, self.max_tool_turns // 2)
-                and remaining_turns > 1
-                and no_observation_nudges < 4
-            ):
-                self._add_message(
-                    ChatMessage(
-                        role=Role.USER,
-                        content=(
-                            "BLACKBOX: Keep recording observations as you go. "
-                            "Prefer multiple focused observations (one experiment/hypothesis each) "
-                            "instead of bundling everything into a single summary. "
-                            "Include concrete evidence from tool outputs (negative results are OK). "
-                            "Do NOT emit <done>."
-                        ),
-                    )
-                )
-                no_observation_nudges += 1
+                if nudge:
+                    self._add_message(ChatMessage(role=Role.USER, content=nudge))
 
-            # Check if model stopped calling tools (finished)
+            # Idle check — no tools called this round
             if not calls_made:
-                # Blackbox must keep going until budget is exhausted.
-                if self.agent_type == AgentType.BLACKBOX and remaining_turns > 1:
-                    self._add_message(
-                        ChatMessage(
-                            role=Role.USER,
-                            content=(
-                                "BLACKBOX: Continue investigating. "
-                                "Call at least one tool. Prefer concrete exploration "
-                                "(graph queries, reading targeted code) and experiments "
-                                "(write_campaign_file + run_forge_campaign) when useful. "
-                                "Do NOT emit <done>."
-                            ),
-                        )
-                    )
+                force_msg = self._on_idle(remaining_turns)
+                if force_msg:
+                    self._add_message(ChatMessage(role=Role.USER, content=force_msg))
                     remaining_turns -= 1
                     continue
-                if self.agent_type == AgentType.BLACKBOX and remaining_turns == 1:
-                    # We already spent the last model round; mark budget exhausted.
-                    remaining_turns = 0
 
                 logger.info(f"{agent_desc} - Completed (no more tool calls)")
                 break
 
-            # Turn accounting:
-            # - Blackbox: count every model round as a turn (even if it didn't call tools).
-            # - Others: count only rounds where tools were called.
-            if self.agent_type == AgentType.BLACKBOX:
-                remaining_turns -= 1
-            else:
-                remaining_turns -= 1
+            remaining_turns -= 1
 
             # Small delay for event loop
             await asyncio.sleep(0.01)
@@ -494,6 +437,24 @@ class BaseAgent(ABC):
             self.messages.append(message)
         else:
             raise ValueError("Invalid message type")
+
+    def get_exploit_candidates(self) -> list:
+        """Return exploit candidates found by this agent. Override in subclasses."""
+        return []
+
+    def get_observations(self) -> list:
+        """Return observations recorded by this agent. Override in subclasses."""
+        return []
+
+    def _post_tool_call_hook(
+        self, calls_made: list, remaining_turns: int, current_turn: int
+    ) -> Optional[str]:
+        """Return a nudge message to inject after tool calls, or None. Base: None."""
+        return None
+
+    def _on_idle(self, remaining_turns: int) -> Optional[str]:
+        """Return a force-continue message when no tools called, or None to terminate. Base: None."""
+        return None
 
     async def close(self):
         """
