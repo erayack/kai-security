@@ -9,6 +9,10 @@ from kai.dispatcher.core import (
 )
 from kai.dispatcher.planner import MissionPlanner
 from kai.dispatcher.workspace import WorkspaceManager
+from kai.dispatcher.usage_tracker import UsageTracker
+from kai.dispatcher.boot_pipeline import BootPipeline, BootResult
+from kai.dispatcher.verification import VerificationPipeline
+from kai.dispatcher.fix_pipeline import FixPipeline
 from kai.dispatcher.agent_factories import (
     create_state_agent,
     create_blackbox_agent,
@@ -30,6 +34,11 @@ __all__ = [
     "AgentFactory",
     "MissionPlanner",
     "WorkspaceManager",
+    "UsageTracker",
+    "BootPipeline",
+    "BootResult",
+    "VerificationPipeline",
+    "FixPipeline",
     # Boot error classes
     "DispatcherBootError",
     "EnvironmentSetupError",
