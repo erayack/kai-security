@@ -323,7 +323,11 @@ class Dispatcher:
         )
 
         graph_hash = hash_graph(setup.dependency_graph)
-        prior = await self._state_manager.load_run_snapshot() if self._state_manager else None
+        prior = (
+            await self._state_manager.load_run_snapshot()
+            if self._state_manager
+            else None
+        )
 
         if prior and prior.get("graph_hash") == graph_hash:
             # Graph unchanged → load cached artifacts, skip LLM steps
@@ -504,7 +508,11 @@ class Dispatcher:
             self.fixes.extend(new_fixes)
 
         # Save snapshot for future iterative runs
-        if self.config.enable_iterative and self._state_manager and self.dependency_graph:
+        if (
+            self.config.enable_iterative
+            and self._state_manager
+            and self.dependency_graph
+        ):
             await self._save_run_snapshot()
 
     async def _save_run_snapshot(self) -> None:
@@ -518,14 +526,20 @@ class Dispatcher:
             "graph_hash": hash_graph(self.dependency_graph),
             "invariants": [inv.model_dump() for inv in self.invariants.values()],
             "verdicts": [v.model_dump() for v in self.verdicts],
-            "manifesto": self.protocol_manifesto.model_dump() if self.protocol_manifesto else None,
-            "actor_matrix": self.actor_matrix.model_dump() if self.actor_matrix else None,
+            "manifesto": self.protocol_manifesto.model_dump()
+            if self.protocol_manifesto
+            else None,
+            "actor_matrix": self.actor_matrix.model_dump()
+            if self.actor_matrix
+            else None,
             "dependency_graph": self.dependency_graph.to_dict(),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         await persist(
             self._state_manager,
-            self._state_manager.save_run_snapshot(snapshot) if self._state_manager else None,
+            self._state_manager.save_run_snapshot(snapshot)
+            if self._state_manager
+            else None,
             self.logger,
         )
         self.logger.info("Saved iterative run snapshot")

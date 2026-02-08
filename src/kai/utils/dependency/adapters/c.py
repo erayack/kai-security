@@ -313,9 +313,7 @@ For EACH check-then-use pattern:
         def extract_has_malloc(node: Node, graph: "DependencyGraph") -> bool:
             calls = node.meta.get("calls", [])
             alloc_funcs = {"malloc", "calloc", "realloc", "free"}
-            return any(
-                c in alloc_funcs for c in calls if isinstance(c, str)
-            )
+            return any(c in alloc_funcs for c in calls if isinstance(c, str))
 
         return {
             "is_static": extract_is_static,

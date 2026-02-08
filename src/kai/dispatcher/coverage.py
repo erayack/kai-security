@@ -18,12 +18,11 @@ from kai.utils.dependency.graph import DependencyGraph
 # Graph hashing
 # ---------------------------------------------------------------------------
 
+
 def hash_graph(graph: DependencyGraph) -> str:
     """Deterministic hash of sorted node IDs + edge tuples."""
     nodes = sorted(graph._nodes.keys())
-    edges = sorted(
-        (s, k.value, d) for (s, k, d) in graph._edges.keys()
-    )
+    edges = sorted((s, k.value, d) for (s, k, d) in graph._edges.keys())
     payload = json.dumps([nodes, edges], sort_keys=True).encode()
     return hashlib.sha256(payload).hexdigest()[:24]
 
@@ -31,6 +30,7 @@ def hash_graph(graph: DependencyGraph) -> str:
 # ---------------------------------------------------------------------------
 # LLM-based invariant diff
 # ---------------------------------------------------------------------------
+
 
 class InvariantDiffResult(BaseModel):
     baseline_id: str
@@ -46,12 +46,14 @@ def _build_diff_prompt(candidate: Invariant, baselines: List[Invariant]) -> str:
     """Build prompt for comparing a candidate invariant against baselines."""
     baselines_json = []
     for b in baselines:
-        baselines_json.append({
-            "id": b.id,
-            "type": b.type.value if hasattr(b.type, "value") else str(b.type),
-            "rule": b.rule,
-            "explanation": (b.explanation or "")[:500],
-        })
+        baselines_json.append(
+            {
+                "id": b.id,
+                "type": b.type.value if hasattr(b.type, "value") else str(b.type),
+                "rule": b.rule,
+                "explanation": (b.explanation or "")[:500],
+            }
+        )
 
     candidate_type = (
         candidate.type.value
@@ -127,7 +129,9 @@ async def _is_duplicate(
                     )
                     return True
         except Exception as e:
-            logger.warning(f"Invariant diff LLM call failed: {e}, assuming not duplicate")
+            logger.warning(
+                f"Invariant diff LLM call failed: {e}, assuming not duplicate"
+            )
             continue
 
     return False
