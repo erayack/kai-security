@@ -7,7 +7,9 @@ wheels/
 *.egg-info
 data_gen/instances/
 master/
-
+.idea/*
+docs/*
+bounties/*
 # Virtual environments
 .venv
 
