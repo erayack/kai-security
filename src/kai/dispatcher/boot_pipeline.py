@@ -180,9 +180,7 @@ class BootPipeline:
 
             await persist(
                 self._state_manager,
-                self._state_manager.save_dependency_graph(
-                    dependency_graph.to_dict()
-                )
+                self._state_manager.save_dependency_graph(dependency_graph.to_dict())
                 if self._state_manager
                 else None,
                 self.logger,
@@ -212,9 +210,7 @@ class BootPipeline:
             protocol_manifesto: Optional[ProtocolManifesto] = None
             if profiler_output.success and profiler_output.protocol_manifesto:
                 protocol_manifesto = profiler_output.protocol_manifesto
-                self.logger.info(
-                    f"ProtocolManifesto ready: {protocol_manifesto.name}"
-                )
+                self.logger.info(f"ProtocolManifesto ready: {protocol_manifesto.name}")
                 await persist(
                     self._state_manager,
                     self._state_manager.save_protocol_manifesto(protocol_manifesto)

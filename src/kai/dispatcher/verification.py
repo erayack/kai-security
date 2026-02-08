@@ -185,9 +185,7 @@ class VerificationPipeline:
             self.logger.warning("Dedupe prompt not found, skipping deduplication")
             return verdicts
 
-        candidate_map = {
-            (c.mission_id, c.invariant_id): c for c in exploit_candidates
-        }
+        candidate_map = {(c.mission_id, c.invariant_id): c for c in exploit_candidates}
         findings = []
         for v in verdicts:
             c = candidate_map.get((v.mission_id, v.invariant_id))

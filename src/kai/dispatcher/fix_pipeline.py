@@ -134,15 +134,11 @@ class FixPipeline:
                 verdict.fixes.append(fix)
                 await persist(
                     self._state_manager,
-                    self._state_manager.save_fix(fix)
-                    if self._state_manager
-                    else None,
+                    self._state_manager.save_fix(fix) if self._state_manager else None,
                     self.logger,
                 )
 
-        self.logger.info(
-            f"Generated {len(all_fixes)} fix(es) for verified exploits"
-        )
+        self.logger.info(f"Generated {len(all_fixes)} fix(es) for verified exploits")
         return all_fixes
 
     async def _fix_single_exploit(
@@ -217,9 +213,7 @@ class FixPipeline:
             return fixes
 
         except Exception as e:
-            self.logger.error(
-                f"Fix generation failed for {candidate.mission_id}: {e}"
-            )
+            self.logger.error(f"Fix generation failed for {candidate.mission_id}: {e}")
             return []
 
         finally:

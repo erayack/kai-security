@@ -519,8 +519,10 @@ async def get_model_response_with_tools(
 
             # Filter to function tool calls only (skip custom tool calls)
             from openai.types.chat import ChatCompletionMessageToolCall
+
             func_tool_calls = [
-                tc for tc in message.tool_calls
+                tc
+                for tc in message.tool_calls
                 if isinstance(tc, ChatCompletionMessageToolCall)
             ]
 
