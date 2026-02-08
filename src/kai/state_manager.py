@@ -260,3 +260,28 @@ class KaiStateManager(ABC):
             True if successful
         """
         pass
+
+    @abstractmethod
+    async def load_run_snapshot(self) -> Optional[Dict[str, Any]]:
+        """
+        Load prior run snapshot for iterative runs.
+
+        Returns:
+            Dict with graph_hash, invariants, verdicts, manifesto, actor_matrix,
+            dependency_graph, and timestamp — or None if no prior snapshot exists.
+        """
+        pass
+
+    @abstractmethod
+    async def save_run_snapshot(self, snapshot: Dict[str, Any]) -> bool:
+        """
+        Save run snapshot for future iterative runs.
+
+        Args:
+            snapshot: Dict with graph_hash, invariants, verdicts, manifesto,
+                      actor_matrix, dependency_graph, and timestamp.
+
+        Returns:
+            True if successful
+        """
+        pass

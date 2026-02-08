@@ -35,6 +35,14 @@ from kai.dispatcher.workspace import WorkspaceManager
 
 
 @dataclass
+class SetupResult:
+    """Intermediate result from steps 1-3 (setup, graph, workspace validation)."""
+
+    master_context: MasterContext
+    dependency_graph: DependencyGraph
+
+
+@dataclass
 class BootResult:
     """Bundles all outputs from the boot pipeline."""
 
@@ -92,37 +100,46 @@ class BootPipeline:
         master_context: Optional[MasterContext] = None,
     ) -> BootResult:
         """
-        Run preprocess chain to populate global knowledge.
+        Run the full 6-step preprocess chain (backward-compatible entry point).
 
-        Chain: EnvironmentSetup - StaticAnalysis - Profiler - ActorProcess - InvariantProcess
+        Calls run_setup_and_graph() then run_llm_steps() sequentially.
+        """
+        setup = await self.run_setup_and_graph(
+            repo_url=repo_url,
+            repo_path=repo_path,
+            use_openai=use_openai,
+            master_context=master_context,
+        )
+        return await self.run_llm_steps(
+            setup=setup,
+            model_name=model_name,
+            use_openai=use_openai,
+        )
 
-        Args:
-            repo_url: Git URL of the repository
-            repo_path: Local path to the repository (overrides repo_url)
-            model_name: Model to use for agent inference
-            use_openai: Whether to use OpenAI API directly
-            master_context: Pre-built MasterContext (BountyBench mode, skips EnvironmentSetup)
+    # ------------------------------------------------------------------
+    # Phase 1: Steps 1-3 (setup, graph, workspace validation)
+    # ------------------------------------------------------------------
+
+    async def run_setup_and_graph(
+        self,
+        *,
+        repo_url: Optional[str] = None,
+        repo_path: Optional[str] = None,
+        use_openai: bool = False,
+        master_context: Optional[MasterContext] = None,
+    ) -> SetupResult:
+        """
+        Run steps 1-3: Environment Setup, DependencyGraph, Workspace Validation.
 
         Returns:
-            BootResult with all boot outputs
+            SetupResult with MasterContext and DependencyGraph.
 
         Raises:
-            EnvironmentSetupError: If environment setup fails
-            StaticAnalysisError: If dependency graph building fails
-            WorkspaceValidationError: If workspace validation fails
-            ActorAnalysisError: If actor analysis fails
-            DispatcherBootError: For other boot failures
+            EnvironmentSetupError, StaticAnalysisError, WorkspaceValidationError,
+            DispatcherBootError
         """
         from kai.processes.envsetup import EnvironmentSetupProcess
-        from kai.processes.profiler import ProfilerProcess
-        from kai.processes.actors import ActorProcess
-        from kai.processes.invariants import InvariantProcess
-        from kai.schemas import (
-            EnvironmentSetupInput,
-            ProfilerInput,
-            ActorMatrixInput,
-            InvariantProcessInput,
-        )
+        from kai.schemas import EnvironmentSetupInput
 
         self.logger.info("Booting Dispatcher...")
 
@@ -195,6 +212,59 @@ class BootPipeline:
                     "Skipping workspace validation (config.skip_workspace_validation=True)"
                 )
 
+            return SetupResult(
+                master_context=mc,
+                dependency_graph=dependency_graph,
+            )
+
+        except (
+            EnvironmentSetupError,
+            StaticAnalysisError,
+            WorkspaceValidationError,
+        ):
+            raise
+        except Exception as e:
+            self.logger.error(f"Boot setup failed: {e}", exc_info=True)
+            raise DispatcherBootError(f"Boot setup failed: {e}") from e
+
+    # ------------------------------------------------------------------
+    # Phase 2: Steps 4-6 (profiler, actors, invariants)
+    # ------------------------------------------------------------------
+
+    async def run_llm_steps(
+        self,
+        *,
+        setup: SetupResult,
+        model_name: str = settings.MAIN_DEFAULT_MODEL,
+        use_openai: bool = False,
+    ) -> BootResult:
+        """
+        Run steps 4-6: Profiler, Actor Analysis, Invariant Analysis.
+
+        Args:
+            setup: Result from run_setup_and_graph().
+            model_name: Model to use for agent inference.
+            use_openai: Whether to use OpenAI API directly.
+
+        Returns:
+            BootResult with all boot outputs.
+
+        Raises:
+            ActorAnalysisError, DispatcherBootError
+        """
+        from kai.processes.profiler import ProfilerProcess
+        from kai.processes.actors import ActorProcess
+        from kai.processes.invariants import InvariantProcess
+        from kai.schemas import (
+            ProfilerInput,
+            ActorMatrixInput,
+            InvariantProcessInput,
+        )
+
+        mc = setup.master_context
+        dependency_graph = setup.dependency_graph
+
+        try:
             # Step 4: Profiler
             self.logger.info("Step 4/6: Profiler...")
             profiler_process = ProfilerProcess(context=mc)
@@ -318,16 +388,11 @@ class BootPipeline:
                 planner=planner,
             )
 
-        except (
-            EnvironmentSetupError,
-            StaticAnalysisError,
-            WorkspaceValidationError,
-            ActorAnalysisError,
-        ):
+        except ActorAnalysisError:
             raise
         except Exception as e:
-            self.logger.error(f"Boot failed: {e}", exc_info=True)
-            raise DispatcherBootError(f"Boot failed: {e}") from e
+            self.logger.error(f"Boot LLM steps failed: {e}", exc_info=True)
+            raise DispatcherBootError(f"Boot LLM steps failed: {e}") from e
 
     async def _run_workspace_validation(
         self, mc: MasterContext, use_openai: bool

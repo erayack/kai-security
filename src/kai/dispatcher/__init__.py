@@ -10,7 +10,8 @@ from kai.dispatcher.core import (
 from kai.dispatcher.planner import MissionPlanner
 from kai.dispatcher.workspace import WorkspaceManager
 from kai.dispatcher.usage_tracker import UsageTracker
-from kai.dispatcher.boot_pipeline import BootPipeline, BootResult
+from kai.dispatcher.boot_pipeline import BootPipeline, BootResult, SetupResult
+from kai.dispatcher.coverage import hash_graph, diff_invariants
 from kai.dispatcher.verification import VerificationPipeline
 from kai.dispatcher.fix_pipeline import FixPipeline
 from kai.dispatcher.agent_factories import (
@@ -37,6 +38,9 @@ __all__ = [
     "UsageTracker",
     "BootPipeline",
     "BootResult",
+    "SetupResult",
+    "hash_graph",
+    "diff_invariants",
     "VerificationPipeline",
     "FixPipeline",
     # Boot error classes

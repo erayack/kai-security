@@ -13,8 +13,10 @@ from kai.schemas import (
     ExploitCandidate,
     Fix,
     Invariant,
+    MasterContext,
     Mission,
     Observation,
+    ProtocolManifesto,
     Verdict,
 )
 from kai.state_manager import KaiStateManager
@@ -100,6 +102,37 @@ class LocalStateManager(KaiStateManager):
         return True
 
     async def save_observations(self, observations: List[Observation]) -> bool:
+        return True
+
+    async def update_exploit_dedupe_id(
+        self,
+        mission_id: str,
+        invariant_id: str,
+        dedupe_id: str,
+    ) -> bool:
+        return True
+
+    async def save_master_context(self, context: MasterContext) -> bool:
+        return True
+
+    async def save_protocol_manifesto(self, manifesto: ProtocolManifesto) -> bool:
+        return True
+
+    async def load_run_snapshot(self) -> Optional[Dict[str, Any]]:
+        if self._output_dir is None:
+            return None
+        path = self._output_dir / "snapshot.json"
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+        return None
+
+    async def save_run_snapshot(self, snapshot: Dict[str, Any]) -> bool:
+        if self._output_dir is None:
+            return False
+        self._output_dir.mkdir(parents=True, exist_ok=True)
+        (self._output_dir / "snapshot.json").write_text(
+            json.dumps(snapshot, indent=2, default=str), encoding="utf-8"
+        )
         return True
 
     async def save_conversation(

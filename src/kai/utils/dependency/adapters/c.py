@@ -7,9 +7,9 @@ Provides domain knowledge for C security analysis:
 - Trust level patterns
 """
 
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
-from .base import DomainAdapter
+from .base import DomainAdapter, LensDefinition
 from ..models import Node, NodeKind
 
 if TYPE_CHECKING:
@@ -231,6 +231,97 @@ class CAdapter(DomainAdapter):
                 return "medium"
 
         return "review_required"
+
+    def get_lens_definitions(self) -> List[LensDefinition]:
+        """C-specific lens definitions for security analysis."""
+        return [
+            LensDefinition(
+                name="memory_safety",
+                description="Buffer overflows, use-after-free, double-free, out-of-bounds access",
+                invariant_types=["OTHER"],
+                prompt_template="""
+## MEMORY SAFETY LENS - C
+
+Focus on memory corruption vulnerabilities.
+
+### Buffer Overflows (CRITICAL)
+For EACH function that handles buffers:
+- Check for unbounded copies (strcpy, strcat, sprintf, gets)
+- Verify size parameters match destination buffer size
+- Check loop bounds against allocation sizes
+
+### Use-After-Free / Double-Free
+For EACH function that frees memory:
+- Verify pointer is not used after free
+- Check for double-free patterns
+- Verify freed pointers are set to NULL
+
+### Integer Overflows in Allocation
+For EACH allocation using computed sizes:
+- Check for integer overflow in size calculations
+- Verify multiplication doesn't wrap
+""",
+                checklist=[
+                    "buffer_overflow_checks",
+                    "use_after_free_checks",
+                    "allocation_overflow_checks",
+                ],
+            ),
+            LensDefinition(
+                name="security",
+                description="Command injection, format strings, race conditions",
+                invariant_types=["ACCESS", "OTHER"],
+                prompt_template="""
+## SECURITY LENS - C
+
+Focus on injection and access control vulnerabilities.
+
+### Command Injection
+For EACH function calling system/popen/exec:
+- Check if user input reaches command string
+- Verify input sanitization before shell execution
+
+### Format String Vulnerabilities
+For EACH printf-family call:
+- Check for user-controlled format strings
+  - BAD: printf(user_input)
+  - GOOD: printf("%s", user_input)
+
+### Race Conditions (TOCTOU)
+For EACH check-then-use pattern:
+- Check for time-of-check-to-time-of-use gaps
+- Verify file operations use safe patterns
+""",
+                checklist=[
+                    "command_injection_checks",
+                    "format_string_checks",
+                    "race_condition_checks",
+                ],
+            ),
+        ]
+
+    def get_function_metadata_extractors(self) -> Dict[str, Callable]:
+        """C-specific metadata extractors for function analysis."""
+
+        def extract_is_static(node: Node, graph: "DependencyGraph") -> bool:
+            return node.meta.get("is_static", False)
+
+        def extract_returns_pointer(node: Node, graph: "DependencyGraph") -> bool:
+            return_type = node.meta.get("return_type", "")
+            return "*" in return_type
+
+        def extract_has_malloc(node: Node, graph: "DependencyGraph") -> bool:
+            calls = node.meta.get("calls", [])
+            alloc_funcs = {"malloc", "calloc", "realloc", "free"}
+            return any(
+                c in alloc_funcs for c in calls if isinstance(c, str)
+            )
+
+        return {
+            "is_static": extract_is_static,
+            "returns_pointer": extract_returns_pointer,
+            "has_malloc": extract_has_malloc,
+        }
 
     def get_entrypoint_visibility(self) -> List[str]:
         """Return visibility levels that indicate public entrypoints."""

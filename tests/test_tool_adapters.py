@@ -4,6 +4,8 @@ Tests for tool adapters (Python, JavaScript, C).
 Tests the ToolAdapter interface implementations for each language.
 """
 
+import sys
+import venv
 from pathlib import Path
 
 import pytest  # type: ignore[import-not-found]
@@ -76,7 +78,7 @@ class TestPythonToolAdapter:
 
     @pytest.fixture
     def python_project(self, tmp_path: Path):
-        """Create a minimal Python project."""
+        """Create a minimal Python project with a provisioned .venv."""
         # Create pyproject.toml
         (tmp_path / "pyproject.toml").write_text("""
 [project]
@@ -96,6 +98,8 @@ def test_hello():
     from app import hello
     assert hello() == "Hello, World!"
 """)
+        # Provision a .venv so compile() can find a Python interpreter
+        venv.create(tmp_path / ".venv", with_pip=False, symlinks=True)
         return tmp_path
 
     def test_framework_name(self, adapter: PythonToolAdapter):
