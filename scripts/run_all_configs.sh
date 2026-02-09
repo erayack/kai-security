@@ -51,6 +51,7 @@ python scripts/batch_cantina_runner.py $COMMON_ARGS \
     --invariant-model openai/gpt-5.2-codex \
     --fixer-model openai/gpt-5.2-codex \
     --dedupe-model openai/gpt-5.1-codex \
+    --gamified-model openai/gpt-5.2-codex \
     --fallback-model openai/gpt-5.1-codex
 
 cleanup
@@ -64,6 +65,7 @@ python scripts/batch_cantina_runner.py $COMMON_ARGS \
     --invariant-model google/gemini-3-pro-preview \
     --fixer-model google/gemini-3-pro-preview \
     --dedupe-model google/gemini-3-flash-preview \
+    --gamified-model google/gemini-3-pro-preview \
     --fallback-model google/gemini-3-flash-preview
 
 cleanup
@@ -77,6 +79,7 @@ python scripts/batch_cantina_runner.py $COMMON_ARGS \
     --invariant-model anthropic/claude-opus-4.6 \
     --fixer-model anthropic/claude-sonnet-4.5 \
     --dedupe-model anthropic/claude-haiku-4.5 \
+    --gamified-model anthropic/claude-opus-4.6 \
     --fallback-model anthropic/claude-sonnet-4.5
 
 cleanup
@@ -90,6 +93,7 @@ python scripts/batch_cantina_runner.py $COMMON_ARGS \
     --invariant-model moonshotai/kimi-k2.5 \
     --fixer-model moonshotai/kimi-k2.5 \
     --dedupe-model moonshotai/kimi-k2-0905 \
+    --gamified-model moonshotai/kimi-k2.5 \
     --fallback-model moonshotai/kimi-k2-0905
 
 cleanup
@@ -103,6 +107,7 @@ python scripts/batch_cantina_runner.py $COMMON_ARGS \
     --invariant-model x-ai/grok-4.1-fast \
     --fixer-model x-ai/grok-4.1-fast \
     --dedupe-model x-ai/grok-4-fast \
+    --gamified-model x-ai/grok-4.1-fast \
     --fallback-model x-ai/grok-4-fast
 
 echo ""
