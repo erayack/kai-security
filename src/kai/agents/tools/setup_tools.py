@@ -13,7 +13,7 @@ from kai.agents.tools.tools import (
     _get_current_agent as _get_agent,
 )
 from kai.schemas import MasterContext
-from kai.utils.tool_adapters import get_tool_adapter, get_supported_frameworks
+from kai.utils.tool_adapters import get_tool_adapter
 
 __all__ = [
     "read_file",
@@ -82,59 +82,11 @@ def _detect_framework(workspace: Path) -> str:
     """
     Best-effort detect a supported tool framework for compilation/testing.
 
-    Returns one of the supported tool adapter frameworks (e.g., "foundry", "cargo", "cmake",
-    "javascript", "typescript", "python").
-    Defaults to "foundry" if nothing matches.
+    Uses the centralized FrameworkDetector. Falls back to "foundry" if detection fails.
     """
-    supported = set(get_supported_frameworks())
+    from kai.utils.framework_detector import detect_framework_safe
 
-    # Prefer explicit config files
-    if (workspace / "foundry.toml").exists() and "foundry" in supported:
-        return "foundry"
-    if (workspace / "Cargo.toml").exists() and "cargo" in supported:
-        return "cargo"
-    if (workspace / "CMakeLists.txt").exists() and "cmake" in supported:
-        return "cmake"
-
-    # JavaScript/TypeScript detection (check tsconfig first for TypeScript)
-    if (workspace / "tsconfig.json").exists() and "typescript" in supported:
-        return "typescript"
-    if (workspace / "package.json").exists() and "javascript" in supported:
-        # Check if it's a TypeScript project by looking for tsconfig or .ts files
-        if "typescript" in supported:
-            if (workspace / "tsconfig.json").exists():
-                return "typescript"
-            # Check for TypeScript source files
-            if any(workspace.glob("**/*.ts")) or any(workspace.glob("**/*.tsx")):
-                return "typescript"
-        return "javascript"
-
-    # Python detection
-    if "python" in supported:
-        if (workspace / "pyproject.toml").exists():
-            return "python"
-        if (workspace / "setup.py").exists():
-            return "python"
-        if (workspace / "requirements.txt").exists():
-            return "python"
-
-    # Shallow fallback signals
-    if any(workspace.glob("*.sol")) and "foundry" in supported:
-        return "foundry"
-    if any(workspace.glob("*.rs")) and "cargo" in supported:
-        return "cargo"
-    if "cmake" in supported:
-        cpp_suffixes = {".cpp", ".cc", ".cxx", ".c", ".h", ".hpp"}
-        try:
-            if any(
-                p.is_file() and p.suffix.lower() in cpp_suffixes
-                for p in workspace.iterdir()
-            ):
-                return "cmake"
-        except Exception:
-            pass
-
-    return "foundry"
+    return detect_framework_safe(workspace, fallback="foundry")
 
 
 def write_setup_script(

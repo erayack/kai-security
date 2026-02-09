@@ -46,6 +46,9 @@ _ADAPTERS = {
     # BountyBench language adapters
     "python": PythonToolAdapter,
     "py": PythonToolAdapter,  # Alias
+    "uv": PythonToolAdapter,  # Package manager alias
+    "pip": PythonToolAdapter,  # Package manager alias
+    "poetry": PythonToolAdapter,  # Package manager alias
     "pytest": PythonToolAdapter,  # Test runner alias
     "unittest": PythonToolAdapter,  # Test runner alias
     "javascript": JavaScriptToolAdapter,

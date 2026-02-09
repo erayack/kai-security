@@ -276,7 +276,58 @@ class PythonToolAdapter(ToolAdapter):
                         if result.returncode == 0:
                             installed.append("pyproject.toml (uv sync)")
                         else:
-                            errors.append(f"uv sync: {output[:500]}")
+                            # Detect build errors (circular imports, missing modules)
+                            # and retry with --no-install-project to install only deps
+                            build_error_patterns = [
+                                "modulenotfounderror",
+                                "failed to build",
+                                "build_meta",
+                                "setuptools",
+                                "error: script",
+                                "subprocess-exited-with-error",
+                            ]
+                            output_lower = output.lower()
+                            is_build_error = any(
+                                pat in output_lower for pat in build_error_patterns
+                            )
+
+                            if is_build_error:
+                                all_output.append(
+                                    "=== Build error detected, retrying with --no-install-project ==="
+                                )
+                                try:
+                                    retry_result = subprocess.run(
+                                        [binary, "sync", "--no-install-project"],
+                                        cwd=str(workspace_path),
+                                        capture_output=True,
+                                        text=True,
+                                        timeout=timeout,
+                                    )
+                                    retry_output = (
+                                        retry_result.stdout + retry_result.stderr
+                                    )
+                                    all_output.append(
+                                        f"=== uv sync --no-install-project ===\n{retry_output}"
+                                    )
+
+                                    if retry_result.returncode == 0:
+                                        installed.append(
+                                            "pyproject.toml (uv sync --no-install-project)"
+                                        )
+                                    else:
+                                        errors.append(
+                                            f"uv sync --no-install-project: {retry_output[:500]}"
+                                        )
+                                except subprocess.TimeoutExpired:
+                                    errors.append(
+                                        "uv sync --no-install-project: Installation timed out"
+                                    )
+                                except Exception as e:
+                                    errors.append(
+                                        f"uv sync --no-install-project: {str(e)}"
+                                    )
+                            else:
+                                errors.append(f"uv sync: {output[:500]}")
                     except subprocess.TimeoutExpired:
                         errors.append("uv sync: Installation timed out")
                     except Exception as e:
@@ -745,7 +796,13 @@ Write Python test files in tests/poc/.
 - Dependencies managed via pyproject.toml with `uv sync`"""
 
     def _parse_test_output(self, output: str) -> dict:
-        """Parse pytest output to extract results."""
+        """
+        Parse pytest output to extract results.
+
+        Tracks assertion context per-test so that AssertionError is only
+        associated with the specific test whose failure block contains it,
+        not contaminating all failed tests.
+        """
         import re
 
         tests_passed = 0
@@ -758,7 +815,45 @@ Write Python test files in tests/poc/.
 
         lines = output.split("\n")
 
+        # First pass: collect per-test failure context
+        # pytest failure blocks look like:
+        #   ___ test_name ___
+        #   ... assertion details ...
+        #   FAILED test_module.py::test_name - AssertionError: ...
+        current_failure_test: Optional[str] = None
+        current_failure_has_assertion = False
+        failure_assertions: dict = {}  # test_name -> bool (has assertion error)
+
         for line in lines:
+            stripped = line.strip()
+
+            # Detect failure block header: "_____ test_name _____"
+            failure_header = re.match(r"^_{3,}\s+(.+?)\s+_{3,}$", stripped)
+            if failure_header:
+                # Save previous test's assertion status
+                if current_failure_test and current_failure_has_assertion:
+                    failure_assertions[current_failure_test] = True
+                current_failure_test = failure_header.group(1)
+                current_failure_has_assertion = False
+                continue
+
+            # Check for assertion errors within current failure block
+            if current_failure_test and (
+                "AssertionError" in stripped
+                or "AssertError" in stripped
+                or ("assert " in stripped.lower()
+                    and ("Error" in stripped or "failed" in stripped.lower()))
+            ):
+                current_failure_has_assertion = True
+
+        # Save last test's assertion status
+        if current_failure_test and current_failure_has_assertion:
+            failure_assertions[current_failure_test] = True
+
+        # Second pass: extract results
+        for line in lines:
+            stripped = line.strip()
+
             # pytest summary line: "X passed, Y failed, Z skipped"
             if " passed" in line or " failed" in line or " skipped" in line:
                 passed_match = re.search(r"(\d+) passed", line)
@@ -772,13 +867,18 @@ Write Python test files in tests/poc/.
                     tests_skipped = int(skipped_match.group(1))
 
             # Individual test results: "PASSED test_module.py::test_name"
-            if line.strip().startswith("PASSED"):
-                test_name = line.split("::")[-1].strip() if "::" in line else "unknown"
+            if stripped.startswith("PASSED"):
+                test_name = (
+                    line.split("::")[-1].strip() if "::" in line else "unknown"
+                )
                 parsed_results[test_name] = "pass"
-            elif line.strip().startswith("FAILED"):
-                test_name = line.split("::")[-1].strip() if "::" in line else "unknown"
+            elif stripped.startswith("FAILED"):
+                test_name = (
+                    line.split("::")[-1].strip() if "::" in line else "unknown"
+                )
                 parsed_results[test_name] = "fail"
-                if "AssertionError" in output:
+                # Only associate assertion failure with this specific test
+                if failure_assertions.get(test_name, False):
                     assertion_failures.append(test_name)
 
             # Detect import/module errors

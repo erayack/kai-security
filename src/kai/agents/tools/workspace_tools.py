@@ -84,7 +84,6 @@ def write_and_compile(file_path: str, content: str) -> Dict[str, Any]:
         return {"written": False, "error": f"Failed to write file: {e}"}
 
     # Compile using the adapter
-    rel_test_path = f".kai_workspace/{rel_path.as_posix()}"
     compile_result = adapter.compile(workspace)
 
     # Track compilation attempts
@@ -98,7 +97,7 @@ def write_and_compile(file_path: str, content: str) -> Dict[str, Any]:
 
     return {
         "written": True,
-        "path": rel_test_path,
+        "path": rel_path.as_posix(),
         "match_path": rel_path.as_posix(),  # Expose for run_test
         "workspace": str(workspace),
         "compiled": compile_result.success,

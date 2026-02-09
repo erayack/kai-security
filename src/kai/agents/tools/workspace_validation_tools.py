@@ -30,10 +30,7 @@ def write_and_compile(file_path: str, content: str) -> Dict[str, Any]:
     if isinstance(result, dict):
         p = result.get("path")
         if isinstance(p, str) and p.strip():
-            # state_tools returns ".kai_workspace/<workspace-relative-path>"
-            match_path = p.replace(".kai_workspace/", "", 1)
-            if match_path.startswith("/"):
-                match_path = match_path.lstrip("/")
+            match_path = p.lstrip("/")
             result["match_path"] = match_path
 
     if agent is not None and isinstance(match_path, str) and match_path.strip():

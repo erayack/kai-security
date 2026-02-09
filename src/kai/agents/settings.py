@@ -35,7 +35,7 @@ MAX_CONCURRENT_AGENTS = 2
 MAX_CONCURRENT_FIXERS = 4
 
 # Python workspace settings
-PRE_INSTALL_PACKAGES: list[str] = ["pytest", "requests"]
+PRE_INSTALL_PACKAGES: list[str] = ["pytest", "requests", "httpx", "aiohttp"]
 
 # OpenRouter
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"

@@ -12,7 +12,7 @@ import os
 from typing import Optional
 
 from kai.utils.dependency import GraphQueryEngine
-from kai.utils.dependency.adapters import SolidityAdapter
+from kai.utils.dependency.adapters import get_adapter as get_domain_adapter
 from kai.utils.dependency.analysis import FileSourceLoader
 
 # Context variable for current agent (async-safe)
@@ -93,6 +93,9 @@ def get_dependency_graph():
 def get_query_engine() -> Optional[GraphQueryEngine]:
     """
     Build a GraphQueryEngine for the current agent if a dependency graph is present.
+
+    Dynamically selects the domain adapter based on the agent's framework/context
+    instead of hardcoding SolidityAdapter.
     """
     graph = get_dependency_graph()
     agent = get_current_agent()
@@ -104,7 +107,38 @@ def get_query_engine() -> Optional[GraphQueryEngine]:
         or getattr(agent, "working_dir", None)
         or os.getcwd()
     )
-    adapter = SolidityAdapter()
+
+    # Dynamically select domain adapter based on context
+    # Priority: master_context.adapter > framework mapping > default solidity
+    adapter_name = "solidity"  # default
+    master_context = getattr(agent, "master_context", None)
+    if master_context:
+        mc_adapter = getattr(master_context, "adapter", None)
+        if mc_adapter:
+            adapter_name = str(mc_adapter).lower()
+
+    # Map tool framework names to domain adapter names if needed
+    framework_to_domain = {
+        "foundry": "solidity",
+        "forge": "solidity",
+        "python": "python",
+        "py": "python",
+        "javascript": "javascript",
+        "js": "javascript",
+        "typescript": "javascript",
+        "ts": "javascript",
+        "c": "c",
+        "cmake": "c",
+    }
+    if adapter_name in framework_to_domain:
+        adapter_name = framework_to_domain[adapter_name]
+
+    try:
+        adapter = get_domain_adapter(adapter_name)
+    except (ValueError, KeyError):
+        # Fall back to solidity if adapter not found
+        raise ValueError(f"Adapter {adapter_name} not found")
+
     source_loader = FileSourceLoader(base_path)
     return GraphQueryEngine(graph=graph, adapter=adapter, source_loader=source_loader)
 
@@ -116,27 +150,30 @@ def get_agent_framework() -> str:
     Priority order:
     1. agent.framework (explicit setting by process, e.g., WorkspaceValidationProcess)
     2. master_context.frameworks (detected during setup)
-    3. Default to "foundry"
+    3. master_context.adapter (mapped to tool framework)
+    4. FrameworkDetector on repo_path
 
-    Note: master_context.adapter is the domain/language adapter (e.g., "solidity", "rust")
-    for dependency graph analysis, NOT the build/test framework. Don't use it here.
+    No default fallback to "foundry" - raises ValueError if detection fails.
 
     Returns:
-        Framework name (defaults to "foundry" if not available)
+        Framework name
+
+    Raises:
+        ValueError: If no framework can be determined
     """
     from kai.utils.tool_adapters import get_supported_frameworks
+    from kai.utils.framework_detector import FrameworkDetector
 
     agent = get_current_agent()
     if agent is None:
-        return "foundry"
+        raise ValueError("No agent context available for framework detection")
 
-    # Check agent.framework first (explicit setting takes priority)
-    # This allows processes like WorkspaceValidationProcess to override the framework
+    # 1. Check agent.framework first (explicit setting takes priority)
     framework = getattr(agent, "framework", None)
     if framework:
         return framework.lower()
 
-    # Fall back to master_context.frameworks for supported tool framework
+    # 2. Fall back to master_context.frameworks for supported tool framework
     master_context = getattr(agent, "master_context", None)
     if master_context:
         frameworks = getattr(master_context, "frameworks", None) or []
@@ -146,7 +183,34 @@ def get_agent_framework() -> str:
             if fw_lower in supported:
                 return fw_lower
 
-    return "foundry"
+        # 3. Try MasterContext.adapter (mapped to tool framework)
+        adapter = getattr(master_context, "adapter", None)
+        if adapter:
+            adapter_lower = str(adapter).lower()
+            mapped = FrameworkDetector.ADAPTER_TO_FRAMEWORK.get(
+                adapter_lower, adapter_lower
+            )
+            if mapped in supported:
+                return mapped
+
+    # 4. Try FrameworkDetector on repo_path
+    repo_path = getattr(agent, "repo_path", None) or getattr(
+        agent, "working_dir", None
+    )
+    if repo_path:
+        from pathlib import Path
+
+        try:
+            return FrameworkDetector.detect_framework(
+                Path(repo_path), master_context
+            )
+        except ValueError:
+            pass
+
+    raise ValueError(
+        "Cannot determine framework: no agent.framework, "
+        "MasterContext.frameworks, or detectable config files"
+    )
 
 
 def get_adapter():

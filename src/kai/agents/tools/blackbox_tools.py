@@ -33,26 +33,9 @@ def _ensure_agent():
 
 def _get_agent_framework() -> str:
     """Get tool framework from current agent context."""
+    from kai.agents.tools.shared import get_agent_framework
 
-    from kai.utils.tool_adapters import get_supported_frameworks
-
-    agent = _ensure_agent()
-
-    master_context = getattr(agent, "master_context", None)
-    if master_context:
-        frameworks = getattr(master_context, "frameworks", None) or []
-        supported = set(get_supported_frameworks())
-        for fw in frameworks:
-            fw_lower = str(fw).lower()
-            if fw_lower in supported:
-                return fw_lower
-
-    framework = getattr(agent, "framework", None)
-
-    if framework:
-        return str(framework).lower()
-
-    raise ValueError("No framework found for agent.")
+    return get_agent_framework()
 
 
 def _get_tool_adapter():

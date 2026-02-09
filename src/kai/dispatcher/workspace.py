@@ -13,7 +13,6 @@ from typing import Optional
 from kai.schemas import MasterContext, Mission, WorkspacePreset
 from kai.utils.workspace import (
     get_workspace_adapter,
-    get_supported_frameworks,
     WorkspaceAdapter,
 )
 
@@ -42,6 +41,9 @@ class WorkspaceManager:
         """
         Detect the framework from master_context or by inspecting the repo.
 
+        Uses the centralized FrameworkDetector. Falls back to "foundry" if
+        detection fails (for backwards compatibility with Solidity projects).
+
         Args:
             master: Path to the master repository
             master_context: Optional MasterContext with framework info
@@ -49,64 +51,9 @@ class WorkspaceManager:
         Returns:
             Framework name (defaults to "foundry" if not detected)
         """
-        supported = set(get_supported_frameworks())
+        from kai.utils.framework_detector import detect_framework_safe
 
-        # Check MasterContext.adapter field first (BountyBench sets this)
-        if master_context:
-            adapter = getattr(master_context, "adapter", None)
-            if adapter:
-                adapter_lower = str(adapter).lower()
-                # Map adapter names to framework names
-                adapter_map = {
-                    "solidity": "foundry",
-                    "javascript": "javascript",
-                    "python": "python",
-                    "c": "c",
-                }
-                mapped = adapter_map.get(adapter_lower, adapter_lower)
-                if mapped in supported:
-                    return mapped
-
-        # Check MasterContext.frameworks (pick first supported workspace framework)
-        if master_context and master_context.frameworks:
-            for fw in master_context.frameworks:
-                fw_lower = str(fw).lower()
-                if fw_lower == "forge":
-                    fw_lower = "foundry"
-                if fw_lower in supported:
-                    return fw_lower
-
-        # Detect by config files
-        if (master / "foundry.toml").exists() and "foundry" in supported:
-            return "foundry"
-        if (master / "Cargo.toml").exists() and "cargo" in supported:
-            return "cargo"
-        if (master / "CMakeLists.txt").exists() and "cmake" in supported:
-            return "cmake"
-
-        # Optional: keep heuristics for other ecosystems, but only if adapters exist.
-        if (
-            (master / "hardhat.config.js").exists()
-            or (master / "hardhat.config.ts").exists()
-        ) and "hardhat" in supported:
-            return "hardhat"
-        if (master / "truffle-config.js").exists() and "truffle" in supported:
-            return "truffle"
-
-        if (master / "package.json").exists() and "javascript" in supported:
-            return "javascript"
-
-        if (
-            (master / "pyproject.toml").exists()
-            or (master / "setup.py").exists()
-            or (master / "requirements.txt").exists()
-        ) and "python" in supported:
-            return "python"
-
-        # TODO: What to do about C & Cpp
-
-        # Default to foundry for Solidity projects
-        return "foundry"
+        return detect_framework_safe(master, master_context, fallback="foundry")
 
     def provision(
         self,

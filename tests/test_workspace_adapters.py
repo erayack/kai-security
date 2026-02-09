@@ -6,6 +6,9 @@ Tests the WorkspaceAdapter interface implementations for each language.
 
 from pathlib import Path
 
+import platform
+import shutil
+
 import pytest  # type: ignore[import-not-found]
 
 from kai.schemas import MasterContext, WorkspacePreset
@@ -167,6 +170,70 @@ def test_hello():
             or (workspace / "app.py").exists()
             or (workspace / "pyproject.toml").exists()
         )
+
+    @pytest.mark.skipif(
+        not shutil.which("uv"), reason="uv not installed"
+    )
+    def test_create_venv_with_uv(
+        self, adapter: PythonWorkspaceAdapter, tmp_path: Path
+    ):
+        """Tests venv creation produces valid Python binary via uv."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        adapter._create_venv(workspace)
+
+        venv_path = workspace / ".venv"
+        assert venv_path.exists(), "venv directory should exist"
+        assert adapter._venv_python_exists(venv_path), (
+            "venv should contain a valid Python binary"
+        )
+
+        # Verify the python binary is actually executable
+        python_path = adapter._get_venv_python_path(venv_path)
+        assert python_path.exists(), f"Python binary should exist at {python_path}"
+
+    def test_create_venv_succeeds_with_rc0(
+        self, adapter: PythonWorkspaceAdapter, tmp_path: Path
+    ):
+        """Tests venv creation succeeds (either via uv or python -m venv)."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        # Should not raise RuntimeError
+        adapter._create_venv(workspace)
+
+        venv_path = workspace / ".venv"
+        assert venv_path.exists(), "venv directory should exist"
+        assert adapter._venv_python_exists(venv_path), (
+            "venv should contain a valid Python binary"
+        )
+
+    def test_venv_python_exists_cross_platform(
+        self, adapter: PythonWorkspaceAdapter, tmp_path: Path
+    ):
+        """Tests the cross-platform venv Python binary detection helper."""
+        venv_path = tmp_path / ".venv"
+        venv_path.mkdir()
+
+        # No python binary yet
+        assert not adapter._venv_python_exists(venv_path)
+
+        # Create the expected binary path
+        if platform.system() == "Windows":
+            scripts = venv_path / "Scripts"
+            scripts.mkdir()
+            (scripts / "python.exe").write_text("")
+        else:
+            bin_dir = venv_path / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "python").write_text("")
+
+        assert adapter._venv_python_exists(venv_path)
+
+        # Verify _get_venv_python_path returns the correct path
+        python_path = adapter._get_venv_python_path(venv_path)
+        assert python_path.exists()
 
 
 class TestJavaScriptWorkspaceAdapter:

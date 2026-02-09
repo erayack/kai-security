@@ -320,9 +320,16 @@ class InvariantProcess(BaseProcess[InvariantProcessInput, InvariantProcessOutput
                 )
             )
 
-            # Track file -> contracts
-            if ep.file and ep.container:
-                files_map[ep.file].add(ep.container)
+            # Track file -> contracts/modules
+            # Python functions at module level may not have a containing class,
+            # unlike Solidity where functions always belong to a contract.
+            if ep.file:
+                if ep.container:
+                    files_map[ep.file].add(ep.container)
+                else:
+                    # Module-level function: use dotted module path as container
+                    module_name = Path(ep.file).with_suffix("").as_posix().replace("/", ".")
+                    files_map[ep.file].add(module_name)
 
             # Build var entries
             for var_ref in reads + writes:

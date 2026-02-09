@@ -48,69 +48,13 @@ class WorkspaceValidationProcess(
     @staticmethod
     def _detect_framework(master: Path, master_context: MasterContext) -> str:
         """
-        Reuse the same detection intent as WorkspaceManager:
-        - prefer MasterContext.adapter if set (BountyBench mode)
-        - prefer MasterContext.frameworks if it's a concrete supported runner
-        - otherwise fall back to config-file detection
+        Detect the framework using the centralized FrameworkDetector.
+
+        Falls back to "foundry" if detection fails (for backwards compatibility).
         """
-        from kai.utils.tool_adapters import get_supported_frameworks
+        from kai.utils.framework_detector import detect_framework_safe
 
-        supported = set(get_supported_frameworks())
-
-        # Check MasterContext.adapter first (BountyBench sets this)
-        if master_context:
-            adapter = getattr(master_context, "adapter", None)
-            if adapter:
-                adapter_lower = str(adapter).lower()
-                adapter_map = {
-                    "solidity": "foundry",
-                    "javascript": "javascript",
-                    "typescript": "javascript",  # TypeScript uses JS tooling
-                    "python": "python",
-                    "c": "c",
-                }
-                mapped = adapter_map.get(adapter_lower, adapter_lower)
-                # Don't trust "solidity" default if there's no foundry.toml
-                # (MasterContext.adapter defaults to "solidity")
-                if (
-                    adapter_lower == "solidity"
-                    and not (master / "foundry.toml").exists()
-                ):
-                    pass  # Fall through to file-based detection
-                elif mapped in supported:
-                    return mapped
-
-        frameworks = (
-            (getattr(master_context, "frameworks", None) or [])
-            if master_context
-            else []
-        )
-        for fw in frameworks:
-            fw_lower = str(fw).lower()
-            if fw_lower == "forge":
-                fw_lower = "foundry"
-            if fw_lower in supported:
-                return fw_lower
-
-        # Fallback: config-file detection
-        if (master / "foundry.toml").exists() and "foundry" in supported:
-            return "foundry"
-        if (master / "Cargo.toml").exists() and "cargo" in supported:
-            return "cargo"
-        if (master / "CMakeLists.txt").exists() and "cmake" in supported:
-            return "cmake"
-        if (master / "package.json").exists() and "javascript" in supported:
-            return "javascript"
-        if (
-            (master / "pyproject.toml").exists()
-            or (master / "setup.py").exists()
-            or (master / "requirements.txt").exists()
-        ) and "python" in supported:
-            return "python"
-        # TODO: What to do about C & Cpp
-
-        # Default to foundry
-        return "foundry"
+        return detect_framework_safe(master, master_context, fallback="foundry")
 
     def _build_smoke_test(
         self, *, master_context: MasterContext, framework: str

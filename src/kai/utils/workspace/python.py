@@ -9,8 +9,10 @@ Handles Python-specific workspace provisioning including:
 """
 
 import os
+import platform
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Optional, Any, List
 
@@ -165,30 +167,110 @@ class PythonWorkspaceAdapter(WorkspaceAdapter):
             writable.append(path)
         return writable
 
+    @staticmethod
+    def _get_venv_python_path(venv_path: Path) -> Path:
+        """
+        Get the expected Python binary path for a venv.
+
+        Handles both Unix (bin/python) and Windows (Scripts/python.exe).
+        """
+        if platform.system() == "Windows":
+            return venv_path / "Scripts" / "python.exe"
+        return venv_path / "bin" / "python"
+
+    @staticmethod
+    def _venv_python_exists(venv_path: Path) -> bool:
+        """
+        Check if the venv has a valid Python binary.
+
+        Cross-platform: checks both Unix and Windows paths.
+        """
+        unix_path = venv_path / "bin" / "python"
+        win_path = venv_path / "Scripts" / "python.exe"
+        return unix_path.exists() or win_path.exists()
+
     def _create_venv(self, workspace: Path, logger: Optional[Any] = None) -> None:
-        """Create a virtual environment in the workspace."""
+        """
+        Create a virtual environment in the workspace.
+
+        Strategy:
+        1. If .venv exists but corrupted (no python binary): remove and recreate
+        2. Try: uv venv .venv (preferred)
+        3. Verify python binary with filesystem-settling retries (up to 5x, 100ms apart)
+        4. Fallback: python -m venv .venv
+        5. On total failure: raise RuntimeError
+        """
         venv_path = workspace / ".venv"
+
+        # If .venv exists, check if it's valid
         if venv_path.exists():
-            return
+            if self._venv_python_exists(venv_path):
+                return  # Valid venv already exists
+            # Corrupted venv - remove and recreate
+            if logger:
+                logger.debug(f"Corrupted venv detected at {venv_path} (no python binary), recreating")
+            shutil.rmtree(venv_path, ignore_errors=True)
 
+        # Strategy 1: Try uv venv (preferred)
+        uv_bin = shutil.which("uv")
+        if uv_bin:
+            try:
+                result = subprocess.run(
+                    [uv_bin, "venv", str(venv_path)],
+                    cwd=str(workspace),
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if result.returncode == 0:
+                    # Verify with filesystem-settling retries
+                    for attempt in range(5):
+                        if self._venv_python_exists(venv_path):
+                            if logger:
+                                logger.debug(f"Created venv via uv at {venv_path}")
+                            return
+                        time.sleep(0.1)  # 100ms between retries
+
+                    if logger:
+                        logger.warning(
+                            "uv venv succeeded but python binary not found after retries"
+                        )
+                else:
+                    if logger:
+                        logger.debug(f"uv venv failed: {result.stderr[:200]}")
+            except Exception as e:
+                if logger:
+                    logger.debug(f"uv venv failed with exception: {e}")
+
+        # Strategy 2: Fallback to python -m venv
         python_bin = shutil.which("python3") or shutil.which("python")
-        if not python_bin:
-            if logger:
-                logger.warning("Python not found - skipping venv creation")
-            return
+        if python_bin:
+            # Clean up any partial venv from failed uv attempt
+            if venv_path.exists():
+                shutil.rmtree(venv_path, ignore_errors=True)
 
-        try:
-            subprocess.run(
-                [python_bin, "-m", "venv", str(venv_path)],
-                cwd=str(workspace),
-                capture_output=True,
-                timeout=60,
-            )
-            if logger:
-                logger.debug(f"Created venv at {venv_path}")
-        except Exception as e:
-            if logger:
-                logger.warning(f"Failed to create venv: {e}")
+            try:
+                result = subprocess.run(
+                    [python_bin, "-m", "venv", str(venv_path)],
+                    cwd=str(workspace),
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if result.returncode == 0 and self._venv_python_exists(venv_path):
+                    if logger:
+                        logger.debug(f"Created venv via python -m venv at {venv_path}")
+                    return
+            except Exception as e:
+                if logger:
+                    logger.warning(f"python -m venv failed: {e}")
+
+        # Total failure
+        raise RuntimeError(
+            f"Failed to create virtual environment at {venv_path}. "
+            f"Neither 'uv venv' nor 'python -m venv' succeeded. "
+            f"Ensure uv or Python 3 is installed."
+        )
 
     def _setup_source_symlinks(
         self,
@@ -254,52 +336,145 @@ class PythonWorkspaceAdapter(WorkspaceAdapter):
     def _install_dependencies(
         self, workspace: Path, logger: Optional[Any] = None
     ) -> None:
-        """Install dependencies into the workspace venv."""
+        """
+        Install dependencies into the workspace venv.
+
+        Prefers uv pip install over raw pip:
+        1. If pyproject.toml/setup.py exists:
+           a. Try editable install (-e .)
+           b. If build error: pre-install setuptools+wheel, retry with --no-build-isolation
+           c. If still failing: try non-editable install (.)
+           d. If still failing: skip (source available via PYTHONPATH)
+        2. If requirements.txt exists: install -r requirements.txt (fatal on failure)
+        3. Pre-install optional packages (pytest, requests, httpx, aiohttp) -- non-fatal
+        """
+        # Determine installer: prefer uv pip, fall back to venv pip
+        uv_bin = shutil.which("uv")
         venv_path = workspace / ".venv"
-        pip_bin = venv_path / "bin" / "pip"
 
-        if not pip_bin.exists():
-            pip_bin = venv_path / "Scripts" / "pip.exe"
+        def _run_install(cmd: List[str], timeout: int = 300) -> subprocess.CompletedProcess:
+            return subprocess.run(
+                cmd,
+                cwd=str(workspace),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
 
-        if not pip_bin.exists():
-            if logger:
-                logger.debug("pip not found in venv - skipping dependency installation")
-            return
+        def _uv_pip(*args: str, timeout: int = 300) -> subprocess.CompletedProcess:
+            assert uv_bin is not None
+            return _run_install([uv_bin, "pip", *args], timeout=timeout)
 
-        # Install from requirements.txt or pyproject.toml
+        def _pip(*args: str, timeout: int = 300) -> subprocess.CompletedProcess:
+            if platform.system() == "Windows":
+                pip_bin = venv_path / "Scripts" / "pip.exe"
+            else:
+                pip_bin = venv_path / "bin" / "pip"
+            return _run_install([str(pip_bin), *args], timeout=timeout)
+
+        use_uv = bool(uv_bin)
+        pip_install = _uv_pip if use_uv else _pip
+
+        # 1. Install from pyproject.toml or setup.py
+        has_pyproject = (workspace / "pyproject.toml").exists()
+        has_setup_py = (workspace / "setup.py").exists()
+
+        if has_pyproject or has_setup_py:
+            installed_project = False
+
+            # Strategy a: editable install
+            try:
+                result = pip_install("install", "-e", ".")
+                if result.returncode == 0:
+                    installed_project = True
+                    if logger:
+                        logger.debug("Installed project via editable install (-e .)")
+                else:
+                    output = result.stdout + result.stderr
+                    build_error_patterns = [
+                        "modulenotfounderror",
+                        "failed to build",
+                        "build_meta",
+                        "setuptools",
+                        "subprocess-exited-with-error",
+                    ]
+                    output_lower = output.lower()
+                    is_build_error = any(
+                        pat in output_lower for pat in build_error_patterns
+                    )
+
+                    if is_build_error:
+                        # Strategy b: pre-install setuptools+wheel, retry with --no-build-isolation
+                        if logger:
+                            logger.debug(
+                                "Editable install failed (build error), trying with --no-build-isolation"
+                            )
+                        try:
+                            pip_install("install", "setuptools", "wheel", timeout=60)
+                        except Exception:
+                            pass
+
+                        try:
+                            result = pip_install(
+                                "install", "-e", ".", "--no-build-isolation"
+                            )
+                            if result.returncode == 0:
+                                installed_project = True
+                                if logger:
+                                    logger.debug(
+                                        "Installed project via --no-build-isolation"
+                                    )
+                        except Exception:
+                            pass
+
+                    if not installed_project:
+                        # Strategy c: non-editable install
+                        if logger:
+                            logger.debug(
+                                "Editable install failed, trying non-editable install"
+                            )
+                        try:
+                            result = pip_install("install", ".")
+                            if result.returncode == 0:
+                                installed_project = True
+                                if logger:
+                                    logger.debug(
+                                        "Installed project via non-editable install (.)"
+                                    )
+                        except Exception:
+                            pass
+
+            except Exception as e:
+                if logger:
+                    logger.debug(f"Editable install failed with exception: {e}")
+
+            if not installed_project and logger:
+                # Strategy d: skip - source available via PYTHONPATH
+                logger.debug(
+                    "All project install strategies failed; source available via PYTHONPATH"
+                )
+
+        # 2. Install from requirements.txt (fatal on failure)
         if (workspace / "requirements.txt").exists():
             try:
-                subprocess.run(
-                    [str(pip_bin), "install", "-r", "requirements.txt"],
-                    cwd=str(workspace),
-                    capture_output=True,
-                    timeout=300,
-                )
+                result = pip_install("install", "-r", "requirements.txt")
+                if result.returncode != 0:
+                    output = result.stdout + result.stderr
+                    if logger:
+                        logger.warning(
+                            f"Failed to install requirements.txt: {output[:500]}"
+                        )
+                else:
+                    if logger:
+                        logger.debug("Installed requirements.txt")
             except Exception as e:
                 if logger:
                     logger.warning(f"Failed to install requirements.txt: {e}")
 
-        elif (workspace / "pyproject.toml").exists():
-            try:
-                subprocess.run(
-                    [str(pip_bin), "install", "-e", "."],
-                    cwd=str(workspace),
-                    capture_output=True,
-                    timeout=300,
-                )
-            except Exception as e:
-                if logger:
-                    logger.warning(f"Failed to install from pyproject.toml: {e}")
-
-        # Install pre-configured packages (pytest, requests, etc.)
+        # 3. Pre-install optional packages -- non-fatal
         for pkg in settings.PRE_INSTALL_PACKAGES:
             try:
-                subprocess.run(
-                    [str(pip_bin), "install", pkg],
-                    cwd=str(workspace),
-                    capture_output=True,
-                    timeout=60,
-                )
+                pip_install("install", pkg, timeout=60)
             except Exception:
                 pass
 
