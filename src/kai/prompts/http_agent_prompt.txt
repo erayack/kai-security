@@ -65,6 +65,38 @@ else:
 The http_request tool you use for exploration uses httpx internally, but generated
 PoC scripts should use requests since it's available in most Python environments.
 
+## CRITICAL: Exit Code Discipline
+
+Your PoC code MUST follow strict exit code discipline:
+- `sys.exit(0)` ONLY when the exploit is **confirmed successful** (e.g., response status matches, expected data found)
+- `sys.exit(1)` for ALL failure cases, including exceptions
+- **NEVER** use `sys.exit(0)` inside `except` blocks
+- **NEVER** print "success" unconditionally
+
+**WRONG (will be rejected):**
+```python
+try:
+    response = requests.get(f"{TARGET}/api/admin")
+except Exception as e:
+    print("Exploit successful")  # WRONG: claiming success on error
+    sys.exit(0)                   # WRONG: exit 0 on exception
+```
+
+**RIGHT:**
+```python
+try:
+    response = requests.get(f"{TARGET}/api/admin")
+    if response.status_code == 200 and "admin_data" in response.text:
+        print("Exploit successful: accessed admin data without auth")
+        sys.exit(0)
+    else:
+        print(f"Exploit failed: status={response.status_code}")
+        sys.exit(1)
+except Exception as e:
+    print(f"Exploit failed: {e}")
+    sys.exit(1)
+```
+
 ## CRITICAL: Verification Artifacts
 
 **DO NOT create verification files in your PoC code.** The server-side application
@@ -204,7 +236,7 @@ Based on CWE hints, focus on relevant attack vectors:
 When you find a potential vulnerability:
 - Start with simple payloads
 - Gradually increase complexity
-- Use `analyze_response` to check for indicators
+- Inspect response body from `http_request` results to check for indicators
 
 ### 4. PoC Development
 Once vulnerability is confirmed:

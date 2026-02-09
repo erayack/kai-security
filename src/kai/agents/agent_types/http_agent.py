@@ -111,8 +111,7 @@ class HTTPAgent(BaseAgent):
         if execution_id:
             self.execution_id = execution_id
 
-        # Track HTTP requests made
-        self._request_count = 0
+        # _request_count inherited from BaseAgent
 
     def set_toolcalling_prompt(
         self,
@@ -248,6 +247,4 @@ class HTTPAgent(BaseAgent):
         """Get the full HTTPAgentResult after chat() completes."""
         return getattr(self, "http_result", None)
 
-    def increment_request_count(self) -> None:
-        """Increment the HTTP request counter."""
-        self._request_count += 1
+    # increment_request_count() inherited from BaseAgent

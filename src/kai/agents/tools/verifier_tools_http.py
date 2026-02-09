@@ -25,8 +25,6 @@ from kai.agents.tools.verifier_tools import (
 # Import HTTP tools for verifying HTTP exploits
 from kai.agents.tools.http_tools import (
     http_request,
-    socket_connect,
-    analyze_response,
     check_container_file,
     list_container_processes,
 )
@@ -162,8 +160,6 @@ __all__ = [
     "submit_verdict",
     # HTTP tools for verifying HTTP exploits
     "http_request",
-    "socket_connect",
-    "analyze_response",
     "check_container_file",
     "list_container_processes",
     # HTTP PoC execution

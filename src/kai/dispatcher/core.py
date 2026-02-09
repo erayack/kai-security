@@ -876,11 +876,13 @@ class Dispatcher:
             return
 
         # Phase 2: Gamified
-        if self.invariants and self._planner:
+        if self.invariants and self._planner and not self.config.disable_gamified:
             self.logger.info("Phase 2: Gamified...")
             await self._queue_gamified_missions()
             await self._drain_mission_queue()
             self.logger.info("Phase 2 done")
+        elif self.config.disable_gamified:
+            self.logger.info("Phase 2: Gamified skipped (disabled)")
 
         self.logger.info(f"Total: {len(self.exploit_candidates)} candidates")
         await self._fix_verified_exploits()

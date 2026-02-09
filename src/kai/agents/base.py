@@ -139,6 +139,9 @@ class BaseAgent(ABC):
         self.use_vllm = use_vllm
         self.use_openai = use_openai
 
+        # HTTP request tracking (used by http_tools.py for any agent type)
+        self._request_count = 0
+
         # Budget tracking
         self.total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
         self.estimated_cost = 0.0
@@ -494,6 +497,10 @@ class BaseAgent(ABC):
             self.messages.append(message)
         else:
             raise ValueError("Invalid message type")
+
+    def increment_request_count(self) -> None:
+        """Increment the HTTP request counter."""
+        self._request_count += 1
 
     async def close(self):
         """

@@ -5,7 +5,7 @@ This module provides HTTP request tools for probing live network services,
 plus re-exports code analysis tools for hybrid operation.
 """
 
-from typing import Optional, Dict, Any, List, Literal
+from typing import Optional, Dict, Any, Literal
 
 from kai.agents.tools.graph_tools import (
     dependency_graph_resolve,
@@ -202,170 +202,6 @@ def http_request(
             "elapsed_ms": 0,
             "error": f"Unexpected error: {str(e)}",
         }
-
-
-def socket_connect(
-    host: str,
-    port: int,
-    data: Optional[str] = None,
-    timeout: int = 10,
-    protocol: Literal["tcp", "udp"] = "tcp",
-) -> Dict[str, Any]:
-    """
-    Raw socket connection for non-HTTP protocols.
-
-    Use this for testing protocols like SMTP, FTP, or custom TCP services.
-
-    Args:
-        host: Target hostname or IP
-        port: Target port number
-        data: Optional data to send after connecting
-        timeout: Connection timeout in seconds (default 10)
-        protocol: Protocol type - "tcp" or "udp" (default "tcp")
-
-    Returns:
-        Dict with:
-            - connected: Whether connection succeeded
-            - response: Data received from server (up to 4KB)
-            - error: Error message if connection failed
-
-    Examples:
-        # Test if port is open
-        result = socket_connect("localhost", 8080)
-
-        # Send data and get response
-        result = socket_connect("localhost", 25, data="HELO test\\r\\n")
-    """
-    import socket
-
-    agent = _get_current_agent()
-
-    # Check request limit (socket connections count as requests)
-    request_count = getattr(agent, "_request_count", 0) if agent else 0
-    if request_count >= MAX_REQUESTS_PER_RUN:
-        return {
-            "error": f"Request limit reached ({MAX_REQUESTS_PER_RUN} requests per run)",
-            "connected": False,
-            "response": "",
-        }
-
-    try:
-        sock_type = socket.SOCK_STREAM if protocol == "tcp" else socket.SOCK_DGRAM
-        sock = socket.socket(socket.AF_INET, sock_type)
-        sock.settimeout(timeout)
-
-        sock.connect((host, port))
-
-        # Increment request count
-        if agent:
-            agent.increment_request_count()
-
-        response = ""
-        if data:
-            sock.sendall(data.encode("utf-8"))
-            try:
-                response = sock.recv(4096).decode("utf-8", errors="replace")
-            except socket.timeout:
-                pass
-
-        sock.close()
-
-        # Warn if response is empty - likely indicates smuggling/attack failed
-        response_empty = len(response) == 0
-        warning = None
-        if response_empty and data:
-            warning = "WARNING: Empty response received."
-
-        return {
-            "connected": True,
-            "response": response,
-            "response_empty": response_empty,
-            "warning": warning,
-            "error": None,
-        }
-
-    except socket.timeout:
-        return {
-            "connected": False,
-            "response": "",
-            "error": f"Connection timed out after {timeout} seconds",
-        }
-    except socket.error as e:
-        return {
-            "connected": False,
-            "response": "",
-            "error": f"Socket error: {str(e)}",
-        }
-    except Exception as e:
-        return {
-            "connected": False,
-            "response": "",
-            "error": f"Unexpected error: {str(e)}",
-        }
-
-
-def analyze_response(
-    response_body: str,
-    check_patterns: List[str],
-) -> Dict[str, Any]:
-    """
-    Check response body for vulnerability indicators.
-
-    Args:
-        response_body: The response body text to analyze
-        check_patterns: List of regex patterns or literal strings to search for
-
-    Returns:
-        Dict with:
-            - matches: List of patterns that matched
-            - match_details: Dict mapping pattern to match info
-            - any_match: True if any pattern matched
-
-    Examples:
-        result = analyze_response(
-            response.body,
-            ["error", "stack trace", "Exception"]
-        )
-        if result["any_match"]:
-            print("Potential vulnerability indicator found!")
-    """
-    import re
-
-    matches = []
-    match_details = {}
-
-    for pattern in check_patterns:
-        try:
-            # Try as regex first
-            regex = re.compile(pattern, re.IGNORECASE)
-            found = regex.search(response_body)
-            if found:
-                matches.append(pattern)
-                match_details[pattern] = {
-                    "matched": True,
-                    "match_text": found.group(0)[:100],  # Limit match text
-                    "position": found.start(),
-                }
-            else:
-                match_details[pattern] = {"matched": False}
-        except re.error:
-            # Fall back to literal string search
-            if pattern.lower() in response_body.lower():
-                matches.append(pattern)
-                pos = response_body.lower().find(pattern.lower())
-                match_details[pattern] = {
-                    "matched": True,
-                    "match_text": response_body[pos : pos + len(pattern)],
-                    "position": pos,
-                }
-            else:
-                match_details[pattern] = {"matched": False}
-
-    return {
-        "matches": matches,
-        "match_details": match_details,
-        "any_match": len(matches) > 0,
-    }
 
 
 def register_http_exploit(
@@ -645,8 +481,6 @@ def list_container_processes(
 __all__ = [
     # HTTP tools
     "http_request",
-    "socket_connect",
-    "analyze_response",
     "register_http_exploit",
     # Docker/container tools
     "check_container_file",
