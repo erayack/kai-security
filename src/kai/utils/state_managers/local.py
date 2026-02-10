@@ -243,10 +243,27 @@ class LocalStateManager(KaiStateManager):
 
     async def has_source_changed(self, repo_path: str) -> bool:
         meta = self._load_run_meta()
-        if not meta or not meta.get("source_hash") or not meta.get("adapter"):
+        if not meta or not meta.get("source_hash"):
             return True  # Unknown → assume changed
-        current = _hash_source_files(repo_path, meta["adapter"])
+        # Read adapter from persisted master_context
+        adapter = self._read_adapter()
+        if not adapter:
+            return True
+        current = _hash_source_files(repo_path, adapter)
         return current != meta["source_hash"]
+
+    def _read_adapter(self) -> Optional[str]:
+        """Read adapter from persisted master_context.json."""
+        if self._output_dir is None:
+            return None
+        mc_path = self._output_dir / "master_context.json"
+        if not mc_path.exists():
+            return None
+        try:
+            data = json.loads(mc_path.read_text(encoding="utf-8"))
+            return data.get("adapter")
+        except Exception:
+            return None
 
     async def has_graph_changed(self, graph_hash: str) -> bool:
         meta = self._load_run_meta()
@@ -316,25 +333,13 @@ class LocalStateManager(KaiStateManager):
             dependency_graph=dep_graph,
         )
 
-    async def save_run_data(
-        self,
-        *,
-        graph_hash: str,
-        adapter: str,
-        master_context: Optional[MasterContext],
-        invariants: List[Invariant],
-        verdicts: List[Verdict],
-        manifesto: Optional[ProtocolManifesto],
-        actor_matrix: Optional[ActorMatrix],
-        dependency_graph: Any,
-    ) -> bool:
+    async def save_graph_hash(self, graph_hash: str) -> bool:
         if self._output_dir is None:
             return False
 
-        # Only persist change-detection metadata.
-        # All other data (invariants, verdicts, artifacts) is already
-        # saved individually via their own save_* methods.
+        # Compute source hash from the persisted master_context adapter
         source_hash = ""
+        adapter = self._read_adapter()
         if self._repo_path and adapter:
             source_hash = _hash_source_files(self._repo_path, adapter)
 
@@ -344,7 +349,6 @@ class LocalStateManager(KaiStateManager):
                 {
                     "graph_hash": graph_hash,
                     "source_hash": source_hash,
-                    "adapter": adapter,
                 },
                 indent=2,
             ),

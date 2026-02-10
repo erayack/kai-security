@@ -597,37 +597,19 @@ class Dispatcher:
             )
             self.fixes.extend(new_fixes)
 
-        # Save snapshot for future iterative runs
+        # Register graph hash for future iterative runs
         if (
             self.config.enable_iterative
             and self._state_manager
             and self.dependency_graph
         ):
-            await self._save_run_snapshot()
-
-    async def _save_run_snapshot(self) -> None:
-        """Persist run data for future iterative queries."""
-        assert self.dependency_graph is not None  # guarded by caller
-
-        adapter = self.master_context.adapter if self.master_context else ""
-
-        await persist(
-            self._state_manager,
-            self._state_manager.save_run_data(
-                graph_hash=self.dependency_graph.content_hash(),
-                adapter=adapter,
-                master_context=self.master_context,
-                invariants=list(self.invariants.values()),
-                verdicts=list(self.verdicts),
-                manifesto=self.protocol_manifesto,
-                actor_matrix=self.actor_matrix,
-                dependency_graph=self.dependency_graph,
+            await persist(
+                self._state_manager,
+                self._state_manager.save_graph_hash(
+                    self.dependency_graph.content_hash()
+                ),
+                self.logger,
             )
-            if self._state_manager
-            else None,
-            self.logger,
-        )
-        self.logger.info("Saved iterative run data")
 
     async def _drain_mission_queue(self) -> None:
         """Run missions from queue until empty."""

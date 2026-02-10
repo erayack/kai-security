@@ -341,25 +341,12 @@ class KaiStateManager(ABC):
         pass
 
     @abstractmethod
-    async def save_run_data(
-        self,
-        *,
-        graph_hash: str,
-        adapter: str,
-        master_context: Optional[MasterContext],
-        invariants: List[Invariant],
-        verdicts: List[Verdict],
-        manifesto: Optional[ProtocolManifesto],
-        actor_matrix: Optional[ActorMatrix],
-        dependency_graph: Any,
-    ) -> bool:
+    async def save_graph_hash(self, graph_hash: str) -> bool:
         """
-        Persist run data for future iterative queries.
+        Register the dependency-graph hash for the current run.
 
-        Each implementation decides how to store this (JSON snapshot,
-        MongoDB documents, etc.).
-
-        Returns:
-            True if successful
+        All actual data (invariants, verdicts, boot artifacts) is persisted
+        individually via their own ``save_*`` methods during the pipeline.
+        This only stores the graph hash so future runs can detect changes.
         """
         pass
