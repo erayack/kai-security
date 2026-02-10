@@ -5,7 +5,7 @@ Fix pipeline: generates patches for verified exploits.
 import asyncio
 import logging
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from kai.agents import settings
 from kai.schemas import (

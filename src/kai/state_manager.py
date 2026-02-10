@@ -6,7 +6,7 @@ Passed to Dispatcher to decouple business logic from persistence.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional, Dict, Any, Literal
 
 from kai.schemas import (

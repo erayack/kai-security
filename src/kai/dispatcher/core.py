@@ -6,10 +6,6 @@ import asyncio
 
 from kai.exceptions import (
     DispatcherBootError,
-    EnvironmentSetupError,
-    StaticAnalysisError,
-    WorkspaceValidationError,
-    ActorAnalysisError,
 )
 import json
 import logging
@@ -38,7 +34,7 @@ from kai.schemas import (  # noqa: E402
 from kai.utils.dependency.graph import DependencyGraph  # noqa: E402
 
 from kai.dispatcher._helpers import persist  # noqa: E402
-from kai.dispatcher.boot_pipeline import BootPipeline, BootResult, SetupResult  # noqa: E402
+from kai.dispatcher.boot_pipeline import BootPipeline, BootResult  # noqa: E402
 from kai.dispatcher.fix_pipeline import FixPipeline  # noqa: E402
 from kai.dispatcher.planner import MissionPlanner  # noqa: E402
 from kai.dispatcher.usage_tracker import UsageTracker  # noqa: E402

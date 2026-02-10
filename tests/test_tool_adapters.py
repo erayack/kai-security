@@ -4,7 +4,6 @@ Tests for tool adapters (Python, JavaScript, C).
 Tests the ToolAdapter interface implementations for each language.
 """
 
-import sys
 import venv
 from pathlib import Path
 

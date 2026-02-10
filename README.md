@@ -53,19 +53,23 @@ make install
 Run the full pipeline on a target repository:
 
 ```bash
-python scripts/playground_dispatcher.py --repo-path ./path/to/contracts
+uv run python scripts/playground_dispatcher.py --repo-path ./path/to/contracts
 ```
 
 Options:
-- `--model`: Model to use (default: `openai/gpt-4o`)
+- `--model`: Model to use (default: `google/gemini-3-flash-preview`)
 - `--concurrent`: Max concurrent agents (default: 2)
-- `--max-turns`: Max turns per agent (default: 24)
+- `--max-turns`: Max turns per agent (default: 32)
+- `--exploration`: Enable blackbox/gamified phases
+- `--iterative`: Enable iterative mode and snapshot reuse
+- `--no-fixer`: Disable fix generation
 
-### Using the Legacy Scaffold
+### Using Make Targets
 
 ```bash
-# Edit repo_url in run_scaffold.py, then:
-make run
+make run REPO_PATH=./path/to/contracts
+make run-exploration REPO_PATH=./path/to/contracts
+make run-iterative REPO_PATH=./path/to/contracts
 ```
 
 ## Project Structure
@@ -94,8 +98,7 @@ kai/
 
 scripts/
 ├── playground_dispatcher.py  # E2E dispatcher demo
-├── playground_fixer.py       # Fixer agent testing
-└── run_dispatcher_e2e.py     # Full E2E with detailed output
+└── install.sh                # Bootstrap script
 ```
 
 ## Pipeline Stages
@@ -139,21 +142,24 @@ output/
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `max_concurrent_agents` | 4 | Parallel agent limit |
+| `max_concurrent_agents` | 2 | Parallel agent limit |
 | `max_invariants_per_cluster` | 5 | Invariants per campaign |
 | `max_campaigns` | 10 | Campaign limit |
 | `include_exploration` | True | Enable BlackBox agents |
-| `model` | `openai/gpt-5.2` | Model for agents |
+| `model` | `google/gemini-3-flash-preview` | Model for agents |
 | `workspace_dir` | `./kai_workspaces` | Workspace location |
 
 ## Development
 
 ```bash
-# Run type checks
-make typecheck
-
 # Run tests
 make test
+
+# Run lint checks
+make lint
+
+# Run type checks
+make typecheck
 
 # Format code
 make format
