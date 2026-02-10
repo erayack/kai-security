@@ -32,6 +32,7 @@ from kai.schemas import (  # noqa: E402
     MissionAgentType,
     Observation,
     ProtocolManifesto,
+    RunSnapshot,
     Verdict,
     VerdictSeverity,
 )
@@ -180,6 +181,7 @@ class Dispatcher:
         self.fixes: List[Fix] = []
         # Prior verdicts carried forward from iterative runs
         self._prior_verdicts: List[Verdict] = []
+        self._repo_path: Optional[str] = None
 
         # Sub-components
         self._workspace_manager = WorkspaceManager(
@@ -276,6 +278,8 @@ class Dispatcher:
             ActorAnalysisError: If actor analysis fails
             DispatcherBootError: For other boot failures
         """
+        self._repo_path = repo_path
+
         if not self.config.enable_iterative:
             # Non-iterative: run all steps as before
             result = await self._boot_pipeline.run(
@@ -311,10 +315,66 @@ class Dispatcher:
         use_openai: bool = False,
         master_context: Optional[MasterContext] = None,
     ) -> BootResult:
-        """Iterative boot: skip redundant LLM work when graph is unchanged."""
-        from kai.dispatcher.coverage import hash_graph, diff_invariants
+        """
+        Iterative boot: skip redundant work when source is unchanged.
 
-        # Phase 1: always run setup + graph + workspace validation
+        Flow:
+        1. Load prior snapshot + hash source files (~instant)
+        2. If source unchanged → skip everything (setup, graph, LLM)
+        3. If source changed → full boot + diff invariants against prior
+        4. If no prior → full boot (first run)
+        """
+        from kai.dispatcher.coverage import (
+            hash_graph,
+            hash_source_files,
+            diff_invariants,
+        )
+
+        # Step 0: Load prior snapshot and do fast source hash check
+        prior = (
+            await self._state_manager.load_run_snapshot()
+            if self._state_manager
+            else None
+        )
+
+        if (
+            prior
+            and prior.source_hash
+            and prior.adapter
+            and prior.master_context
+            and repo_path
+        ):
+            current_source_hash = hash_source_files(repo_path, prior.adapter)
+            if current_source_hash == prior.source_hash:
+                # Source unchanged → skip everything
+                self.logger.info(
+                    "Source files unchanged, reusing all cached boot artifacts "
+                    "(skipping setup, graph, profiler, actors, invariants)"
+                )
+                if not prior.dependency_graph:
+                    raise DispatcherBootError("Snapshot missing dependency_graph")
+
+                result = self._build_boot_result_from_snapshot(
+                    prior, prior.dependency_graph, prior.master_context
+                )
+
+                # Source unchanged → nothing to re-run
+                result.invariants = {}
+                self._prior_verdicts = list(prior.verdicts)
+                self.logger.info(
+                    f"Nothing to dispatch (0 new invariants, "
+                    f"{len(prior.verdicts)} prior verdicts carried forward)"
+                )
+                return result
+
+            self.logger.info(
+                f"Source files changed "
+                f"(prior={prior.source_hash[:12]}, "
+                f"current={current_source_hash[:12]}), "
+                f"running full boot"
+            )
+
+        # Full boot: setup + graph + workspace validation
         setup = await self._boot_pipeline.run_setup_and_graph(
             repo_url=repo_url,
             repo_path=repo_path,
@@ -323,17 +383,24 @@ class Dispatcher:
         )
 
         graph_hash = hash_graph(setup.dependency_graph)
-        prior = (
-            await self._state_manager.load_run_snapshot()
-            if self._state_manager
-            else None
-        )
 
-        if prior and prior.get("graph_hash") == graph_hash:
-            # Graph unchanged → load cached artifacts, skip LLM steps
-            self.logger.info("Graph unchanged, reusing cached boot artifacts")
-            result = self._build_boot_result_from_snapshot(setup, prior)
-            self._prior_verdicts = [Verdict(**v) for v in prior.get("verdicts", [])]
+        if prior and prior.graph_hash == graph_hash:
+            # Graph unchanged → skip LLM steps (profiler, actors, invariants)
+            self.logger.info(
+                "Graph unchanged, reusing cached LLM artifacts "
+                "(skipping profiler, actors, invariants)"
+            )
+            result = self._build_boot_result_from_snapshot(
+                prior, setup.dependency_graph, setup.master_context
+            )
+
+            # Graph unchanged → nothing to re-run
+            result.invariants = {}
+            self._prior_verdicts = list(prior.verdicts)
+            self.logger.info(
+                f"Nothing to dispatch (0 new invariants, "
+                f"{len(prior.verdicts)} prior verdicts carried forward)"
+            )
             return result
 
         if prior:
@@ -343,19 +410,38 @@ class Dispatcher:
                 model_name=model_name,
                 use_openai=use_openai,
             )
-            prior_invariants = [Invariant(**inv) for inv in prior.get("invariants", [])]
+
+            # Exclude previously-blocked invariants from the diff baseline
+            # so their equivalents in the new set aren't filtered out.
+            # This gives them a fresh chance now that code has changed.
+            blocked_inv_ids = {
+                v.invariant_id
+                for v in prior.verdicts
+                if v.blocked_by_root_cause
+            }
+            effective_prior = [
+                inv
+                for inv in prior.invariants
+                if inv.id not in blocked_inv_ids
+            ]
+
             novel = await diff_invariants(
                 list(result.invariants.values()),
-                prior_invariants,
+                effective_prior,
                 model=self.config.dedupe_model,
                 use_openai=self.config.use_openai,
                 logger=self.logger,
             )
             result.invariants = {inv.id: inv for inv in novel}
-            self._prior_verdicts = [Verdict(**v) for v in prior.get("verdicts", [])]
+
+            # Don't carry forward verdicts on graph-changed path —
+            # code changed, so prior verdicts may no longer be valid.
+            self._prior_verdicts = []
+
             self.logger.info(
-                f"Iterative: {len(novel)} novel invariants "
-                f"(from {len(prior_invariants)} prior)"
+                f"Iterative: {len(novel)} invariants to dispatch "
+                f"({len(prior.invariants) - len(effective_prior)} previously-blocked "
+                f"re-eligible, {len(effective_prior)} prior baseline)"
             )
             return result
 
@@ -368,36 +454,31 @@ class Dispatcher:
 
     def _build_boot_result_from_snapshot(
         self,
-        setup: "SetupResult",
-        prior: Dict[str, Any],
+        prior: RunSnapshot,
+        dependency_graph: "DependencyGraph",
+        mc: MasterContext,
     ) -> BootResult:
-        """Reconstruct a BootResult from a prior snapshot (graph-unchanged path)."""
-        manifesto = None
-        if prior.get("manifesto"):
-            manifesto = ProtocolManifesto(**prior["manifesto"])
+        """Reconstruct a BootResult from a prior snapshot."""
+        if not prior.actor_matrix:
+            raise DispatcherBootError("Snapshot missing actor_matrix")
 
-        actor_matrix = ActorMatrix(**prior["actor_matrix"])
-
-        invariants = {
-            inv_data["id"]: Invariant(**inv_data)
-            for inv_data in prior.get("invariants", [])
-        }
+        invariants = {inv.id: inv for inv in prior.invariants}
 
         planner = MissionPlanner(
-            dependency_graph=setup.dependency_graph,
-            actor_matrix=actor_matrix,
+            dependency_graph=dependency_graph,
+            actor_matrix=prior.actor_matrix,
             max_invariants_per_cluster=self.config.max_invariants_per_cluster,
             max_campaigns=self.config.max_campaigns,
             include_exploration=self.config.include_exploration,
             default_budget=self.config.default_budget,
-            master_context=setup.master_context,
+            master_context=mc,
         )
 
         return BootResult(
-            master_context=setup.master_context,
-            dependency_graph=setup.dependency_graph,
-            protocol_manifesto=manifesto,
-            actor_matrix=actor_matrix,
+            master_context=mc,
+            dependency_graph=dependency_graph,
+            protocol_manifesto=prior.manifesto,
+            actor_matrix=prior.actor_matrix,
             invariants=invariants,
             planner=planner,
         )
@@ -496,8 +577,8 @@ class Dispatcher:
 
         self.logger.info(f"Total: {len(self.exploit_candidates)} candidates")
 
-        # Fix verified exploits
-        if self.master_context is not None:
+        # Fix verified exploits (skip if no new candidates this run)
+        if self.master_context is not None and self.exploit_candidates:
             new_fixes = await self._fix_pipeline.fix_verified_exploits(
                 verdicts=self.verdicts,
                 exploit_candidates=self.exploit_candidates,
@@ -517,24 +598,28 @@ class Dispatcher:
 
     async def _save_run_snapshot(self) -> None:
         """Persist run snapshot for future iterative runs."""
-        from kai.dispatcher.coverage import hash_graph
+        from kai.dispatcher.coverage import hash_graph, hash_source_files
         from datetime import datetime, timezone
 
         assert self.dependency_graph is not None  # guarded by caller
 
-        snapshot = {
-            "graph_hash": hash_graph(self.dependency_graph),
-            "invariants": [inv.model_dump() for inv in self.invariants.values()],
-            "verdicts": [v.model_dump() for v in self.verdicts],
-            "manifesto": self.protocol_manifesto.model_dump()
-            if self.protocol_manifesto
-            else None,
-            "actor_matrix": self.actor_matrix.model_dump()
-            if self.actor_matrix
-            else None,
-            "dependency_graph": self.dependency_graph.to_dict(),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        adapter = self.master_context.adapter if self.master_context else ""
+        source_hash = ""
+        if self._repo_path and adapter:
+            source_hash = hash_source_files(self._repo_path, adapter)
+
+        snapshot = RunSnapshot(
+            graph_hash=hash_graph(self.dependency_graph),
+            source_hash=source_hash,
+            adapter=adapter,
+            master_context=self.master_context,
+            invariants=list(self.invariants.values()),
+            verdicts=list(self.verdicts),
+            manifesto=self.protocol_manifesto,
+            actor_matrix=self.actor_matrix,
+            dependency_graph=self.dependency_graph,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
         await persist(
             self._state_manager,
             self._state_manager.save_run_snapshot(snapshot)

@@ -17,6 +17,7 @@ from kai.schemas import (
     Mission,
     Observation,
     ProtocolManifesto,
+    RunSnapshot,
     Verdict,
 )
 from kai.state_manager import KaiStateManager
@@ -118,20 +119,22 @@ class LocalStateManager(KaiStateManager):
     async def save_protocol_manifesto(self, manifesto: ProtocolManifesto) -> bool:
         return True
 
-    async def load_run_snapshot(self) -> Optional[Dict[str, Any]]:
+    async def load_run_snapshot(self) -> Optional[RunSnapshot]:
         if self._output_dir is None:
             return None
         path = self._output_dir / "snapshot.json"
         if path.exists():
-            return json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return RunSnapshot.model_validate(data)
         return None
 
-    async def save_run_snapshot(self, snapshot: Dict[str, Any]) -> bool:
+    async def save_run_snapshot(self, snapshot: RunSnapshot) -> bool:
         if self._output_dir is None:
             return False
         self._output_dir.mkdir(parents=True, exist_ok=True)
         (self._output_dir / "snapshot.json").write_text(
-            json.dumps(snapshot, indent=2, default=str), encoding="utf-8"
+            json.dumps(snapshot.model_dump(), indent=2, default=str),
+            encoding="utf-8",
         )
         return True
 

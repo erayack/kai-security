@@ -21,6 +21,9 @@ Usage:
     # Custom model
     uv run python scripts/playground_dispatcher.py --repo-path ./master/your-contracts --model anthropic/claude-sonnet-4
 
+    # Iterative mode (re-run skips unchanged invariants, uses stable output dir)
+    uv run python scripts/playground_dispatcher.py --repo-path ./master/your-contracts --iterative
+
 Options:
     --repo-path       Path to target repository (required)
     --model           Main model for State/Quant agents (default: settings.MAIN_DEFAULT_MODEL)
@@ -29,6 +32,7 @@ Options:
     --exploration     Enable Blackbox/Gamified exploration phases
     --save-rollouts   Save agent conversation rollouts to output/rollouts/
     --no-fixer        Disable fixer agent to reduce costs during debugging
+    --iterative       Enable iterative mode (skip unchanged invariants on re-runs)
 
 Output:
     output/playground/{repo}_{timestamp}/
@@ -57,6 +61,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from kai.agents import settings  # noqa: E402
 from kai.dispatcher.core import Dispatcher, DispatcherConfig  # noqa: E402
 from kai.schemas import CampaignBudget  # noqa: E402
+from kai.utils.state_managers.local import LocalStateManager  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -74,6 +79,7 @@ async def run_dispatcher_demo(
     include_exploration: bool = False,
     save_rollouts: bool = False,
     disable_fixer: bool = False,
+    iterative: bool = False,
 ) -> None:
     """
     Run the full dispatcher pipeline and print results.
@@ -82,8 +88,12 @@ async def run_dispatcher_demo(
     repo_name = Path(repo_path).name
 
     # Setup output directory
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = PROJECT_ROOT / "output" / "playground" / f"{repo_name}_{timestamp}"
+    if iterative:
+        # Stable directory (no timestamp) so snapshot persists across runs
+        output_dir = PROJECT_ROOT / "output" / "playground" / repo_name
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = PROJECT_ROOT / "output" / "playground" / f"{repo_name}_{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\n{'=' * 70}")
@@ -97,6 +107,7 @@ async def run_dispatcher_demo(
     print(f"  Verifier:           {settings.VERIFIER_DEFAULT_MODEL}")
     print(f"  Gamified:           {settings.GAMIFIED_DEFAULT_MODEL}")
     print(f"\nExploration: {'enabled' if include_exploration else 'disabled'}")
+    print(f"Iterative: {'enabled' if iterative else 'disabled'}")
     print(f"Fixer: {'disabled' if disable_fixer else 'enabled'}")
     print(f"Save rollouts: {'enabled' if save_rollouts else 'disabled'}")
     print(f"{'=' * 70}\n")
@@ -119,10 +130,16 @@ async def run_dispatcher_demo(
         save_rollouts=save_rollouts,
         rollouts_dir=str(output_dir / "rollouts") if save_rollouts else None,
         disable_fixer=disable_fixer,
+        enable_iterative=iterative,
     )
 
-    # Create dispatcher (no state manager for simplicity)
-    dispatcher = Dispatcher(config=config)
+    # Create state manager for snapshot persistence (iterative or not)
+    state_manager = LocalStateManager(
+        execution_id=f"{repo_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+        output_dir=output_dir,
+    )
+
+    dispatcher = Dispatcher(config=config, state_manager=state_manager)
 
     # =========================================================================
     # PHASE 1: BOOT
@@ -130,14 +147,14 @@ async def run_dispatcher_demo(
     print("\n[PHASE 1] BOOT - Running preprocessing pipeline...")
     start_time = datetime.now()
 
-    success = await dispatcher.boot(
-        repo_path=repo_path,
-        model_name=model,
-        use_openai=False,
-    )
-
-    if not success:
-        print("❌ Boot failed!")
+    try:
+        await dispatcher.boot(
+            repo_path=repo_path,
+            model_name=model,
+            use_openai=False,
+        )
+    except Exception as e:
+        print(f"❌ Boot failed: {e}")
         return
 
     print(f"✓ Boot complete in {(datetime.now() - start_time).seconds}s")
@@ -319,6 +336,11 @@ def main():
         action="store_true",
         help="Disable fixer agent to reduce costs during debugging (default: enabled)",
     )
+    parser.add_argument(
+        "--iterative",
+        action="store_true",
+        help="Enable iterative mode: skip unchanged invariants on re-runs (default: disabled)",
+    )
 
     args = parser.parse_args()
 
@@ -340,6 +362,7 @@ def main():
             include_exploration=args.exploration,
             save_rollouts=args.save_rollouts,
             disable_fixer=args.no_fixer,
+            iterative=args.iterative,
         )
     )
 

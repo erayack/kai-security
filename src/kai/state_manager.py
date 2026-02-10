@@ -15,6 +15,7 @@ from kai.schemas import (
     Invariant,
     Mission,
     Observation,
+    RunSnapshot,
     Verdict,
     CampaignBrief,
     MasterContext,
@@ -262,24 +263,24 @@ class KaiStateManager(ABC):
         pass
 
     @abstractmethod
-    async def load_run_snapshot(self) -> Optional[Dict[str, Any]]:
+    async def load_run_snapshot(self) -> Optional[RunSnapshot]:
         """
         Load prior run snapshot for iterative runs.
 
         Returns:
-            Dict with graph_hash, invariants, verdicts, manifesto, actor_matrix,
-            dependency_graph, and timestamp — or None if no prior snapshot exists.
+            RunSnapshot with graph_hash, invariants, verdicts, manifesto,
+            actor_matrix, dependency_graph, and timestamp — or None if no
+            prior snapshot exists.
         """
         pass
 
     @abstractmethod
-    async def save_run_snapshot(self, snapshot: Dict[str, Any]) -> bool:
+    async def save_run_snapshot(self, snapshot: RunSnapshot) -> bool:
         """
         Save run snapshot for future iterative runs.
 
         Args:
-            snapshot: Dict with graph_hash, invariants, verdicts, manifesto,
-                      actor_matrix, dependency_graph, and timestamp.
+            snapshot: RunSnapshot to persist.
 
         Returns:
             True if successful

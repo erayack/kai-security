@@ -10,13 +10,72 @@ from typing import List
 
 from pydantic import BaseModel
 
+from pathlib import Path
+
 from kai.schemas import Invariant
 from kai.utils.dependency.graph import DependencyGraph
 
+# Source file extensions per adapter
+_SOURCE_EXTENSIONS: dict[str, list[str]] = {
+    "solidity": [".sol", ".toml"],
+    "python": [".py", ".toml", ".cfg"],
+    "typescript": [".ts", ".tsx"],
+    "javascript": [".js", ".jsx"],
+    "c": [".c", ".h", ".cmake"],
+}
+
+# Specific config files to include in the hash (checked at repo root)
+_CONFIG_FILES: dict[str, list[str]] = {
+    "solidity": ["remappings.txt"],
+    "python": ["pyproject.toml", "setup.cfg", "setup.py"],
+    "typescript": ["package.json", "tsconfig.json"],
+    "javascript": ["package.json"],
+    "c": ["CMakeLists.txt", "Makefile"],
+}
+
+# Directories to skip when hashing source files
+_SKIP_DIRS = {
+    "test", "tests", "lib", "node_modules", "out", "build",
+    "cache", "artifacts", ".git", "__pycache__", "script",
+}
+
 
 # ---------------------------------------------------------------------------
-# Graph hashing
+# Hashing
 # ---------------------------------------------------------------------------
+
+
+def hash_source_files(repo_path: str, adapter: str) -> str:
+    """
+    Hash source files to detect changes without compilation.
+
+    Fast alternative to hash_graph — no deps install or build needed.
+    Returns empty string if adapter has no known extensions.
+    """
+    exts = _SOURCE_EXTENSIONS.get(adapter.lower(), [])
+    if not exts:
+        return ""
+
+    root = Path(repo_path).resolve()
+    hasher = hashlib.sha256()
+
+    # Hash source files by extension
+    for ext in sorted(exts):
+        for f in sorted(root.rglob(f"*{ext}")):
+            parts = set(f.relative_to(root).parts)
+            if parts & _SKIP_DIRS:
+                continue
+            hasher.update(str(f.relative_to(root)).encode())
+            hasher.update(f.read_bytes())
+
+    # Hash specific config files at repo root
+    for cfg in sorted(_CONFIG_FILES.get(adapter.lower(), [])):
+        cfg_path = root / cfg
+        if cfg_path.exists():
+            hasher.update(cfg.encode())
+            hasher.update(cfg_path.read_bytes())
+
+    return hasher.hexdigest()[:24]
 
 
 def hash_graph(graph: DependencyGraph) -> str:
