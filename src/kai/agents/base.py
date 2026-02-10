@@ -390,26 +390,30 @@ class BaseAgent(ABC):
         """
         Get the tool adapter for framework-specific tool descriptions.
 
-        Checks master_context.frameworks for a supported tool framework.
-        Note: master_context.adapter is for language/domain (solidity, rust),
-        while frameworks contains the tooling (foundry, hardhat, anchor, cargo).
+        Checks master_context.frameworks for a supported tool framework,
+        then falls back to mapping master_context.adapter via ADAPTER_TO_FRAMEWORK.
 
         Returns:
             ToolAdapter instance
         """
         from kai.utils.tool_adapters import get_tool_adapter, get_supported_frameworks
+        from kai.utils.framework import ADAPTER_TO_FRAMEWORK
 
         master_context = getattr(self, "master_context", None)
         if master_context:
-            # Check frameworks list for a supported tool framework
             frameworks = getattr(master_context, "frameworks", None) or []
             supported = set(get_supported_frameworks())
             for fw in frameworks:
                 fw_lower = fw.lower()
                 if fw_lower in supported:
                     return get_tool_adapter(fw_lower)
+            # Fall back to adapter→framework mapping
+            adapter = getattr(master_context, "adapter", None)
+            if adapter:
+                mapped = ADAPTER_TO_FRAMEWORK.get(adapter.lower())
+                if mapped and mapped in supported:
+                    return get_tool_adapter(mapped)
 
-        # Default to foundry if no recognized framework found
         return get_tool_adapter("foundry")
 
     @abstractmethod

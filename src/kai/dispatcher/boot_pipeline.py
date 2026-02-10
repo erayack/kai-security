@@ -534,24 +534,21 @@ class BootPipeline:
         """
         Infer the adapter type from the detected framework(s).
 
+        Uses the canonical ``FRAMEWORK_TO_ADAPTER`` mapping from
+        ``kai.utils.framework`` as the single source of truth.
+
         Returns the appropriate adapter string, or None if no mapping found.
         """
+        from kai.utils.framework import FRAMEWORK_TO_ADAPTER
+
         if not frameworks:
             return None
 
         fw = {str(x).lower() for x in frameworks}
-
-        if fw & {"foundry", "forge", "hardhat"}:
-            return "solidity"
-        if fw & {"python", "py", "uv", "pip", "poetry"}:
-            return "python"
-        if fw & {"typescript", "ts"}:
-            return "typescript"
-        if fw & {"javascript", "js", "node", "npm", "yarn", "pnpm"}:
-            return "javascript"
-        if fw & {"c", "cmake", "make", "gcc"}:
-            return "c"
+        for fw_name, adapter in FRAMEWORK_TO_ADAPTER.items():
+            if fw_name in fw:
+                return adapter
+        # Check for unsupported frameworks
         if fw and fw <= {"cargo", "rust"}:
             return "__unsupported_rust__"
-
         return None

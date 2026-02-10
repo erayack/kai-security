@@ -12,7 +12,6 @@ import os
 from typing import Optional
 
 from kai.utils.dependency import GraphQueryEngine
-from kai.utils.dependency.adapters import SolidityAdapter
 from kai.utils.dependency.analysis import FileSourceLoader
 
 # Context variable for current agent (async-safe)
@@ -94,6 +93,8 @@ def get_query_engine() -> Optional[GraphQueryEngine]:
     """
     Build a GraphQueryEngine for the current agent if a dependency graph is present.
     """
+    from kai.utils.dependency.adapters import get_adapter as get_domain_adapter
+
     graph = get_dependency_graph()
     agent = get_current_agent()
     if graph is None or agent is None:
@@ -104,7 +105,12 @@ def get_query_engine() -> Optional[GraphQueryEngine]:
         or getattr(agent, "working_dir", None)
         or os.getcwd()
     )
-    adapter = SolidityAdapter()
+
+    # Use the correct domain adapter based on master_context
+    master_context = getattr(agent, "master_context", None)
+    adapter_name = getattr(master_context, "adapter", "solidity") if master_context else "solidity"
+    adapter = get_domain_adapter(adapter_name)
+
     source_loader = FileSourceLoader(base_path)
     return GraphQueryEngine(graph=graph, adapter=adapter, source_loader=source_loader)
 
@@ -145,6 +151,15 @@ def get_agent_framework() -> str:
             fw_lower = fw.lower()
             if fw_lower in supported:
                 return fw_lower
+
+        # Fall back to mc.adapter → framework mapping
+        adapter = getattr(master_context, "adapter", None)
+        if adapter:
+            from kai.utils.framework import ADAPTER_TO_FRAMEWORK
+
+            mapped = ADAPTER_TO_FRAMEWORK.get(adapter.lower())
+            if mapped:
+                return mapped
 
     return "foundry"
 

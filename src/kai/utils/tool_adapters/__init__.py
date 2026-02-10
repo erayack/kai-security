@@ -68,8 +68,9 @@ def get_tool_adapter(framework: Optional[str] = None) -> ToolAdapter:
     Get the appropriate tool adapter for a framework.
     Uses a singleton cache to avoid creating multiple instances.
     """
-    # Default to foundry
-    framework = (framework or "foundry").lower()
+    if framework is None:
+        raise ValueError("framework must be specified")
+    framework = framework.lower()
 
     # Check cache
     if framework in _adapter_cache:
