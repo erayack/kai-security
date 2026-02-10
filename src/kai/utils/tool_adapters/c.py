@@ -12,7 +12,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional, List, Any, Dict
+from typing import Optional, List, Any, Dict, Tuple
 
 from kai.utils.tool_adapters.base import (
     ToolAdapter,
@@ -35,7 +35,10 @@ class CToolAdapter(ToolAdapter):
 
     def find_binary(self, workspace_path: Optional[Path] = None) -> str:
         """
-        Find the C compiler (gcc or clang) or cmake.
+        Find the primary tool for C projects.
+
+        Prefers a C compiler for direct-mode builds. Falls back to CMake if a
+        compiler is unavailable and the project is CMake-driven.
 
         Returns:
             Path to compiler/build tool binary
@@ -43,18 +46,137 @@ class CToolAdapter(ToolAdapter):
         Raises:
             FileNotFoundError: If no suitable tool is found
         """
-        # First check for cmake
-        cmake_path = shutil.which("cmake")
-        if cmake_path:
-            return cmake_path
+        try:
+            return self._find_compiler()
+        except FileNotFoundError:
+            cmake_path = shutil.which("cmake")
+            if cmake_path:
+                return cmake_path
+            raise FileNotFoundError(
+                "C toolchain not found - install gcc, clang, cc, or cmake"
+            )
 
+    def _find_compiler(self) -> str:
+        """Find a usable C compiler for direct compilation."""
         # Check for compilers
         for compiler in ["gcc", "clang", "cc"]:
             compiler_path = shutil.which(compiler)
             if compiler_path:
                 return compiler_path
 
-        raise FileNotFoundError("C compiler not found - install gcc, clang, or cmake")
+        raise FileNotFoundError("C compiler not found - install gcc, clang, or cc")
+
+    def _common_include_flags(self, workspace_path: Path) -> List[str]:
+        """Build include flags for common project header locations."""
+        include_flags: List[str] = []
+        for rel in ["include", "inc", "src", "source", "lib"]:
+            include_dir = workspace_path / rel
+            if include_dir.is_dir():
+                include_flags.extend(["-I", str(include_dir)])
+        return include_flags
+
+    def _discover_direct_test_sources(
+        self, workspace_path: Path, explicit_test: Optional[str] = None
+    ) -> List[Path]:
+        """
+        Discover C test source files when no test runner exists.
+
+        Prioritizes tests/poc and tests/ layouts used by Kai-generated PoCs.
+        """
+        discovered: List[Path] = []
+        seen: set[Path] = set()
+
+        def _add(path: Path) -> None:
+            if not path.is_file() or path.suffix.lower() != ".c":
+                return
+            try:
+                key = path.resolve()
+            except Exception:
+                key = path
+            if key in seen:
+                return
+            seen.add(key)
+            discovered.append(path)
+
+        if explicit_test:
+            candidate = workspace_path / explicit_test
+            if candidate.is_file():
+                _add(candidate if candidate.suffix else candidate.with_suffix(".c"))
+            else:
+                with_ext = candidate.with_suffix(".c")
+                if with_ext.is_file():
+                    _add(with_ext)
+
+        for pattern in [
+            "tests/poc/**/*.c",
+            "tests/**/*.c",
+            "test/**/*.c",
+            "**/test_*.c",
+            "**/*_test.c",
+        ]:
+            for path in workspace_path.glob(pattern):
+                _add(path)
+
+        return discovered
+
+    def _compile_direct_test_sources(
+        self,
+        workspace_path: Path,
+        compiler: str,
+        timeout: int,
+        explicit_test: Optional[str] = None,
+    ) -> Tuple[List[Path], List[str], List[str]]:
+        """
+        Compile direct-mode C test sources into executable binaries.
+        """
+        test_sources = self._discover_direct_test_sources(
+            workspace_path, explicit_test=explicit_test
+        )
+        if not test_sources:
+            return [], [], []
+
+        build_dir = workspace_path / "build"
+        build_dir.mkdir(exist_ok=True)
+        include_flags = self._common_include_flags(workspace_path)
+
+        executables: List[Path] = []
+        errors: List[str] = []
+        outputs: List[str] = []
+        per_test_timeout = max(20, timeout // max(1, len(test_sources)))
+
+        for source in test_sources[:10]:  # Limit to keep runs bounded
+            exe_name = source.stem if source.stem.startswith("test_") else f"test_{source.stem}"
+            output_bin = build_dir / exe_name
+            cmd = [compiler, *include_flags, str(source), "-o", str(output_bin)]
+            try:
+                result = subprocess.run(
+                    cmd,
+                    cwd=str(workspace_path),
+                    capture_output=True,
+                    text=True,
+                    timeout=per_test_timeout,
+                )
+                raw = (result.stdout or "") + (result.stderr or "")
+                outputs.append(f"=== direct test build: {source} ===\n{raw}")
+                if result.returncode == 0 and output_bin.exists():
+                    try:
+                        output_bin.chmod(output_bin.stat().st_mode | 0o111)
+                    except Exception:
+                        pass
+                    executables.append(output_bin)
+                else:
+                    parsed = self.parse_compile_errors(raw)
+                    errors.append(
+                        f"{source.name}: {(parsed[0] if parsed else raw[:200].strip())}"
+                    )
+            except subprocess.TimeoutExpired:
+                errors.append(f"{source.name}: compile timed out")
+                outputs.append(f"=== direct test build: {source} ===\nTIMEOUT")
+            except Exception as e:
+                errors.append(f"{source.name}: {str(e)}")
+                outputs.append(f"=== direct test build: {source} ===\nERROR: {str(e)}")
+
+        return executables, errors, outputs
 
     def _detect_build_system(self, workspace_path: Path) -> str:
         """
@@ -320,7 +442,7 @@ class CToolAdapter(ToolAdapter):
     def _compile_direct(self, workspace_path: Path, timeout: int) -> CompileResult:
         """Compile C files directly with gcc/clang."""
         try:
-            compiler = self.find_binary()
+            compiler = self._find_compiler()
         except FileNotFoundError as e:
             return CompileResult(
                 success=False,
@@ -330,24 +452,18 @@ class CToolAdapter(ToolAdapter):
 
         # Find all .c files
         c_files = list(workspace_path.rglob("*.c"))
-        skip_dirs = {"build", ".git", "test", "tests"}
+        skip_dirs = {"build", ".git", "test", "tests", "node_modules", ".venv", "venv"}
         c_files = [f for f in c_files if not any(skip in f.parts for skip in skip_dirs)]
+        include_flags = self._common_include_flags(workspace_path)
 
-        if not c_files:
-            return CompileResult(
-                success=True,
-                errors=[],
-                raw_output="No C files found to compile",
-            )
-
-        # Try to compile each file (syntax check only)
-        errors = []
-        all_output = []
+        # Try to compile each non-test file (syntax check only)
+        errors: List[str] = []
+        all_output: List[str] = []
 
         for c_file in c_files[:20]:  # Limit
             try:
                 result = subprocess.run(
-                    [compiler, "-fsyntax-only", str(c_file)],
+                    [compiler, *include_flags, "-fsyntax-only", str(c_file)],
                     cwd=str(workspace_path),
                     capture_output=True,
                     text=True,
@@ -362,9 +478,25 @@ class CToolAdapter(ToolAdapter):
             except Exception as e:
                 errors.append(f"{c_file.name}: {str(e)}")
 
-        raw_output = (
-            "\n".join(all_output) if all_output else "All files passed syntax check"
+        # Build test executables directly for repos without a test runner.
+        test_execs, test_errors, test_outputs = self._compile_direct_test_sources(
+            workspace_path=workspace_path,
+            compiler=compiler,
+            timeout=timeout,
         )
+        errors.extend(test_errors)
+        all_output.extend(test_outputs)
+
+        if test_execs:
+            test_bins = ", ".join(str(p.relative_to(workspace_path)) for p in test_execs)
+            all_output.append(f"Compiled direct test executables: {test_bins}")
+
+        if all_output:
+            raw_output = "\n".join(all_output)
+        elif c_files:
+            raw_output = "All files passed syntax check"
+        else:
+            raw_output = "No C files found to compile"
 
         return CompileResult(
             success=len(errors) == 0,
@@ -629,7 +761,8 @@ class CToolAdapter(ToolAdapter):
     ) -> TestResult:
         """Run test executables directly."""
         # Find test executables
-        test_paths = []
+        test_paths: List[Path] = []
+        bootstrap_output = ""
 
         if test_executable:
             test_path = workspace_path / test_executable
@@ -651,16 +784,41 @@ class CToolAdapter(ToolAdapter):
                             test_paths.append(path)
 
         if not test_paths:
-            return TestResult(
-                success=False,
-                error="No test executables found",
-                raw_output="",
+            # As a fallback, try compiling test source files into executables.
+            try:
+                compiler = self._find_compiler()
+            except FileNotFoundError as e:
+                return TestResult(success=False, error=str(e), raw_output="")
+
+            compiled_tests, compile_errors, compile_outputs = (
+                self._compile_direct_test_sources(
+                    workspace_path=workspace_path,
+                    compiler=compiler,
+                    timeout=timeout,
+                    explicit_test=test_executable,
+                )
             )
+            bootstrap_output = "\n".join(compile_outputs)
+            test_paths.extend(compiled_tests)
+
+            if not test_paths:
+                error_msg = (
+                    "No test executables found and direct test build failed"
+                    if compile_errors
+                    else "No test executables found"
+                )
+                details = "\n".join(compile_errors[:5]).strip()
+                raw_output = "\n".join([x for x in [bootstrap_output, details] if x]).strip()
+                return TestResult(
+                    success=False,
+                    error=error_msg,
+                    raw_output=raw_output[:5000] if len(raw_output) > 5000 else raw_output,
+                )
 
         tests_passed = 0
         tests_failed = 0
-        all_output = []
-        parsed_results = {}
+        all_output: List[str] = []
+        parsed_results: Dict[str, str] = {}
 
         for test_path in test_paths[:10]:  # Limit
             try:
@@ -691,7 +849,9 @@ class CToolAdapter(ToolAdapter):
                 parsed_results[test_path.name] = "error"
                 all_output.append(f"=== {test_path.name} ===\nERROR: {str(e)}")
 
-        raw_output = "\n".join(all_output)
+        raw_output = "\n".join(
+            segment for segment in [bootstrap_output, "\n".join(all_output)] if segment
+        )
 
         return TestResult(
             success=tests_failed == 0 and tests_passed > 0,

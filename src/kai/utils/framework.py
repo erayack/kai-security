@@ -109,11 +109,13 @@ def detect_framework(
     ):
         return "python"
 
-    # 4. Makefile-based C detection (before extension fallback so it wins
-    #    over stray .c files in non-C projects)
+    # 4. Build-system based C detection (before extension fallback so it wins
+    #    over stray C/C++ files in non-C projects)
     if "c" in supported and (
         (workspace / "Makefile").exists()
+        or (workspace / "makefile").exists()
         or (workspace / "configure").exists()
+        or (workspace / "configure.ac").exists()
         or (workspace / "meson.build").exists()
     ):
         return "c"
@@ -124,7 +126,8 @@ def detect_framework(
     if any(workspace.glob("*.rs")) and "cargo" in supported:
         return "cargo"
     if "c" in supported and any(
-        any(workspace.glob(f"**/*{ext}")) for ext in (".c", ".cpp", ".cc", ".cxx")
+        any(workspace.glob(f"**/*{ext}"))
+        for ext in (".c", ".h", ".cpp", ".cc", ".cxx", ".hpp")
     ):
         return "c"
 

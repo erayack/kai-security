@@ -5,6 +5,7 @@ Tests the ToolAdapter interface implementations for each language.
 """
 
 import venv
+import shutil
 from pathlib import Path
 
 import pytest  # type: ignore[import-not-found]
@@ -251,6 +252,21 @@ int main() {
     printf("Hello, World!\\n");
     return 0;
 }
+        """)
+        return tmp_path
+
+    @pytest.fixture
+    def direct_c_project(self, tmp_path: Path):
+        """Create a direct-mode C project without build-system files."""
+        tests_dir = tmp_path / "tests" / "poc"
+        tests_dir.mkdir(parents=True)
+        (tests_dir / "test_smoke.c").write_text("""
+#include <stdio.h>
+
+int main() {
+    printf("direct smoke ok\\n");
+    return 0;
+}
 """)
         return tmp_path
 
@@ -295,6 +311,30 @@ int main() {
         (tmp_path / "meson.build").write_text("project('test', 'c')")
         system = adapter._detect_build_system(tmp_path)
         assert system == "meson"
+
+    def test_compile_direct_builds_test_executable(
+        self, adapter: CToolAdapter, direct_c_project: Path
+    ):
+        """Direct mode should compile tests/poc sources into executables."""
+        if not any(shutil.which(c) for c in ["gcc", "clang", "cc"]):
+            pytest.skip("No C compiler found")
+
+        result = adapter.compile(direct_c_project, timeout=60)
+        assert result.success is True
+
+        build_dir = direct_c_project / "build"
+        assert any(build_dir.glob("test_smoke*"))
+
+    def test_run_test_direct_compiles_on_demand(
+        self, adapter: CToolAdapter, direct_c_project: Path
+    ):
+        """Direct run_test should build and execute test sources when needed."""
+        if not any(shutil.which(c) for c in ["gcc", "clang", "cc"]):
+            pytest.skip("No C compiler found")
+
+        result = adapter.run_test(direct_c_project, timeout=60)
+        assert result.success is True
+        assert result.tests_passed >= 1
 
 
 class TestToolAdapterPoCGuidance:
