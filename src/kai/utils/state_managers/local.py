@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel
 
 from kai.schemas import (
     ActorMatrix,
@@ -21,45 +21,6 @@ from kai.schemas import (
     Verdict,
 )
 from kai.state_manager import BootArtifacts, KaiStateManager
-
-
-# ---------------------------------------------------------------------------
-# Local-only snapshot model (internal persistence format)
-# ---------------------------------------------------------------------------
-
-
-class _RunSnapshot(BaseModel):
-    """Internal snapshot format for JSON persistence. Not exported."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    graph_hash: str
-    source_hash: str = ""
-    adapter: str = ""
-    master_context: Optional[MasterContext] = None
-    invariants: List[Invariant] = Field(default_factory=list)
-    verdicts: List[Verdict] = Field(default_factory=list)
-    manifesto: Optional[ProtocolManifesto] = None
-    actor_matrix: Optional[ActorMatrix] = None
-    dependency_graph: Optional[Any] = None
-    timestamp: str = ""
-
-    @model_validator(mode="before")
-    @classmethod
-    def _deserialize_graph(cls, data: Any) -> Any:
-        if isinstance(data, dict):
-            raw = data.get("dependency_graph")
-            if isinstance(raw, dict):
-                from kai.utils.dependency.graph import DependencyGraph
-
-                data["dependency_graph"] = DependencyGraph.from_dict(raw)
-        return data
-
-    def model_dump(self, **kwargs: Any) -> Dict[str, Any]:
-        d = super().model_dump(**kwargs)
-        if self.dependency_graph is not None:
-            d["dependency_graph"] = self.dependency_graph.to_dict()
-        return d
 
 
 # ---------------------------------------------------------------------------
@@ -83,8 +44,17 @@ _CONFIG_FILES: dict[str, list[str]] = {
 }
 
 _SKIP_DIRS = {
-    "test", "tests", "lib", "node_modules", "out", "build",
-    "cache", "artifacts", ".git", "__pycache__", "script",
+    "test",
+    "tests",
+    "lib",
+    "node_modules",
+    "out",
+    "build",
+    "cache",
+    "artifacts",
+    ".git",
+    "__pycache__",
+    "script",
 }
 
 
@@ -172,12 +142,32 @@ class LocalStateManager(KaiStateManager):
         return True
 
     async def save_dependency_graph(self, graph_data: Dict[str, Any]) -> bool:
+        if self._output_dir is None:
+            return True
+        (self._output_dir / "dependency_graph.json").write_text(
+            json.dumps(graph_data, indent=2, default=str), encoding="utf-8"
+        )
         return True
 
     async def save_actor_matrix(self, actor_matrix: ActorMatrix) -> bool:
+        if self._output_dir is None:
+            return True
+        (self._output_dir / "actor_matrix.json").write_text(
+            json.dumps(actor_matrix.model_dump(), indent=2, default=str),
+            encoding="utf-8",
+        )
         return True
 
     async def save_invariants(self, invariants: List[Invariant]) -> bool:
+        if self._output_dir is None:
+            return True
+        path = self._output_dir / "invariants.json"
+        # Append to existing invariants (multiple calls during boot)
+        existing: List[Dict[str, Any]] = []
+        if path.exists():
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        existing.extend(inv.model_dump() for inv in invariants)
+        path.write_text(json.dumps(existing, indent=2, default=str), encoding="utf-8")
         return True
 
     async def save_missions(self, missions: List[Mission]) -> bool:
@@ -195,6 +185,14 @@ class LocalStateManager(KaiStateManager):
         return True
 
     async def save_verdict(self, verdict: Verdict) -> bool:
+        if self._output_dir is None:
+            return True
+        path = self._output_dir / "verdicts.json"
+        existing: List[Dict[str, Any]] = []
+        if path.exists():
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        existing.append(verdict.model_dump())
+        path.write_text(json.dumps(existing, indent=2, default=str), encoding="utf-8")
         return True
 
     async def save_fix(self, fix: Fix) -> bool:
@@ -212,71 +210,110 @@ class LocalStateManager(KaiStateManager):
         return True
 
     async def save_master_context(self, context: MasterContext) -> bool:
+        if self._output_dir is None:
+            return True
+        (self._output_dir / "master_context.json").write_text(
+            json.dumps(context.model_dump(), indent=2, default=str), encoding="utf-8"
+        )
         return True
 
     async def save_protocol_manifesto(self, manifesto: ProtocolManifesto) -> bool:
+        if self._output_dir is None:
+            return True
+        (self._output_dir / "manifesto.json").write_text(
+            json.dumps(manifesto.model_dump(), indent=2, default=str), encoding="utf-8"
+        )
         return True
 
     # ------------------------------------------------------------------
     # Iterative-run queries (local JSON-backed)
     # ------------------------------------------------------------------
 
-    def _load_snapshot(self) -> Optional[_RunSnapshot]:
-        """Load the prior snapshot from disk."""
+    def _load_run_meta(self) -> Optional[Dict[str, str]]:
+        """Load change-detection metadata from disk."""
         if self._output_dir is None:
             return None
-        path = self._output_dir / "snapshot.json"
+        path = self._output_dir / "run_meta.json"
         if not path.exists():
             return None
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return _RunSnapshot.model_validate(data)
+        return json.loads(path.read_text(encoding="utf-8"))
 
     async def has_prior_run(self) -> bool:
-        return self._load_snapshot() is not None
+        return self._load_run_meta() is not None
 
     async def has_source_changed(self, repo_path: str) -> bool:
-        snapshot = self._load_snapshot()
-        if not snapshot or not snapshot.source_hash or not snapshot.adapter:
+        meta = self._load_run_meta()
+        if not meta or not meta.get("source_hash") or not meta.get("adapter"):
             return True  # Unknown → assume changed
-        # Always hash the original repo (where user applies fixes),
-        # not the testbed workspace (master_context.root_path).
-        current = _hash_source_files(repo_path, snapshot.adapter)
-        return current != snapshot.source_hash
+        current = _hash_source_files(repo_path, meta["adapter"])
+        return current != meta["source_hash"]
 
     async def has_graph_changed(self, graph_hash: str) -> bool:
-        snapshot = self._load_snapshot()
-        if not snapshot:
+        meta = self._load_run_meta()
+        if not meta:
             return True
-        return snapshot.graph_hash != graph_hash
+        return meta.get("graph_hash") != graph_hash
 
     async def get_prior_invariants(
         self, *, exclude_blocked: bool = False
     ) -> List[Invariant]:
-        snapshot = self._load_snapshot()
-        if not snapshot:
+        if self._output_dir is None:
             return []
+        path = self._output_dir / "invariants.json"
+        if not path.exists():
+            return []
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        invariants = [Invariant.model_validate(d) for d in raw]
         if not exclude_blocked:
-            return list(snapshot.invariants)
-        blocked_ids = {
-            v.invariant_id for v in snapshot.verdicts if v.blocked_by_root_cause
-        }
-        return [inv for inv in snapshot.invariants if inv.id not in blocked_ids]
+            return invariants
+        # Load verdicts to find blocked invariant IDs
+        verdicts = await self.get_prior_verdicts()
+        blocked_ids = {v.invariant_id for v in verdicts if v.blocked_by_root_cause}
+        return [inv for inv in invariants if inv.id not in blocked_ids]
 
     async def get_prior_verdicts(self) -> List[Verdict]:
-        snapshot = self._load_snapshot()
-        if not snapshot:
+        if self._output_dir is None:
             return []
-        return list(snapshot.verdicts)
+        path = self._output_dir / "verdicts.json"
+        if not path.exists():
+            return []
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return [Verdict.model_validate(d) for d in raw]
 
     async def get_prior_boot_artifacts(self) -> Optional[BootArtifacts]:
-        snapshot = self._load_snapshot()
-        if not snapshot or not snapshot.actor_matrix or not snapshot.master_context:
+        if self._output_dir is None:
             return None
+        mc_path = self._output_dir / "master_context.json"
+        am_path = self._output_dir / "actor_matrix.json"
+        if not mc_path.exists() or not am_path.exists():
+            return None
+
+        mc = MasterContext.model_validate(
+            json.loads(mc_path.read_text(encoding="utf-8"))
+        )
+        am = ActorMatrix.model_validate(json.loads(am_path.read_text(encoding="utf-8")))
+
+        manifesto = None
+        mf_path = self._output_dir / "manifesto.json"
+        if mf_path.exists():
+            manifesto = ProtocolManifesto.model_validate(
+                json.loads(mf_path.read_text(encoding="utf-8"))
+            )
+
+        dep_graph = None
+        dg_path = self._output_dir / "dependency_graph.json"
+        if dg_path.exists():
+            from kai.utils.dependency.graph import DependencyGraph
+
+            dep_graph = DependencyGraph.from_dict(
+                json.loads(dg_path.read_text(encoding="utf-8"))
+            )
+
         return BootArtifacts(
-            master_context=snapshot.master_context,
-            actor_matrix=snapshot.actor_matrix,
-            manifesto=snapshot.manifesto,
-            dependency_graph=snapshot.dependency_graph,
+            master_context=mc,
+            actor_matrix=am,
+            manifesto=manifesto,
+            dependency_graph=dep_graph,
         )
 
     async def save_run_data(
@@ -294,24 +331,23 @@ class LocalStateManager(KaiStateManager):
         if self._output_dir is None:
             return False
 
+        # Only persist change-detection metadata.
+        # All other data (invariants, verdicts, artifacts) is already
+        # saved individually via their own save_* methods.
         source_hash = ""
         if self._repo_path and adapter:
             source_hash = _hash_source_files(self._repo_path, adapter)
 
-        snapshot = _RunSnapshot(
-            graph_hash=graph_hash,
-            source_hash=source_hash,
-            adapter=adapter,
-            master_context=master_context,
-            invariants=invariants,
-            verdicts=verdicts,
-            manifesto=manifesto,
-            actor_matrix=actor_matrix,
-            dependency_graph=dependency_graph,
-        )
         self._output_dir.mkdir(parents=True, exist_ok=True)
-        (self._output_dir / "snapshot.json").write_text(
-            json.dumps(snapshot.model_dump(), indent=2, default=str),
+        (self._output_dir / "run_meta.json").write_text(
+            json.dumps(
+                {
+                    "graph_hash": graph_hash,
+                    "source_hash": source_hash,
+                    "adapter": adapter,
+                },
+                indent=2,
+            ),
             encoding="utf-8",
         )
         return True

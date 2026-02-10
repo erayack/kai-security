@@ -332,8 +332,10 @@ class Dispatcher:
         if not sm:
             # No state manager → fall through to full boot
             return await self._boot_full(
-                repo_url=repo_url, repo_path=repo_path,
-                model_name=model_name, use_openai=use_openai,
+                repo_url=repo_url,
+                repo_path=repo_path,
+                model_name=model_name,
+                use_openai=use_openai,
                 master_context=master_context,
             )
 
@@ -341,8 +343,10 @@ class Dispatcher:
         if not await sm.has_prior_run():
             self.logger.info("No prior run found, running full boot")
             return await self._boot_full(
-                repo_url=repo_url, repo_path=repo_path,
-                model_name=model_name, use_openai=use_openai,
+                repo_url=repo_url,
+                repo_path=repo_path,
+                model_name=model_name,
+                use_openai=use_openai,
                 master_context=master_context,
             )
 

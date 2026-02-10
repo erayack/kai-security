@@ -1060,5 +1060,3 @@ class FixerInput(BaseModel):
     master_context: Optional[MasterContext] = None
     model_name: str = MAIN_DEFAULT_MODEL
     use_openai: bool = False
-
-

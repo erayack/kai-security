@@ -168,6 +168,7 @@ async def diff_invariants(
     await asyncio.gather(*(check_one(inv) for inv in new_invariants))
     return novel
 
+
 # Load dedupe prompt template
 DEDUPE_PROMPT_PATH = (
     Path(__file__).parent.parent / "prompts" / "dedupe_exploits_prompt.txt"
