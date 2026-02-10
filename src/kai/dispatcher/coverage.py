@@ -35,8 +35,17 @@ _CONFIG_FILES: dict[str, list[str]] = {
 
 # Directories to skip when hashing source files
 _SKIP_DIRS = {
-    "test", "tests", "lib", "node_modules", "out", "build",
-    "cache", "artifacts", ".git", "__pycache__", "script",
+    "test",
+    "tests",
+    "lib",
+    "node_modules",
+    "out",
+    "build",
+    "cache",
+    "artifacts",
+    ".git",
+    "__pycache__",
+    "script",
 }
 
 

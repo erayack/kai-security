@@ -415,14 +415,10 @@ class Dispatcher:
             # so their equivalents in the new set aren't filtered out.
             # This gives them a fresh chance now that code has changed.
             blocked_inv_ids = {
-                v.invariant_id
-                for v in prior.verdicts
-                if v.blocked_by_root_cause
+                v.invariant_id for v in prior.verdicts if v.blocked_by_root_cause
             }
             effective_prior = [
-                inv
-                for inv in prior.invariants
-                if inv.id not in blocked_inv_ids
+                inv for inv in prior.invariants if inv.id not in blocked_inv_ids
             ]
 
             novel = await diff_invariants(
