@@ -28,10 +28,10 @@ jobs:
         run: uv sync --group dev
 
       - name: Lint (ruff)
-        run: uv run ruff check src tests
+        run: uvx ruff check src tests
 
       - name: Typecheck (ty)
-        run: uv run ty check src
+        run: uvx ty check src
 
       - name: Tests (pytest)
         run: uv run pytest -q
