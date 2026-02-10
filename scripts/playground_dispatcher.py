@@ -137,6 +137,7 @@ async def run_dispatcher_demo(
     state_manager = LocalStateManager(
         execution_id=f"{repo_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
         output_dir=output_dir,
+        repo_path=repo_path,
     )
 
     dispatcher = Dispatcher(config=config, state_manager=state_manager)

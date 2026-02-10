@@ -296,6 +296,15 @@ class DependencyGraph:
             or p.endswith(".spec.sol")
         )
 
+    def content_hash(self) -> str:
+        """Deterministic hash of sorted node IDs + edge tuples."""
+        import hashlib
+
+        nodes = sorted(self._nodes.keys())
+        edges = sorted((s, k.value, d) for (s, k, d) in self._edges.keys())
+        payload = json.dumps([nodes, edges], sort_keys=True).encode()
+        return hashlib.sha256(payload).hexdigest()[:24]
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the graph to a dictionary."""
         nodes = []

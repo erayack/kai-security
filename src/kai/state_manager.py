@@ -6,6 +6,7 @@ Passed to Dispatcher to decouple business logic from persistence.
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Literal
 
 from kai.schemas import (
@@ -15,12 +16,21 @@ from kai.schemas import (
     Invariant,
     Mission,
     Observation,
-    RunSnapshot,
     Verdict,
     CampaignBrief,
     MasterContext,
     ProtocolManifesto,
 )
+
+
+@dataclass
+class BootArtifacts:
+    """Cached boot artifacts returned by get_prior_boot_artifacts()."""
+
+    master_context: MasterContext
+    actor_matrix: ActorMatrix
+    manifesto: Optional[ProtocolManifesto] = None
+    dependency_graph: Any = None  # DependencyGraph (avoid circular import)
 
 
 class KaiStateManager(ABC):
@@ -262,25 +272,92 @@ class KaiStateManager(ABC):
         """
         pass
 
+    # ------------------------------------------------------------------
+    # Iterative-run query methods
+    # ------------------------------------------------------------------
+    # These replace direct snapshot loading. The state manager owns the
+    # comparison logic (commit hash in prod, source-file hash locally).
+
     @abstractmethod
-    async def load_run_snapshot(self) -> Optional[RunSnapshot]:
+    async def has_prior_run(self) -> bool:
+        """Whether a prior run snapshot exists for this repo."""
+        pass
+
+    @abstractmethod
+    async def has_source_changed(self, repo_path: str) -> bool:
         """
-        Load prior run snapshot for iterative runs.
+        Whether source code changed since the last run.
+
+        Backend implementations compare commit hashes; local implementations
+        may fall back to source-file hashing.
+
+        Args:
+            repo_path: Path to the repository (used by local fallback).
 
         Returns:
-            RunSnapshot with graph_hash, invariants, verdicts, manifesto,
-            actor_matrix, dependency_graph, and timestamp — or None if no
-            prior snapshot exists.
+            True if source changed or unknown (safe default).
         """
         pass
 
     @abstractmethod
-    async def save_run_snapshot(self, snapshot: RunSnapshot) -> bool:
+    async def has_graph_changed(self, graph_hash: str) -> bool:
         """
-        Save run snapshot for future iterative runs.
+        Whether the dependency graph changed since the last run.
 
         Args:
-            snapshot: RunSnapshot to persist.
+            graph_hash: Hash of the current dependency graph.
+
+        Returns:
+            True if graph changed or no prior exists.
+        """
+        pass
+
+    @abstractmethod
+    async def get_prior_invariants(
+        self, *, exclude_blocked: bool = False
+    ) -> List[Invariant]:
+        """
+        Return invariants from the prior run.
+
+        Args:
+            exclude_blocked: If True, omit invariants whose verdicts were
+                blocked by a root-cause issue (so they can be re-eligible).
+        """
+        pass
+
+    @abstractmethod
+    async def get_prior_verdicts(self) -> List[Verdict]:
+        """Return all verdicts from the prior run."""
+        pass
+
+    @abstractmethod
+    async def get_prior_boot_artifacts(self) -> Optional[BootArtifacts]:
+        """
+        Return cached boot artifacts from the prior run.
+
+        Used to rebuild BootResult when skipping LLM steps.
+        Returns None if no prior run or artifacts are incomplete.
+        """
+        pass
+
+    @abstractmethod
+    async def save_run_data(
+        self,
+        *,
+        graph_hash: str,
+        adapter: str,
+        master_context: Optional[MasterContext],
+        invariants: List[Invariant],
+        verdicts: List[Verdict],
+        manifesto: Optional[ProtocolManifesto],
+        actor_matrix: Optional[ActorMatrix],
+        dependency_graph: Any,
+    ) -> bool:
+        """
+        Persist run data for future iterative queries.
+
+        Each implementation decides how to store this (JSON snapshot,
+        MongoDB documents, etc.).
 
         Returns:
             True if successful
