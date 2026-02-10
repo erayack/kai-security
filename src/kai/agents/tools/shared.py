@@ -108,7 +108,9 @@ def get_query_engine() -> Optional[GraphQueryEngine]:
 
     # Use the correct domain adapter based on master_context
     master_context = getattr(agent, "master_context", None)
-    adapter_name = getattr(master_context, "adapter", "solidity") if master_context else "solidity"
+    adapter_name = (
+        getattr(master_context, "adapter", "solidity") if master_context else "solidity"
+    )
     adapter = get_domain_adapter(adapter_name)
 
     source_loader = FileSourceLoader(base_path)

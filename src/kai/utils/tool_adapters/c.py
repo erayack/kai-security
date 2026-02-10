@@ -145,7 +145,11 @@ class CToolAdapter(ToolAdapter):
         per_test_timeout = max(20, timeout // max(1, len(test_sources)))
 
         for source in test_sources[:10]:  # Limit to keep runs bounded
-            exe_name = source.stem if source.stem.startswith("test_") else f"test_{source.stem}"
+            exe_name = (
+                source.stem
+                if source.stem.startswith("test_")
+                else f"test_{source.stem}"
+            )
             output_bin = build_dir / exe_name
             cmd = [compiler, *include_flags, str(source), "-o", str(output_bin)]
             try:
@@ -488,7 +492,9 @@ class CToolAdapter(ToolAdapter):
         all_output.extend(test_outputs)
 
         if test_execs:
-            test_bins = ", ".join(str(p.relative_to(workspace_path)) for p in test_execs)
+            test_bins = ", ".join(
+                str(p.relative_to(workspace_path)) for p in test_execs
+            )
             all_output.append(f"Compiled direct test executables: {test_bins}")
 
         if all_output:
@@ -808,11 +814,15 @@ class CToolAdapter(ToolAdapter):
                     else "No test executables found"
                 )
                 details = "\n".join(compile_errors[:5]).strip()
-                raw_output = "\n".join([x for x in [bootstrap_output, details] if x]).strip()
+                raw_output = "\n".join(
+                    [x for x in [bootstrap_output, details] if x]
+                ).strip()
                 return TestResult(
                     success=False,
                     error=error_msg,
-                    raw_output=raw_output[:5000] if len(raw_output) > 5000 else raw_output,
+                    raw_output=raw_output[:5000]
+                    if len(raw_output) > 5000
+                    else raw_output,
                 )
 
         tests_passed = 0

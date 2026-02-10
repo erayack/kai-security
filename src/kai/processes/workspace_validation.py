@@ -56,10 +56,13 @@ class WorkspaceValidationProcess(
         from kai.utils.framework import detect_framework
 
         adapter = getattr(master_context, "adapter", None) if master_context else None
-        frameworks = getattr(master_context, "frameworks", None) if master_context else None
+        frameworks = (
+            getattr(master_context, "frameworks", None) if master_context else None
+        )
         result = detect_framework(master, adapter=adapter, frameworks=frameworks)
         if result is None:
             import logging
+
             logging.getLogger(__name__).warning(
                 "Could not detect framework, defaulting to foundry"
             )
