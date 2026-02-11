@@ -420,16 +420,24 @@ class Dispatcher:
             use_openai=self.config.use_openai,
             logger=self.logger,
         )
+
+        all_prior = await sm.get_prior_invariants(exclude_blocked=False)
+        effective_ids = {inv.id for inv in effective_prior}
+        blocked = [inv for inv in all_prior if inv.id not in effective_ids]
+        novel_ids = {inv.id for inv in novel}
+        for inv in blocked:
+            if inv.id not in novel_ids:
+                novel.append(inv)
+                novel_ids.add(inv.id)
+
         result.invariants = {inv.id: inv for inv in novel}
 
         # Don't carry forward verdicts — code changed, prior verdicts may be stale
         self._prior_verdicts = []
 
-        all_prior = await sm.get_prior_invariants(exclude_blocked=False)
-        blocked_count = len(all_prior) - len(effective_prior)
         self.logger.info(
             f"Iterative: {len(novel)} invariants to dispatch "
-            f"({blocked_count} previously-blocked re-eligible, "
+            f"({len(blocked)} previously-blocked re-injected, "
             f"{len(effective_prior)} prior baseline)"
         )
         return result
