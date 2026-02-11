@@ -1,3 +1,0 @@
-"""
-Kai test package initializer.
-"""
