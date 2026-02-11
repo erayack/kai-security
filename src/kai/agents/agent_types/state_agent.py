@@ -153,10 +153,15 @@ class StateAgent(BaseAgent):
             try:
                 from kai.utils.tool_adapters import get_tool_adapter
 
+                from kai.utils.framework import ADAPTER_TO_FRAMEWORK
+
                 adapter_name = (
-                    getattr(self.master_context, "adapter", None) or "foundry"
+                    getattr(self.master_context, "adapter", None) or "solidity"
                 )
-                tool_adapter = get_tool_adapter(adapter_name)
+                framework = ADAPTER_TO_FRAMEWORK.get(
+                    adapter_name.lower(), adapter_name.lower()
+                )
+                tool_adapter = get_tool_adapter(framework)
                 poc_guidance = tool_adapter.get_poc_guidance()
             except Exception:
                 pass  # Fall back to empty guidance
