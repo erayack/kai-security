@@ -48,13 +48,13 @@ class CToolAdapter(ToolAdapter):
         """
         try:
             return self._find_compiler()
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             cmake_path = shutil.which("cmake")
             if cmake_path:
                 return cmake_path
             raise FileNotFoundError(
                 "C toolchain not found - install gcc, clang, cc, or cmake"
-            )
+            ) from e
 
     def _find_compiler(self) -> str:
         """Find a usable C compiler for direct compilation."""

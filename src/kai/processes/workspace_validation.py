@@ -50,8 +50,8 @@ class WorkspaceValidationProcess(
         """
         Detect framework by delegating to the canonical ``detect_framework()``.
 
-        Falls back to "foundry" when detection returns None (this is the
-        workspace setup path where we *must* pick something).
+        Raises:
+            ValueError: If no framework could be detected.
         """
         from kai.utils.framework import detect_framework
 
@@ -61,12 +61,11 @@ class WorkspaceValidationProcess(
         )
         result = detect_framework(master, adapter=adapter, frameworks=frameworks)
         if result is None:
-            import logging
-
-            logging.getLogger(__name__).warning(
-                "Could not detect framework, defaulting to foundry"
+            raise ValueError(
+                f"Could not detect framework for {master}. "
+                f"No recognized config files, source files, or MasterContext hints found "
+                f"(adapter={adapter}, frameworks={frameworks})."
             )
-            return "foundry"
         return result
 
     def _build_smoke_test(

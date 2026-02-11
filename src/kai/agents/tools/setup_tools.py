@@ -80,15 +80,23 @@ def _resolve_working_dir(working_dir: Optional[str] = None) -> str:
 
 def _detect_framework(workspace: Path) -> str:
     """
-    Best-effort detect a supported tool framework for compilation/testing.
+    Detect a supported tool framework for compilation/testing.
 
     Delegates to the canonical ``detect_framework()`` in ``kai.utils.framework``.
     No MasterContext available here so only file-based detection is used.
-    Defaults to "foundry" if nothing matches.
+
+    Raises:
+        ValueError: If no framework could be detected from workspace contents.
     """
     from kai.utils.framework import detect_framework
 
-    return detect_framework(workspace) or "foundry"
+    result = detect_framework(workspace)
+    if result is None:
+        raise ValueError(
+            f"Could not detect framework for workspace: {workspace}. "
+            f"No recognized config files or source files found."
+        )
+    return result
 
 
 def write_setup_script(

@@ -148,14 +148,41 @@ async def run_dispatcher_demo(
     print("\n[PHASE 1] BOOT - Running preprocessing pipeline...")
     start_time = datetime.now()
 
+    from kai.exceptions import (
+        EnvironmentSetupError,
+        StaticAnalysisError,
+        WorkspaceValidationError,
+        ActorAnalysisError,
+        DispatcherBootError,
+    )
+
     try:
         await dispatcher.boot(
             repo_path=repo_path,
             model_name=model,
             use_openai=False,
         )
+    except EnvironmentSetupError as e:
+        print(f"\n❌ Environment setup failed: {e}")
+        print("   Check that the repository compiles and dependencies are installed.")
+        return
+    except StaticAnalysisError as e:
+        print(f"\n❌ Static analysis failed: {e}")
+        print("   The dependency graph could not be built. Check adapter/framework detection.")
+        return
+    except WorkspaceValidationError as e:
+        print(f"\n❌ Workspace validation failed: {e}")
+        print("   Provisioned workspaces could not compile/test. Check workspace adapters.")
+        return
+    except ActorAnalysisError as e:
+        print(f"\n❌ Actor analysis failed: {e}")
+        print("   Could not identify actors/roles in the codebase.")
+        return
+    except DispatcherBootError as e:
+        print(f"\n❌ Boot failed: {e}")
+        return
     except Exception as e:
-        print(f"❌ Boot failed: {e}")
+        print(f"\n❌ Unexpected error during boot: {type(e).__name__}: {e}")
         return
 
     print(f"✓ Boot complete in {(datetime.now() - start_time).seconds}s")

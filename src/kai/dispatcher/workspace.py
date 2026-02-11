@@ -48,7 +48,10 @@ class WorkspaceManager:
             master_context: Optional MasterContext with framework info
 
         Returns:
-            Framework name (defaults to "foundry" if not detected)
+            Framework name
+
+        Raises:
+            ValueError: If no framework could be detected.
         """
         from kai.utils.framework import detect_framework
 
@@ -58,9 +61,11 @@ class WorkspaceManager:
         )
         result = detect_framework(master, adapter=adapter, frameworks=frameworks)
         if result is None:
-            if self.logger:
-                self.logger.warning("Could not detect framework, defaulting to foundry")
-            return "foundry"
+            raise ValueError(
+                f"Could not detect framework for {master}. "
+                f"No recognized config files, source files, or MasterContext hints found "
+                f"(adapter={adapter}, frameworks={frameworks})."
+            )
         return result
 
     def provision(
