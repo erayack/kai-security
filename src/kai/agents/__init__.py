@@ -3,7 +3,7 @@
 # Lazy imports to avoid circular import issues
 # Import agent types only when accessed via this module
 
-__all__ = ["SetupAgent", "ProfilerAgent", "BlackboxAgent"]
+__all__ = ["SetupAgent", "ProfilerAgent"]
 
 
 def __getattr__(name: str):
@@ -16,8 +16,4 @@ def __getattr__(name: str):
         from kai.agents.agent_types.profiler_agent import ProfilerAgent
 
         return ProfilerAgent
-    if name == "BlackboxAgent":
-        from kai.agents.agent_types.blackbox_agent import BlackboxAgent
-
-        return BlackboxAgent
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

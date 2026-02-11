@@ -19,11 +19,9 @@ from kai.agents.tools.tools import (
     _get_current_agent,
 )
 
-# Import test execution tools from state_tools
-from kai.agents.tools.state_tools import (
-    write_and_compile,
-    run_test,
-)
+# Import test execution tools from workspace_tools
+from kai.agents.tools.workspace_tools import write_and_compile
+from kai.agents.tools.workspace_validation_tools import run_test
 
 
 def submit_verdict(
