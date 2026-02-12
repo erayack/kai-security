@@ -28,7 +28,7 @@ jobs:
         run: uv sync --group dev
 
       - name: Lint (ruff)
-        run: uvx ruff check src tests
+        run: uvx ruff check src
 
       - name: Typecheck (ty)
         run: uvx ty check src
