@@ -33,3 +33,9 @@ class LMError(KaiError):
     """Raised when a sub LM request fails."""
 
     pass
+
+
+class SpawnError(KaiError):
+    """Raised when spawning a sub-agent fails."""
+
+    pass

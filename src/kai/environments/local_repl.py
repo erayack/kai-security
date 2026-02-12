@@ -125,6 +125,7 @@ class LocalREPL(NonIsolatedEnv):
         setup_code: str | None = None,
         persistent: bool = False,
         depth: int = 1,
+        tools: dict[str, Any] | None = None,
         **kwargs,
     ):
         super().__init__(persistent=persistent, depth=depth, **kwargs)
@@ -135,6 +136,7 @@ class LocalREPL(NonIsolatedEnv):
         self._lock = threading.Lock()
         self._context_count: int = 0
         self._history_count: int = 0
+        self._tools: dict[str, Any] = tools or {}
 
         # Setup globals, locals, and modules in environment.
         self.setup()
@@ -163,6 +165,10 @@ class LocalREPL(NonIsolatedEnv):
         self.globals["FINAL_VAR"] = self._final_var
         self.globals["llm_query"] = self._llm_query
         self.globals["llm_query_batched"] = self._llm_query_batched
+
+        # Inject agent tools into namespace
+        for name, fn in self._tools.items():
+            self.globals[name] = fn
 
     def _final_var(self, variable_name: str) -> str:
         """Return the value of a variable as a final answer."""
