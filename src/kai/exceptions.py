@@ -11,31 +11,25 @@ class KaiError(Exception):
     pass
 
 
-class DispatcherBootError(KaiError):
-    """Raised when dispatcher boot fails."""
+class SetupRLMError(KaiError):
+    """Raised when setup RLM fails."""
 
     pass
 
 
-class EnvironmentSetupError(DispatcherBootError):
-    """Raised when environment setup fails during boot."""
+class RootRLMError(KaiError):
+    """Raised when root RLM fails."""
 
     pass
 
 
-class StaticAnalysisError(DispatcherBootError):
-    """Raised when static analysis (dependency graph building) fails during boot."""
+class SubRLMError(KaiError):
+    """Raised when sub RLM fails."""
 
     pass
 
 
-class WorkspaceValidationError(DispatcherBootError):
-    """Raised when workspace validation fails during boot."""
-
-    pass
-
-
-class ActorAnalysisError(DispatcherBootError):
-    """Raised when actor analysis fails during boot."""
+class LMError(KaiError):
+    """Raised when a sub LM request fails."""
 
     pass

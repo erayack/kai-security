@@ -1,0 +1,34 @@
+"""
+Docstring for kai.environments
+"""
+
+from typing import Any, Literal
+
+from kai.environments.base_env import BaseEnv, SupportsPersistence
+from kai.environments.local_repl import LocalREPL
+
+__all__ = ["BaseEnv", "LocalREPL", "SupportsPersistence", "get_environment"]
+
+
+def get_environment(
+    environment: Literal["local", "modal", "docker"],
+    environment_kwargs: dict[str, Any],
+) -> BaseEnv:
+    """
+    Routes a specific environment and the args (as a dict) to the appropriate environment if supported.
+    Currently supported environments: ['local', 'modal', 'docker']
+    """
+    if environment == "local":
+        return LocalREPL(**environment_kwargs)
+    elif environment == "modal":
+        from kai.environments.modal_repl import ModalREPL
+
+        return ModalREPL(**environment_kwargs)
+    elif environment == "docker":
+        from kai.environments.docker_repl import DockerREPL
+
+        return DockerREPL(**environment_kwargs)
+    else:
+        raise ValueError(
+            f"Unknown environment: {environment}. Supported: ['local', 'modal', 'docker']"
+        )
