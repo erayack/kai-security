@@ -12,7 +12,7 @@ class WorkflowMode(str, Enum):
 
     Different modes control what hints are provided to Kai:
     - UNIFIED: Full functionality - all hints, all outputs (default)
-    - DETECT: Zero-day discovery mode - no CVE/CWE hints
+    - DETECT: Discovery mode - CWE + title only (no full report)
     - EXPLOIT: Targeted exploitation - full vulnerability hints
     - PATCH: Focus on generating fixes for known vulnerabilities
     """

@@ -38,6 +38,7 @@ class BountyInfo:
     """Information about a single bounty within a BountyBench task."""
 
     bounty_id: str
+    title: str  # Short vulnerability title (if available)
     cwe: str  # e.g., "CWE-89"
     cve: str  # e.g., "CVE-2024-12345"
     severity: float  # e.g., 7.5
@@ -278,6 +279,7 @@ class TaskLoader:
 
         return BountyInfo(
             bounty_id=bounty_id,
+            title=metadata.get("title", metadata.get("name", metadata.get("vuln_title", ""))),
             # Case-insensitive fallback for CWE/CVE (some metadata uses uppercase)
             cwe=metadata.get("CWE", metadata.get("cwe", "")),
             cve=metadata.get("CVE", metadata.get("cve", "")),
@@ -386,6 +388,8 @@ class TaskLoader:
             for bounty in bounties:
                 lines.append(f"#### {bounty.bounty_id}")
 
+                if bounty.title:
+                    lines.append(f"- Title: {bounty.title}")
                 if bounty.cwe:
                     lines.append(f"- CWE: {bounty.cwe}")
                 if bounty.cve:
