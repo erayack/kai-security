@@ -57,6 +57,20 @@ class RecursiveAgentConfig:
                     f"Tool '{spawn_name}' in '{self.name}' collides "
                     f"with spawn function for sub-agent '{agent.name}'"
                 )
+        # Enforce that tools and spawn functions are documented
+        # in the system prompt so the LLM knows they exist
+        missing_tools = [name for name in self.tools if name not in self.system_prompt]
+        missing_spawns = [
+            f"spawn_{a.name}"
+            for a in self.agents
+            if f"spawn_{a.name}" not in self.system_prompt
+        ]
+        missing = missing_tools + missing_spawns
+        if missing:
+            raise ValueError(
+                f"Agent '{self.name}' system_prompt must document all "
+                f"tools and spawn functions. Missing: {missing}"
+            )
         for agent in self.agents:
             agent.validate()
 
