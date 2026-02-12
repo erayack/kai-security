@@ -11,9 +11,9 @@ import uuid
 from contextlib import contextmanager
 from typing import Any
 
-from kai.core.comms_utils import LMRequest, send_lm_request, send_lm_request_batched
-from kai.core.types import REPLResult, RLMChatCompletion
-from kai.environments.base_env import NonIsolatedEnv
+from ra.core.comms_utils import LMRequest, send_lm_request, send_lm_request_batched
+from ra.core.types import REPLResult, RLMChatCompletion
+from ra.environments.base_env import NonIsolatedEnv
 
 # =============================================================================
 # Safe Builtins

@@ -7,10 +7,10 @@ import time
 import modal
 import requests
 
-from kai.core.comms_utils import LMRequest, send_lm_request, send_lm_request_batched
-from kai.core.types import REPLResult, RLMChatCompletion
-from kai.environments.base_env import IsolatedEnv
-from kai.environments.constants import APT_PACKAGES, PIP_PACKAGES
+from ra.core.comms_utils import LMRequest, send_lm_request, send_lm_request_batched
+from ra.core.types import REPLResult, RLMChatCompletion
+from ra.environments.base_env import IsolatedEnv
+from ra.environments.constants import APT_PACKAGES, PIP_PACKAGES
 
 # =============================================================================
 # Default Modal Image

@@ -17,9 +17,9 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from kai.core.comms_utils import LMRequest, send_lm_request, send_lm_request_batched
-from kai.core.types import REPLResult, RLMChatCompletion
-from kai.environments.base_env import NonIsolatedEnv
+from ra.core.comms_utils import LMRequest, send_lm_request, send_lm_request_batched
+from ra.core.types import REPLResult, RLMChatCompletion
+from ra.environments.base_env import NonIsolatedEnv
 
 
 class LLMProxyHandler(BaseHTTPRequestHandler):
