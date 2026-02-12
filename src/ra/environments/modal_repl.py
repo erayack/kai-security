@@ -4,7 +4,7 @@ import textwrap
 import threading
 import time
 
-import modal
+import modal  # type: ignore[import-not-found]
 import requests
 
 from ra.core.comms_utils import LMRequest, send_lm_request, send_lm_request_batched
@@ -387,6 +387,7 @@ class ModalREPL(IsolatedEnv):
         model = req_data.get("model")
 
         if req_type == "single":
+            assert self.lm_handler_address is not None
             prompt = req_data.get("prompt")
             request = LMRequest(prompt=prompt, model=model, depth=self.depth)
             response = send_lm_request(self.lm_handler_address, request)
@@ -394,6 +395,7 @@ class ModalREPL(IsolatedEnv):
             if not response.success:
                 return {"error": response.error}
 
+            assert response.chat_completion is not None
             # Track the call
             with self._calls_lock:
                 self.pending_llm_calls.append(response.chat_completion)
@@ -401,6 +403,7 @@ class ModalREPL(IsolatedEnv):
             return {"response": response.chat_completion.response}
 
         elif req_type == "batched":
+            assert self.lm_handler_address is not None
             prompts = req_data.get("prompts", [])
             responses = send_lm_request_batched(
                 self.lm_handler_address, prompts, model=model, depth=self.depth
@@ -411,6 +414,7 @@ class ModalREPL(IsolatedEnv):
                 if not resp.success:
                     results.append(f"Error: {resp.error}")
                 else:
+                    assert resp.chat_completion is not None
                     with self._calls_lock:
                         self.pending_llm_calls.append(resp.chat_completion)
                     results.append(resp.chat_completion.response)
@@ -440,6 +444,7 @@ class ModalREPL(IsolatedEnv):
             self.pending_llm_calls.clear()
 
         # Build and execute the script
+        assert self.sandbox is not None
         script = _build_exec_script(code, self.BROKER_PORT, self.depth)
         process = self.sandbox.exec("python", "-c", script)
 

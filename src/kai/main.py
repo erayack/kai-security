@@ -85,7 +85,7 @@ def main(argv: list[str] | None = None) -> None:
             ),
             "max_iterations": args.max_iterations or config.max_iterations,
         }
-        config = RecursiveAgentConfig(**kwargs)
+        config = RecursiveAgentConfig(**kwargs)  # type: ignore[arg-type]
 
     # Resolve input
     raw = args.input

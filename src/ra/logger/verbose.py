@@ -71,8 +71,14 @@ class VerbosePrinter:
             enabled: Whether verbose printing is enabled. If False, all methods are no-ops.
         """
         self.enabled = enabled
-        self.console = Console() if enabled else None
+        self._console: Console | None = Console() if enabled else None
         self._iteration_count = 0
+
+    @property
+    def console(self) -> Console:
+        """Return the console, raising if verbose is disabled."""
+        assert self._console is not None
+        return self._console
 
     def print_header(
         self,

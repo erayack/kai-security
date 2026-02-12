@@ -184,7 +184,7 @@ class LocalREPL(NonIsolatedEnv):
             prompt: The prompt to send to the LM.
             model: Optional model name to use (if handler has multiple clients).
         """
-        if not self.lm_handler_address:
+        if self.lm_handler_address is None:
             return "Error: No LM handler configured"
 
         try:
@@ -194,6 +194,7 @@ class LocalREPL(NonIsolatedEnv):
             if not response.success:
                 return f"Error: {response.error}"
 
+            assert response.chat_completion is not None
             # Track this LLM call
             self._pending_llm_calls.append(
                 response.chat_completion,
@@ -204,7 +205,7 @@ class LocalREPL(NonIsolatedEnv):
             return f"Error: LM query failed - {e}"
 
     def _llm_query_batched(
-        self, prompts: list[str], model: str | None = None
+        self, prompts: list[str | dict[str, Any]], model: str | None = None
     ) -> list[str]:
         """Query the LM with multiple prompts concurrently.
 
@@ -215,7 +216,7 @@ class LocalREPL(NonIsolatedEnv):
         Returns:
             List of responses in the same order as input prompts.
         """
-        if not self.lm_handler_address:
+        if self.lm_handler_address is None:
             return ["Error: No LM handler configured"] * len(prompts)
 
         try:
@@ -228,7 +229,7 @@ class LocalREPL(NonIsolatedEnv):
                 if not response.success:
                     results.append(f"Error: {response.error}")
                 else:
-                    # Track this LLM call in list of all calls -- we may want to do this hierarchically
+                    assert response.chat_completion is not None
                     self._pending_llm_calls.append(response.chat_completion)
                     results.append(response.chat_completion.response)
 

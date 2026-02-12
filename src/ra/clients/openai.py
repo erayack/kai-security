@@ -4,6 +4,7 @@ from typing import Any
 
 import openai
 from dotenv import load_dotenv
+from openai.types.chat import ChatCompletion
 
 from ra.clients.base_lm import BaseLM
 from ra.core.types import ModelUsageSummary, UsageSummary
@@ -51,7 +52,9 @@ class OpenAIClient(BaseLM):
         self.model_total_tokens: dict[str, int] = defaultdict(int)
 
     def completion(
-        self, prompt: str | list[dict[str, Any]], model: str | None = None
+        self,
+        prompt: str | list[dict[str, Any]],
+        model: str | None = None,
     ) -> str:
         if isinstance(prompt, str):
             messages = [{"role": "user", "content": prompt}]
@@ -71,13 +74,17 @@ class OpenAIClient(BaseLM):
             extra_body["usage"] = {"include": True}
 
         response = self.client.chat.completions.create(
-            model=model, messages=messages, extra_body=extra_body
+            model=model,
+            messages=messages,  # type: ignore[arg-type]
+            extra_body=extra_body,
         )
         self._track_cost(response, model)
         return response.choices[0].message.content
 
     async def acompletion(
-        self, prompt: str | list[dict[str, Any]], model: str | None = None
+        self,
+        prompt: str | list[dict[str, Any]],
+        model: str | None = None,
     ) -> str:
         if isinstance(prompt, str):
             messages = [{"role": "user", "content": prompt}]
@@ -97,12 +104,14 @@ class OpenAIClient(BaseLM):
             extra_body["usage"] = {"include": True}
 
         response = await self.async_client.chat.completions.create(
-            model=model, messages=messages, extra_body=extra_body
+            model=model,
+            messages=messages,  # type: ignore[arg-type]
+            extra_body=extra_body,
         )
         self._track_cost(response, model)
         return response.choices[0].message.content
 
-    def _track_cost(self, response: openai.ChatCompletion, model: str):
+    def _track_cost(self, response: ChatCompletion, model: str):
         self.model_call_counts[model] += 1
 
         usage = getattr(response, "usage", None)

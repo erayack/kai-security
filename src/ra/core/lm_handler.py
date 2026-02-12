@@ -8,10 +8,12 @@ import asyncio
 import time
 from socketserver import StreamRequestHandler, ThreadingTCPServer
 from threading import Thread
+from typing import Any
 
 from ra.clients.base_lm import BaseLM
 from ra.core.comms_utils import LMRequest, LMResponse, socket_recv, socket_send
 from ra.core.types import RLMChatCompletion, UsageSummary
+from ra.exceptions import LMError
 
 
 class LMRequestHandler(StreamRequestHandler):
@@ -47,14 +49,16 @@ class LMRequestHandler(StreamRequestHandler):
 
     def _handle_single(self, request: LMRequest, handler: "LMHandler") -> LMResponse:
         """Handle a single prompt request."""
+        assert request.prompt is not None
         client = handler.get_client(request.model, request.depth)
 
         start_time = time.perf_counter()
-        content = client.completion(request.prompt)
+        content = client.completion(request.prompt)  # type: ignore[arg-type]
         end_time = time.perf_counter()
 
         model_usage = client.get_last_usage()
         root_model = request.model or client.model_name
+        assert root_model is not None, "No model name on request or client"
         usage_summary = UsageSummary(model_usage_summaries={root_model: model_usage})
         return LMResponse.success_response(
             chat_completion=RLMChatCompletion(
@@ -68,12 +72,14 @@ class LMRequestHandler(StreamRequestHandler):
 
     def _handle_batched(self, request: LMRequest, handler: "LMHandler") -> LMResponse:
         """Handle a batched prompts request using async for concurrency."""
+        assert request.prompts is not None
+        prompts = request.prompts
         client = handler.get_client(request.model, request.depth)
 
         start_time = time.perf_counter()
 
         async def run_all():
-            tasks = [client.acompletion(prompt) for prompt in request.prompts]
+            tasks = [client.acompletion(prompt) for prompt in prompts]  # type: ignore[arg-type]
             return await asyncio.gather(*tasks)
 
         results = asyncio.run(run_all())
@@ -82,6 +88,7 @@ class LMRequestHandler(StreamRequestHandler):
         total_time = end_time - start_time
         model_usage = client.get_last_usage()
         root_model = request.model or client.model_name
+        assert root_model is not None, "No model name on request or client"
         usage_summary = UsageSummary(model_usage_summaries={root_model: model_usage})
 
         chat_completions = [
@@ -90,10 +97,9 @@ class LMRequestHandler(StreamRequestHandler):
                 prompt=prompt,
                 response=content,
                 usage_summary=usage_summary,
-                execution_time=total_time
-                / len(request.prompts),  # approximate per-prompt time
+                execution_time=total_time / len(prompts),
             )
-            for prompt, content in zip(request.prompts, results, strict=True)
+            for prompt, content in zip(prompts, results, strict=True)
         ]
 
         return LMResponse.batched_success_response(chat_completions=chat_completions)
@@ -129,6 +135,8 @@ class LMHandler:
         self._thread: Thread | None = None
         self._port = port
 
+        if client.model_name is None:
+            raise LMError("LMHandler requires a client with a model_name set")
         self.register_client(client.model_name, client)
 
     def register_client(self, model_name: str, client: BaseLM) -> None:
@@ -184,7 +192,11 @@ class LMHandler:
             self._server = None
             self._thread = None
 
-    def completion(self, prompt: str, model: str | None = None) -> str:
+    def completion(
+        self,
+        prompt: str | list[dict[str, Any]],
+        model: str | None = None,
+    ) -> str:
         """Direct completion call (for main process use)."""
         return self.get_client(model).completion(prompt)
 

@@ -53,7 +53,7 @@ class LLMProxyHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(data).encode())
 
     def _handle_single(self, body: dict) -> dict:
-        if not self.lm_handler_address:
+        if self.lm_handler_address is None:
             return {"error": "No LM handler configured"}
 
         request = LMRequest(
@@ -64,13 +64,14 @@ class LLMProxyHandler(BaseHTTPRequestHandler):
         if not response.success:
             return {"error": response.error}
 
+        assert response.chat_completion is not None
         with self.lock:
             self.pending_calls.append(response.chat_completion)
 
         return {"response": response.chat_completion.response}
 
     def _handle_batched(self, body: dict) -> dict:
-        if not self.lm_handler_address:
+        if self.lm_handler_address is None:
             return {"error": "No LM handler configured"}
 
         prompts = body.get("prompts", [])
@@ -83,6 +84,7 @@ class LLMProxyHandler(BaseHTTPRequestHandler):
             if not resp.success:
                 results.append(f"Error: {resp.error}")
             else:
+                assert resp.chat_completion is not None
                 with self.lock:
                     self.pending_calls.append(resp.chat_completion)
                 results.append(resp.chat_completion.response)
@@ -259,6 +261,7 @@ class DockerREPL(NonIsolatedEnv):
         self.container_id = result.stdout.strip()
 
         # Install dependencies
+        assert self.container_id is not None
         subprocess.run(
             [
                 "docker",
@@ -296,6 +299,7 @@ class DockerREPL(NonIsolatedEnv):
         with self._calls_lock:
             self.pending_calls.clear()
 
+        assert self.container_id is not None
         script = _build_exec_script(code, self.proxy_port, self.depth)
         result = subprocess.run(
             ["docker", "exec", self.container_id, "python", "-c", script],

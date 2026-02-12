@@ -222,7 +222,7 @@ class TreeSitterBuilder:
         except ImportError:
             pass
 
-        import tree_sitter  # type: ignore[import-untyped]
+        import tree_sitter
 
         parser = tree_sitter.Parser()
         lang_module = _import_lang_module(lang)

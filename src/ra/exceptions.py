@@ -40,6 +40,7 @@ class SpawnError(RecursiveAgentError):
 
     pass
 
+
 class SerializationError(RecursiveAgentError):
     """Raised when serialization of an object fails."""
 

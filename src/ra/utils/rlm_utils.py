@@ -1,6 +1,7 @@
 from typing import Any
 import secrets
 
+
 def filter_sensitive_keys(kwargs: dict[str, Any]) -> dict[str, Any]:
     """Filter out sensitive keys like API keys from kwargs."""
     filtered = {}

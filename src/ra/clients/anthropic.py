@@ -1,7 +1,7 @@
 from collections import defaultdict
 from typing import Any
 
-import anthropic
+import anthropic  # type: ignore[import-not-found]
 
 from ra.clients.base_lm import BaseLM
 from ra.core.types import ModelUsageSummary, UsageSummary
@@ -32,7 +32,9 @@ class AnthropicClient(BaseLM):
         self.model_total_tokens: dict[str, int] = defaultdict(int)
 
     def completion(
-        self, prompt: str | list[dict[str, Any]], model: str | None = None
+        self,
+        prompt: str | list[dict[str, Any]],
+        model: str | None = None,
     ) -> str:
         messages, system = self._prepare_messages(prompt)
 
@@ -49,7 +51,9 @@ class AnthropicClient(BaseLM):
         return response.content[0].text
 
     async def acompletion(
-        self, prompt: str | list[dict[str, Any]], model: str | None = None
+        self,
+        prompt: str | list[dict[str, Any]],
+        model: str | None = None,
     ) -> str:
         messages, system = self._prepare_messages(prompt)
 
@@ -66,7 +70,7 @@ class AnthropicClient(BaseLM):
         return response.content[0].text
 
     def _prepare_messages(
-        self, prompt: str | list[dict[str, Any]]
+        self, prompt: str | dict[str, Any] | list[dict[str, Any]]
     ) -> tuple[list[dict[str, Any]], str | None]:
         """Prepare messages and extract system prompt for Anthropic API."""
         system = None

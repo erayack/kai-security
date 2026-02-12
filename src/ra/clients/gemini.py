@@ -3,8 +3,8 @@ from collections import defaultdict
 from typing import Any
 
 from dotenv import load_dotenv
-from google import genai
-from google.genai import types
+from google import genai  # type: ignore[import-not-found]
+from google.genai import types  # type: ignore[import-not-found]
 
 from ra.clients.base_lm import BaseLM
 from ra.core.types import ModelUsageSummary, UsageSummary
@@ -50,7 +50,9 @@ class GeminiClient(BaseLM):
         self.last_completion_tokens = 0
 
     def completion(
-        self, prompt: str | list[dict[str, Any]], model: str | None = None
+        self,
+        prompt: str | list[dict[str, Any]],
+        model: str | None = None,
     ) -> str:
         contents, system_instruction = self._prepare_contents(prompt)
 
@@ -72,7 +74,9 @@ class GeminiClient(BaseLM):
         return response.text
 
     async def acompletion(
-        self, prompt: str | list[dict[str, Any]], model: str | None = None
+        self,
+        prompt: str | list[dict[str, Any]],
+        model: str | None = None,
     ) -> str:
         contents, system_instruction = self._prepare_contents(prompt)
 
@@ -95,7 +99,7 @@ class GeminiClient(BaseLM):
         return response.text
 
     def _prepare_contents(
-        self, prompt: str | list[dict[str, Any]]
+        self, prompt: str | dict[str, Any] | list[dict[str, Any]]
     ) -> tuple[list[types.Content] | str, str | None]:
         """Prepare contents and extract system instruction for Gemini API."""
         system_instruction = None

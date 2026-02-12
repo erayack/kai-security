@@ -12,8 +12,10 @@ from ra.core.types import (
     RLMChatCompletion,
     RLMIteration,
     RLMMetadata,
+    UsageSummary,
 )
 from ra.environments import BaseEnv, SupportsPersistence, get_environment
+from ra.exceptions import LMError, SetupRLMError
 from ra.logger import RecursiveAgentLogger, VerbosePrinter
 from ra.utils.parsing import (
     find_code_blocks,
@@ -120,7 +122,7 @@ class RLM:
                 environment_kwargs=filter_sensitive_keys(environment_kwargs)
                 if environment_kwargs
                 else {},
-                other_backends=other_backends,
+                other_backends=list(other_backends) if other_backends else None,
             )
             if self.logger:
                 self.logger.log_metadata(metadata)
@@ -135,7 +137,7 @@ class RLM:
         When persistent=False (default), creates fresh environment each call.
         """
         # Create client and wrap in handler
-        client: BaseLM = get_client(self.backend, self.backend_kwargs)
+        client: BaseLM = get_client(self.backend, self.backend_kwargs or {})
 
         # Create other_backend_client if provided (for depth=1 routing)
         other_backend_client: BaseLM | None = None
@@ -152,6 +154,10 @@ class RLM:
                 self.other_backends, self.other_backend_kwargs, strict=True
             ):
                 other_client: BaseLM = get_client(backend, kwargs)
+                if other_client.model_name is None:
+                    raise LMError(
+                        f"Backend {backend!r} returned a client without model_name"
+                    )
                 lm_handler.register_client(other_client.model_name, other_client)
 
         lm_handler.start()
@@ -176,14 +182,20 @@ class RLM:
             environment: BaseEnv = get_environment(self.environment_type, env_kwargs)
 
             if self.persistent:
-                self._persistent_env = environment
+                self._persistent_env = environment  # type: ignore[assignment]
 
         try:
             yield lm_handler, environment
         finally:
             lm_handler.stop()
-            if not self.persistent and hasattr(environment, "cleanup"):
-                environment.cleanup()
+            if not self.persistent:
+                cleanup = getattr(environment, "cleanup", None)
+                if cleanup is None or not callable(cleanup):
+                    raise SetupRLMError(
+                        f"Environment {type(environment).__name__}"
+                        " missing callable cleanup()"
+                    )
+                cleanup()
 
     def _setup_prompt(self, prompt: str | dict[str, Any]) -> list[dict[str, Any]]:
         """
@@ -217,7 +229,15 @@ class RLM:
 
         # If we're at max depth, the RLM is an LM, so we fallback to the regular LM.
         if self.depth >= self.max_depth:
-            return self._fallback_answer(prompt)
+            t0 = time.perf_counter()
+            response, usage, model_name = self._fallback_answer(prompt)
+            return RLMChatCompletion(
+                root_model=model_name,
+                prompt=prompt,
+                response=response,
+                usage_summary=usage,
+                execution_time=time.perf_counter() - t0,
+            )
 
         with self._spawn_completion_context(prompt) as (lm_handler, environment):
             message_history = self._setup_prompt(prompt)
@@ -319,7 +339,7 @@ class RLM:
         and code execution + tool execution.
         """
         iter_start = time.perf_counter()
-        response = lm_handler.completion(prompt)
+        response = lm_handler.completion(prompt)  # type: ignore[arg-type]
         code_block_strs = find_code_blocks(response)
         code_blocks = []
 
@@ -362,13 +382,19 @@ class RLM:
 
         return response
 
-    def _fallback_answer(self, message: str | dict[str, Any]) -> str:
+    def _fallback_answer(
+        self, message: str | dict[str, Any]
+    ) -> tuple[str, UsageSummary, str]:
+        """Fallback when at max depth — plain LM call.
+
+        Returns:
+            (response, usage_summary, model_name)
         """
-        Fallback behavior if the RLM is actually at max depth, and should be treated as an LM.
-        """
-        client: BaseLM = get_client(self.backend, self.backend_kwargs)
-        response = client.completion(message)
-        return response
+        client: BaseLM = get_client(self.backend, self.backend_kwargs or {})
+        if client.model_name is None:
+            raise LMError("Fallback client has no model_name set")
+        response = client.completion(message)  # type: ignore[arg-type]
+        return response, client.get_usage_summary(), client.model_name
 
     def _validate_persistent_environment_support(self) -> None:
         """
@@ -396,15 +422,21 @@ class RLM:
             )
 
     @staticmethod
-    def _env_supports_persistence(env: BaseEnv) -> bool:
+    def _env_supports_persistence(env: object) -> bool:
         """Check if an environment instance supports persistent mode methods."""
         return isinstance(env, SupportsPersistence)
 
     def close(self) -> None:
         """Clean up persistent environment. Call when done with multi-turn conversations."""
         if self._persistent_env is not None:
-            if hasattr(self._persistent_env, "cleanup"):
-                self._persistent_env.cleanup()
+            cleanup = getattr(self._persistent_env, "cleanup", None)
+            if cleanup is None or not callable(cleanup):
+                raise SetupRLMError(
+                    f"Persistent environment"
+                    f" {type(self._persistent_env).__name__}"
+                    f" missing callable cleanup()"
+                )
+            cleanup()
             self._persistent_env = None
 
     def __enter__(self) -> "RLM":

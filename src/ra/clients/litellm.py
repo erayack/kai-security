@@ -1,7 +1,7 @@
 from collections import defaultdict
 from typing import Any
 
-import litellm
+import litellm  # type: ignore[import-not-found]
 
 from ra.clients.base_lm import BaseLM
 from ra.core.types import ModelUsageSummary, UsageSummary
@@ -32,7 +32,9 @@ class LiteLLMClient(BaseLM):
         self.model_total_tokens: dict[str, int] = defaultdict(int)
 
     def completion(
-        self, prompt: str | list[dict[str, Any]], model: str | None = None
+        self,
+        prompt: str | list[dict[str, Any]],
+        model: str | None = None,
     ) -> str:
         if isinstance(prompt, str):
             messages = [{"role": "user", "content": prompt}]
@@ -58,7 +60,9 @@ class LiteLLMClient(BaseLM):
         return response.choices[0].message.content
 
     async def acompletion(
-        self, prompt: str | list[dict[str, Any]], model: str | None = None
+        self,
+        prompt: str | list[dict[str, Any]],
+        model: str | None = None,
     ) -> str:
         if isinstance(prompt, str):
             messages = [{"role": "user", "content": prompt}]

@@ -1,8 +1,8 @@
 from collections import defaultdict
 from typing import Any
 
-from portkey_ai import AsyncPortkey, Portkey
-from portkey_ai.api_resources.types.chat_complete_type import ChatCompletions
+from portkey_ai import AsyncPortkey, Portkey  # type: ignore[import-not-found]
+from portkey_ai.api_resources.types.chat_complete_type import ChatCompletions  # type: ignore[import-not-found]
 
 from ra.clients.base_lm import BaseLM
 from ra.core.types import ModelUsageSummary, UsageSummary
@@ -32,7 +32,9 @@ class PortkeyClient(BaseLM):
         self.model_total_tokens: dict[str, int] = defaultdict(int)
 
     def completion(
-        self, prompt: str | list[dict[str, Any]], model: str | None = None
+        self,
+        prompt: str | list[dict[str, Any]],
+        model: str | None = None,
     ) -> str:
         if isinstance(prompt, str):
             messages = [{"role": "user", "content": prompt}]
@@ -55,7 +57,9 @@ class PortkeyClient(BaseLM):
         return response.choices[0].message.content
 
     async def acompletion(
-        self, prompt: str | dict[str, Any], model: str | None = None
+        self,
+        prompt: str | list[dict[str, Any]],
+        model: str | None = None,
     ) -> str:
         if isinstance(prompt, str):
             messages = [{"role": "user", "content": prompt}]

@@ -1,11 +1,11 @@
 """
-Docstring for kai.environments
+Docstring for ra.environments
 """
 
 from typing import Any, Literal
 
-from kai.environments.base_env import BaseEnv, SupportsPersistence
-from kai.environments.local_repl import LocalREPL
+from ra.environments.base_env import BaseEnv, SupportsPersistence
+from ra.environments.local_repl import LocalREPL
 
 __all__ = ["BaseEnv", "LocalREPL", "SupportsPersistence", "get_environment"]
 
@@ -21,11 +21,11 @@ def get_environment(
     if environment == "local":
         return LocalREPL(**environment_kwargs)
     elif environment == "modal":
-        from kai.environments.modal_repl import ModalREPL
+        from ra.environments.modal_repl import ModalREPL
 
         return ModalREPL(**environment_kwargs)
     elif environment == "docker":
-        from kai.environments.docker_repl import DockerREPL
+        from ra.environments.docker_repl import DockerREPL
 
         return DockerREPL(**environment_kwargs)
     else:
