@@ -241,6 +241,7 @@ class RLM:
 
         with self._spawn_completion_context(prompt) as (lm_handler, environment):
             message_history = self._setup_prompt(prompt)
+            child_usage = UsageSummary(model_usage_summaries={})
 
             for i in range(self.max_iterations):
                 # Current prompt = message history + additional prompt suffix
@@ -264,6 +265,11 @@ class RLM:
                     environment=environment,
                 )
 
+                # Collect child usage from spawn calls
+                for cb in iteration.code_blocks:
+                    for call in cb.result.rlm_calls:
+                        child_usage = child_usage.merge(call.usage_summary)
+
                 # Check if RLM is done and has a final answer.
                 final_answer = find_final_answer(
                     iteration.response, environment=environment
@@ -279,7 +285,7 @@ class RLM:
 
                 if final_answer is not None:
                     time_end = time.perf_counter()
-                    usage = lm_handler.get_usage_summary()
+                    usage = lm_handler.get_usage_summary().merge(child_usage)
                     self.verbose.print_final_answer(final_answer)
                     self.verbose.print_summary(
                         i + 1, time_end - time_start, usage.to_dict()
@@ -308,7 +314,7 @@ class RLM:
             # Default behavior: we run out of iterations, provide one final answer
             time_end = time.perf_counter()
             final_answer = self._default_answer(message_history, lm_handler)
-            usage = lm_handler.get_usage_summary()
+            usage = lm_handler.get_usage_summary().merge(child_usage)
             self.verbose.print_final_answer(final_answer)
             self.verbose.print_summary(
                 self.max_iterations, time_end - time_start, usage.to_dict()

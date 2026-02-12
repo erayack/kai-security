@@ -19,7 +19,12 @@ def _make_spawn_fn(
     runs its full agentic loop, and returns the response string.
     Errors are caught so a failing sub-agent never crashes the
     parent's REPL.
+
+    The returned function exposes a ``_pending_completions`` list
+    attribute. Each successful sub-agent run appends its full
+    ``RLMChatCompletion`` so the parent REPL can drain token usage.
     """
+    pending: list[Any] = []
 
     def _spawn(data: Any) -> str:
         try:
@@ -31,6 +36,7 @@ def _make_spawn_fn(
             result = agent.completion(data)
             if isinstance(result, str):
                 return result
+            pending.append(result)
             return result.response
         except SpawnError as exc:
             return f"[spawn_{config.name} error] {type(exc).__name__}: {exc}"
@@ -42,6 +48,7 @@ def _make_spawn_fn(
         f"Runs an agentic loop (up to {config.max_iterations} "
         f"iterations) and returns the final answer string."
     )
+    _spawn._pending_completions = pending  # type: ignore[attr-defined]
     return _spawn
 
 

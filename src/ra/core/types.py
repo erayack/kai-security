@@ -80,6 +80,28 @@ class UsageSummary:
             },
         }
 
+    def merge(self, other: "UsageSummary") -> "UsageSummary":
+        """Return a new summary combining self and other.
+
+        Per-model counts are summed when models overlap.
+        """
+        merged = dict(self.model_usage_summaries)
+        for model, usage in other.model_usage_summaries.items():
+            if model in merged:
+                existing = merged[model]
+                merged[model] = ModelUsageSummary(
+                    total_calls=(existing.total_calls + usage.total_calls),
+                    total_input_tokens=(
+                        existing.total_input_tokens + usage.total_input_tokens
+                    ),
+                    total_output_tokens=(
+                        existing.total_output_tokens + usage.total_output_tokens
+                    ),
+                )
+            else:
+                merged[model] = usage
+        return UsageSummary(model_usage_summaries=merged)
+
     @classmethod
     def from_dict(cls, data: dict) -> "UsageSummary":
         return cls(

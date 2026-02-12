@@ -366,6 +366,13 @@ class LocalREPL(NonIsolatedEnv):
                 stdout = stdout_buf.getvalue()
                 stderr = stderr_buf.getvalue() + f"\n{type(e).__name__}: {e}"
 
+        # Drain sub-agent completions from spawn tools
+        for fn in self._tools.values():
+            pending = getattr(fn, "_pending_completions", None)
+            if pending:
+                self._pending_llm_calls.extend(pending)
+                pending.clear()
+
         return REPLResult(
             stdout=stdout,
             stderr=stderr,
