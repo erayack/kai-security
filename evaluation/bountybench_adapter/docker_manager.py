@@ -34,6 +34,8 @@ class DockerManager:
         self._started = False
         self._using_preexisting_containers = False
         self._preexisting_container_names: list[str] = []
+        self._original_commit: str | None = None  # Saved HEAD before vulnerable checkout
+        self._codebase_path: str | None = None  # Path to codebase dir (for git restore)
 
     def _detect_docker_compose(self) -> list[str]:
         """Detect docker compose command (v1 vs v2)."""
@@ -319,6 +321,177 @@ class DockerManager:
             logger.error(f"Setup script error: {e}")
             return False
 
+    def _checkout_vulnerable_commit(self, bounty_id: str) -> bool:
+        """Checkout the vulnerable commit in the codebase before Docker build.
+
+        BountyBench tasks specify a ``vulnerable_commit`` per bounty. The
+        codebase submodule is typically at the latest (patched) commit, so
+        we must check out the vulnerable version before ``docker compose
+        build`` copies the source into the image.
+
+        Args:
+            bounty_id: Bounty whose ``vulnerable_commit`` to use.
+
+        Returns:
+            True if checkout succeeded, False otherwise.
+        """
+        bounty = self.task_loader.load_bounty(bounty_id)
+        commit = bounty.vulnerable_commit
+        if not commit:
+            logger.info(f"No vulnerable_commit for {bounty_id}, skipping checkout")
+            return False
+
+        codebase_path = self.task_loader.get_codebase_path()
+        git_dir = Path(codebase_path) / ".git"
+        if not git_dir.exists() and not git_dir.is_file():
+            logger.warning(f"Codebase at {codebase_path} is not a git repo, skipping checkout")
+            return False
+
+        self._codebase_path = codebase_path
+
+        # Save the current HEAD so we can restore later
+        try:
+            result = subprocess.run(
+                ["git", "-C", codebase_path, "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0:
+                self._original_commit = result.stdout.strip()
+        except Exception as e:
+            logger.warning(f"Failed to save original HEAD: {e}")
+
+        # Checkout the vulnerable commit
+        logger.info(f"Checking out vulnerable commit {commit} in {codebase_path}")
+        try:
+            result = subprocess.run(
+                ["git", "-C", codebase_path, "checkout", commit],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode != 0:
+                logger.error(f"git checkout failed: {result.stderr}")
+                return False
+            logger.info(f"Checked out vulnerable commit {commit}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to checkout vulnerable commit: {e}")
+            return False
+
+    def _resolve_vulnerable_commit(self, bounty_id: str) -> str | None:
+        """Resolve a bounty's vulnerable_commit to a full SHA.
+
+        Tags like ``v1.0.0`` are resolved via ``git rev-parse``.
+
+        Returns:
+            Full commit SHA, or None if unavailable.
+        """
+        bounty = self.task_loader.load_bounty(bounty_id)
+        commit = bounty.vulnerable_commit
+        if not commit:
+            return None
+
+        codebase_path = self.task_loader.get_codebase_path()
+        try:
+            result = subprocess.run(
+                ["git", "-C", codebase_path, "rev-parse", commit],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except Exception:
+            pass
+        return commit  # Return as-is if rev-parse fails
+
+    def _restore_codebase_commit(self) -> None:
+        """Restore the codebase to its original commit after Docker build."""
+        if not self._original_commit or not self._codebase_path:
+            return
+
+        logger.info(f"Restoring codebase to original commit {self._original_commit}")
+        try:
+            subprocess.run(
+                ["git", "-C", self._codebase_path, "checkout", self._original_commit],
+                capture_output=True, text=True, timeout=30,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to restore codebase commit: {e}")
+
+    def rebuild_for_bounty(self, bounty_id: str, timeout: int = 60) -> bool:
+        """Rebuild Docker containers for a specific bounty's vulnerable commit.
+
+        Checks out the bounty's ``vulnerable_commit``, rebuilds the Docker
+        image, and waits for health.  Skips the rebuild if the codebase is
+        already at the correct commit.
+
+        Args:
+            bounty_id: Bounty identifier.
+            timeout: Seconds to wait for containers to be healthy.
+
+        Returns:
+            True if rebuild succeeded (or was skipped), False on error.
+        """
+        if not self.compose_file or not self._started:
+            logger.warning("Cannot rebuild: Docker not started")
+            return False
+
+        # Resolve the target commit
+        target_commit = self._resolve_vulnerable_commit(bounty_id)
+        if not target_commit:
+            logger.info(f"No vulnerable_commit for {bounty_id}, skipping rebuild")
+            return True  # Not an error — bounty simply has no commit
+
+        # Check if already at this commit
+        codebase_path = self.task_loader.get_codebase_path()
+        try:
+            result = subprocess.run(
+                ["git", "-C", codebase_path, "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=10,
+            )
+            current_commit = result.stdout.strip() if result.returncode == 0 else ""
+        except Exception:
+            current_commit = ""
+
+        if current_commit == target_commit:
+            logger.info(f"Codebase already at {target_commit[:12]} for {bounty_id}, skipping rebuild")
+            return True
+
+        # Checkout the vulnerable commit
+        logger.info(f"Rebuilding Docker for {bounty_id} (commit {target_commit[:12]})")
+        if not self._checkout_vulnerable_commit(bounty_id):
+            return False
+
+        # Rebuild containers
+        docker_compose = self._detect_docker_compose()
+        compose_dir = str(Path(self.compose_file).parent)
+        env = self._get_env()
+
+        try:
+            result = subprocess.run(
+                [*docker_compose, "-f", self.compose_file, "up", "-d", "--build", "--force-recreate"],
+                cwd=compose_dir,
+                env=env,
+                capture_output=True,
+                timeout=timeout + 120,
+            )
+            if result.returncode != 0:
+                stderr = result.stderr.decode() if result.stderr else ""
+                logger.error(f"Docker rebuild failed for {bounty_id}: {stderr}")
+                return False
+        except subprocess.TimeoutExpired:
+            logger.error(f"Docker rebuild timed out for {bounty_id}")
+            return False
+        except Exception as e:
+            logger.error(f"Docker rebuild error for {bounty_id}: {e}")
+            return False
+
+        # Wait for services to be ready
+        logger.info(f"Waiting for services after rebuild ({timeout}s)...")
+        self._wait_for_health(timeout)
+
+        # Re-parse service URLs (ports may have changed)
+        self._service_urls = self._parse_port_mappings(self.compose_file)
+        logger.info(f"Rebuild complete for {bounty_id}")
+        return True
+
     def start(self, bounty_id: str | None = None, timeout: int = 60) -> dict[str, str]:
         """Start Docker containers for a bounty.
 
@@ -355,6 +528,10 @@ class DockerManager:
         self.project_name = f"{task_name}-{int(time.time())}-{os.getpid()}"
 
         logger.info(f"Starting Docker containers for {self.project_name}")
+
+        # Checkout vulnerable commit before building Docker image
+        if bounty_id:
+            self._checkout_vulnerable_commit(bounty_id)
 
         # Ensure shared network exists
         self._ensure_network()
@@ -478,6 +655,8 @@ class DockerManager:
         finally:
             self._started = False
             self._service_urls = {}
+            # Restore codebase to original commit after containers are stopped
+            self._restore_codebase_commit()
 
     # Well-known database service names (not HTTP-accessible)
     _DB_SERVICES = {"postgres", "postgresql", "mysql", "mariadb", "redis", "mongo", "mongodb", "memcached"}
@@ -554,6 +733,56 @@ class DockerManager:
     def get_service_urls(self) -> dict[str, str]:
         """Get external URLs for all running services."""
         return self._service_urls.copy()
+
+    def get_internal_service_urls(self) -> dict[str, str]:
+        """Get Docker internal URLs for services (using container hostnames).
+
+        Unlike get_service_urls() which returns localhost URLs for host access,
+        this returns URLs using Docker service names that are resolvable within
+        the shared_net Docker network.
+
+        Returns:
+            Dict of service_name -> internal URL (e.g., {"app": "http://app:3000"})
+        """
+        if not self.compose_file:
+            return {}
+
+        try:
+            with open(self.compose_file) as f:
+                compose = yaml.safe_load(f)
+        except Exception as e:
+            logger.error(f"Failed to read compose file {self.compose_file}: {e}")
+            return {}
+
+        urls: dict[str, str] = {}
+        services = compose.get("services", {})
+
+        for service_name, service_config in services.items():
+            ports = service_config.get("ports", [])
+            # Get container name (used as hostname in Docker network)
+            container_name = service_config.get("container_name", service_name)
+
+            first_port_set = False
+            for port_mapping in ports:
+                container_port: str | None = None
+
+                if isinstance(port_mapping, str):
+                    match = re.match(r"(\d+):(\d+)", port_mapping)
+                    if match:
+                        container_port = match.group(2)  # container port, not host port
+                elif isinstance(port_mapping, dict):
+                    target = port_mapping.get("target")
+                    if target:
+                        container_port = str(target)
+
+                if container_port:
+                    url = f"http://{container_name}:{container_port}"
+                    if not first_port_set:
+                        urls[service_name] = url
+                        first_port_set = True
+                    urls[f"{service_name}:{container_port}"] = url
+
+        return urls
 
     def is_healthy(self) -> bool:
         """Check if all containers are healthy."""

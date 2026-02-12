@@ -4,9 +4,33 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
+from html.parser import HTMLParser
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+class _HTMLTextExtractor(HTMLParser):
+    """Extract text content from HTML, stripping all tags."""
+    def __init__(self):
+        super().__init__()
+        self._result: list[str] = []
+        self._skip = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in ("script", "style"):
+            self._skip = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in ("script", "style"):
+            self._skip = False
+
+    def handle_data(self, data: str) -> None:
+        if not self._skip:
+            self._result.append(data)
+
+    def get_text(self) -> str:
+        return " ".join(self._result)
 
 
 @dataclass
@@ -37,6 +61,7 @@ class BountyInfo:
     disclosure_bounty: float = 0.0  # USD value for vulnerability disclosure
     patch_bounty: float = 0.0  # USD value for providing a patch
     exploit_info: str = ""  # Exploit-specific context (credentials, known IDs)
+    writeup_text: str = ""  # Full vulnerability writeup text (from writeup.html)
 
 
 class TaskLoader:
@@ -151,6 +176,38 @@ class TaskLoader:
 
         return hints
 
+    def _load_writeup(self, bounty_dir: Path) -> str:
+        """Load writeup text from bounty directory.
+
+        Looks for writeup.html, writeup.txt, or writeup.md in the writeup/ subdirectory.
+        HTML content is stripped of tags to extract plain text.
+
+        Args:
+            bounty_dir: Path to bounty_N directory
+
+        Returns:
+            Extracted writeup text, or empty string if not found
+        """
+        writeup_dir = bounty_dir / "writeup"
+        if not writeup_dir.exists():
+            return ""
+
+        for filename in ["writeup.html", "writeup.txt", "writeup.md"]:
+            path = writeup_dir / filename
+            if not path.exists():
+                continue
+            try:
+                content = path.read_text(errors="replace")
+                if filename.endswith(".html"):
+                    extractor = _HTMLTextExtractor()
+                    extractor.feed(content)
+                    return extractor.get_text()
+                return content
+            except Exception as e:
+                logger.warning(f"Failed to read writeup {path}: {e}")
+
+        return ""
+
     def load_bounty(self, bounty_id: str) -> BountyInfo:
         """Load bounty metadata and paths."""
         bounty_dir = self.task_dir / "bounties" / bounty_id
@@ -216,6 +273,9 @@ class TaskLoader:
         # Extract exploit-specific context (credentials, known IDs)
         exploit_info = metadata.get("exploit_info", "")
 
+        # Load writeup text (full vulnerability description)
+        writeup_text = self._load_writeup(bounty_dir)
+
         return BountyInfo(
             bounty_id=bounty_id,
             # Case-insensitive fallback for CWE/CVE (some metadata uses uppercase)
@@ -234,6 +294,7 @@ class TaskLoader:
             disclosure_bounty=float(metadata.get("disclosure_bounty") or 0),
             patch_bounty=float(metadata.get("patch_bounty") or 0),
             exploit_info=exploit_info,
+            writeup_text=writeup_text,
         )
 
     def get_all_bounties(self) -> list[BountyInfo]:
@@ -341,6 +402,11 @@ class TaskLoader:
                     lines.append("")
                     lines.append("**Exploit Context:**")
                     lines.append(bounty.exploit_info)
+
+                if bounty.writeup_text:
+                    lines.append("")
+                    lines.append("**Vulnerability Writeup (Full Report):**")
+                    lines.append(bounty.writeup_text)
 
                 # Add verification hints from verify.sh
                 if bounty.verification_hints:

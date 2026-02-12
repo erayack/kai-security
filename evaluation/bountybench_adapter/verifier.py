@@ -190,9 +190,13 @@ class BountyVerifier:
     ) -> ExploitResult:
         """Run an exploit script.
 
+        If a DockerManager is available, runs the exploit inside a Docker
+        container on shared_net with Docker internal hostnames. Otherwise
+        falls back to host execution.
+
         Args:
             exploit_script_path: Path to the exploit.sh script
-            target_host: Target host URL
+            target_host: Target host URL (used for host execution fallback)
 
         Returns:
             ExploitResult with execution details
@@ -220,6 +224,131 @@ class BountyVerifier:
             for warning in validation.warnings:
                 logger.warning(f"Script validation warning: {warning}")
 
+        # Try Docker execution first if docker_manager is available
+        if self.docker_manager:
+            result = self._run_exploit_in_docker(script_path, target_host)
+            if result is not None:
+                return result
+            logger.warning("Docker execution failed, falling back to host execution")
+
+        # Fallback: host execution
+        return self._run_exploit_on_host(script_path, target_host)
+
+    def _run_exploit_in_docker(
+        self,
+        script_path: Path,
+        target_host: str,
+    ) -> ExploitResult | None:
+        """Run exploit script inside a Docker container on shared_net.
+
+        Creates a temporary container connected to shared_net, mounts the
+        exploit directory, and executes the script with Docker internal
+        hostnames as TARGET_HOST.
+
+        Args:
+            script_path: Path to the exploit script
+            target_host: Host-side target URL (used to match the correct port)
+
+        Returns:
+            ExploitResult if Docker execution succeeded (even if exploit failed),
+            None if Docker execution itself failed (caller should fall back to host)
+        """
+        assert self.docker_manager is not None
+        internal_urls = self.docker_manager.get_internal_service_urls()
+        if not internal_urls:
+            logger.warning("No Docker internal URLs available for exploit execution")
+            return None
+
+        # Match the port from the host-side target_host to find the correct
+        # internal URL.  e.g. target_host="http://localhost:3333" → pick the
+        # internal URL whose container port is 3333, like "http://lunary-app:3333".
+        docker_target_host = ""
+        target_port: str | None = None
+        if ":" in target_host:
+            target_port = target_host.rsplit(":", 1)[-1].rstrip("/")
+
+        if target_port:
+            # Look for an internal URL matching the same container port
+            for name, url in internal_urls.items():
+                if url.endswith(f":{target_port}"):
+                    docker_target_host = url
+                    logger.info(f"Matched target port {target_port} → {url}")
+                    break
+
+        # Fallback: pick first non-DB service
+        if not docker_target_host:
+            db_services = {"postgres", "postgresql", "mysql", "mariadb", "redis",
+                           "mongo", "mongodb", "memcached"}
+            for name, url in internal_urls.items():
+                base_name = name.split(":")[0]
+                if base_name not in db_services:
+                    docker_target_host = url
+                    break
+
+        if not docker_target_host:
+            docker_target_host = next(iter(internal_urls.values()))
+
+        logger.info(f"Running exploit in Docker with TARGET_HOST={docker_target_host}")
+
+        exploit_dir = str(script_path.parent.resolve())
+        script_name = script_path.name
+
+        # Allow extra time: image pull (~30s if cached) + pip install (~30s) + exploit
+        docker_timeout = self.exploit_timeout + 120
+
+        try:
+            result = subprocess.run(
+                [
+                    "docker", "run", "--rm",
+                    "--network", "shared_net",
+                    "-v", f"{exploit_dir}:/app",
+                    "-e", f"TARGET_HOST={docker_target_host}",
+                    "-w", "/app",
+                    "python:3.12-slim",
+                    "bash", "-c",
+                    "pip install requests > /dev/null 2>&1; "
+                    f"bash /app/{script_name}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=docker_timeout,
+            )
+
+            output = result.stdout + result.stderr
+
+            return ExploitResult(
+                success=result.returncode == 0,
+                output=output,
+                exit_code=result.returncode,
+            )
+        except subprocess.TimeoutExpired:
+            return ExploitResult(
+                success=False,
+                output="",
+                exit_code=-1,
+                error=f"Docker exploit timed out after {docker_timeout}s",
+            )
+        except FileNotFoundError:
+            logger.warning("Docker command not found, cannot run exploit in container")
+            return None
+        except Exception as e:
+            logger.error(f"Docker exploit execution failed: {type(e).__name__}: {e}")
+            return None
+
+    def _run_exploit_on_host(
+        self,
+        script_path: Path,
+        target_host: str,
+    ) -> ExploitResult:
+        """Run exploit script directly on the host (fallback).
+
+        Args:
+            script_path: Path to the exploit script
+            target_host: Target host URL
+
+        Returns:
+            ExploitResult with execution details
+        """
         env = os.environ.copy()
         env["TARGET_HOST"] = target_host
 

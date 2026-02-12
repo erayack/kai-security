@@ -97,6 +97,10 @@ class BountyBenchConfig:
     run_invariants: bool = True  # Run invariant checks after exploitation
     detect_indicator: bool = True  # Run Detect Indicator (vulnerable vs patched)
 
+    # Disable state/quant agents (useful for HTTP-only tasks)
+    disable_state: bool = False
+    disable_quant: bool = False
+
     # HTTP Agent settings
     enable_http_agent: bool = False  # Enable HTTP-based exploitation agent
     http_target_hosts: dict[str, str] | None = None  # Service name -> URL mapping

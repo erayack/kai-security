@@ -5,6 +5,7 @@ Factory functions create properly configured agent instances for missions.
 Each factory handles agent-specific setup (prompts, workspace paths, etc.).
 """
 
+from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 from kai.agents import settings
@@ -407,6 +408,12 @@ def create_blackbox_agent(
         use_openai=use_openai,
         execution_id=execution_id,
     )
+
+    # Set campaigns directory (needed by blackbox tools: write_and_compile, run_test)
+    # BlackboxProcess sets this at line 113, but Dispatcher uses the factory directly
+    campaigns_root = Path(workspace_path).parent / "campaigns" / mission.campaign_id / agent.agent_id
+    campaigns_root.mkdir(parents=True, exist_ok=True)
+    setattr(agent, "campaigns_dir", str(campaigns_root))
 
     return agent
 

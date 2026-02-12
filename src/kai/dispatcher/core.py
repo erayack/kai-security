@@ -101,6 +101,10 @@ class DispatcherConfig:
     disable_gamified: bool = False
     # Disable fixer agent (useful for debugging to reduce costs)
     disable_fixer: bool = False
+    # Disable state agents (useful for HTTP-only tasks)
+    disable_state: bool = False
+    # Disable quant agents (useful for HTTP-only tasks)
+    disable_quant: bool = False
     # Extra instructions to pass to agents (e.g., CWE hints)
     extra_instructions: Optional[str] = None
     # Skip workspace validation (useful when context is pre-validated)
@@ -194,6 +198,9 @@ class Dispatcher:
         # Per-phase breakdown for detailed reporting
         self.token_usage_by_phase: Dict[str, Dict[str, Any]] = {}
 
+        # Track candidate index per mission for unique verifier rollout filenames
+        self._verifier_rollout_counter: dict[str, int] = {}
+
         self._workspace_manager = WorkspaceManager(
             workspace_dir=self.config.workspace_dir, logger=self.logger
         )
@@ -276,6 +283,7 @@ class Dispatcher:
     def _save_verifier_rollout(
         self,
         mission_id: str,
+        candidate_index: int,
         messages: List[Any],
         model: str,
         total_tokens: Dict[str, int],
@@ -313,7 +321,7 @@ class Dispatcher:
 
         # Build rollout data
         rollout_data = {
-            "identifier": f"verify_{mission_id}",
+            "identifier": f"verify_{mission_id}_{candidate_index}",
             "type": "verifier",
             "model": model,
             "agent_type": "verifier",
@@ -323,7 +331,7 @@ class Dispatcher:
         }
 
         # Write to file
-        output_file = rollout_path / f"verify_{mission_id}.json"
+        output_file = rollout_path / f"verify_{mission_id}_{candidate_index}.json"
         try:
             with open(output_file, "w") as f:
                 json.dump(rollout_data, f, indent=2, default=str)
@@ -932,6 +940,19 @@ class Dispatcher:
         campaigns, missions = self._planner.plan(
             invariants=list(self.invariants.values())
         )
+        # Filter missions based on disabled agent types
+        if self.config.disable_state or self.config.disable_quant:
+            filtered = []
+            for m in missions:
+                if self.config.disable_state and m.agent_type == MissionAgentType.STATE:
+                    continue
+                if self.config.disable_quant and m.agent_type == MissionAgentType.QUANT:
+                    continue
+                filtered.append(m)
+            skipped = len(missions) - len(filtered)
+            if skipped:
+                self.logger.info(f"Filtered {skipped} missions (disable_state={self.config.disable_state}, disable_quant={self.config.disable_quant})")
+            missions = filtered
         self.campaigns.extend(campaigns)
         if campaigns:
             await self._persist(
@@ -1221,8 +1242,12 @@ class Dispatcher:
 
             # Save verifier rollout if messages available
             if self.config.save_rollouts and output.agent_messages:
+                # Track candidate index per mission for unique rollout filenames
+                idx = self._verifier_rollout_counter.get(candidate.mission_id, 0)
+                self._verifier_rollout_counter[candidate.mission_id] = idx + 1
                 self._save_verifier_rollout(
                     candidate.mission_id,
+                    idx,
                     output.agent_messages,
                     output.agent_model or "unknown",
                     output.total_tokens,

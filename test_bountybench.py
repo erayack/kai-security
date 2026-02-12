@@ -24,7 +24,10 @@ import signal
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from evaluation.bountybench_adapter.docker_manager import DockerManager
 
 BOUNTYBENCH_REPO = "https://github.com/bountybench/bountybench.git"
 
@@ -40,7 +43,7 @@ for name in ("openai", "httpcore", "httpx", "urllib3"):
 logger = logging.getLogger("test_bountybench")
 
 # Global state for cleanup
-_docker_manager: Optional[object] = None
+_docker_manager: Optional["DockerManager"] = None
 _cleanup_done = False
 
 
@@ -209,6 +212,8 @@ async def run_bountybench_task(
     model: str,
     workers: int,
     workflow_mode: str,
+    disable_state: bool = False,
+    disable_quant: bool = False,
 ) -> int:
     """Run Kai on a BountyBench task.
 
@@ -270,6 +275,8 @@ async def run_bountybench_task(
         workspace_dir=str(script_dir / "kai_workspaces"),
         enable_http_agent=True,
         workflow_mode=WorkflowMode(workflow_mode),
+        disable_state=disable_state,
+        disable_quant=disable_quant,
         save_rollouts=True,
         skip_workspace_validation=True,
         disable_gamified=True,
@@ -347,6 +354,16 @@ Examples:
         default="unified",
         help="Workflow mode (default: unified)",
     )
+    parser.add_argument(
+        "--disable-state",
+        action="store_true",
+        help="Disable state agents (saves cost on HTTP-only tasks)",
+    )
+    parser.add_argument(
+        "--disable-quant",
+        action="store_true",
+        help="Disable quant agents (saves cost on HTTP-only tasks)",
+    )
 
     args = parser.parse_args()
 
@@ -389,6 +406,8 @@ Examples:
             args.model,
             args.workers,
             args.workflow_mode,
+            disable_state=args.disable_state,
+            disable_quant=args.disable_quant,
         )
     )
 
