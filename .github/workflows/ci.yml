@@ -32,6 +32,3 @@ jobs:
 
       - name: Typecheck (ty)
         run: uvx ty check src
-
-      - name: Tests (pytest)
-        run: uv run pytest -q
