@@ -91,6 +91,8 @@ class RecursiveAgent:
             max_depth=self.max_depth,
             backend=self.config.backend,
             backend_kwargs=self.config.backend_kwargs,
+            other_backends=self.config.other_backends,
+            other_backend_kwargs=self.config.other_backend_kwargs,
             custom_system_prompt=self.config.system_prompt,
             environment="local",
             environment_kwargs={"tools": self._build_tools()},

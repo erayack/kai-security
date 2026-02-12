@@ -26,6 +26,8 @@ class RecursiveAgentConfig:
     agents: list[RecursiveAgentConfig] = field(default_factory=list)
     backend: ClientBackend = "openai"
     backend_kwargs: dict[str, Any] = field(default_factory=dict)
+    other_backends: list[ClientBackend] | None = None
+    other_backend_kwargs: list[dict[str, Any]] | None = None
     max_iterations: int = 10
 
     def validate(self) -> None:
@@ -77,6 +79,8 @@ class RecursiveAgentConfig:
             "agents": [a.to_dict() for a in self.agents],
             "backend": self.backend,
             "backend_kwargs": self.backend_kwargs,
+            "other_backends": self.other_backends,
+            "other_backend_kwargs": self.other_backend_kwargs,
             "max_iterations": self.max_iterations,
         }
 
@@ -106,5 +110,7 @@ class RecursiveAgentConfig:
             ],
             backend=data.get("backend", "openai"),
             backend_kwargs=data.get("backend_kwargs", {}),
+            other_backends=data.get("other_backends"),
+            other_backend_kwargs=data.get("other_backend_kwargs"),
             max_iterations=data.get("max_iterations", 10),
         )
