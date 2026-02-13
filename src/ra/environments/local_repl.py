@@ -174,12 +174,22 @@ class LocalREPL(NonIsolatedEnv):
         for name, fn in self._tools.items():
             self.globals[name] = fn
 
-    def _final_var(self, variable_name: str) -> str:
+    def _final_var(self, variable_name: str | object) -> str:
         """Return the value of a variable as a final answer."""
-        variable_name = variable_name.strip().strip("\"'")
-        if variable_name in self.locals:
-            return str(self.locals[variable_name])
-        return f"Error: Variable '{variable_name}' not found"
+        import json
+
+        # Handle FINAL_VAR(obj) where the value is passed directly
+        if not isinstance(variable_name, str):
+            value = variable_name
+        else:
+            variable_name = variable_name.strip().strip("\"'")
+            if variable_name not in self.locals:
+                return f"Error: Variable '{variable_name}' not found"
+            value = self.locals[variable_name]
+
+        if isinstance(value, (dict, list)):
+            return json.dumps(value)
+        return str(value)
 
     def _llm_query(self, prompt: str, model: str | None = None) -> str:
         """Query the LM via socket connection to the handler.

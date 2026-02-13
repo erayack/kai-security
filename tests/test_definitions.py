@@ -42,7 +42,7 @@ class TestSetupConfig:
     def test_backend(self) -> None:
         from kai.definitions import setup_config
 
-        assert setup_config.backend == "openai"
+        assert setup_config.backend == "openrouter"
 
     def test_max_iterations(self) -> None:
         from kai.definitions import setup_config

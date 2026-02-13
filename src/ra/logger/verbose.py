@@ -185,6 +185,16 @@ class VerbosePrinter:
         )
         self.console.print(rule)
 
+    def print_waiting(self, iteration: int) -> None:
+        """Print a waiting indicator before the LLM call."""
+        if not self.enabled:
+            return
+        msg = Text()
+        msg.append("⏳ ", style=STYLE_ACCENT)
+        msg.append(f"Iteration {iteration}", style=STYLE_PRIMARY)
+        msg.append(" — waiting for LLM...", style=STYLE_MUTED)
+        self.console.print(msg)
+
     def print_completion(
         self, response: Any, iteration_time: float | None = None
     ) -> None:

@@ -107,6 +107,7 @@ class RecursiveAgent:
             environment="local",
             environment_kwargs=env_kwargs,
             max_iterations=self.config.max_iterations,
+            verbose=self.config.verbose,
         )
 
     def completion(self, data: str | dict[str, Any]) -> Any:

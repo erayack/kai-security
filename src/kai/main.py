@@ -13,6 +13,7 @@ import argparse
 import json
 import shutil
 import tempfile
+from dataclasses import replace
 from typing import Any
 
 from kai.definitions import exploit_config, setup_config
@@ -34,7 +35,7 @@ def _parse_input(raw: str) -> str | dict[str, Any]:
         return raw
 
 
-def run_pipeline(repo_path: str) -> str:
+def run_pipeline(repo_path: str, *, verbose: bool = False) -> str:
     """Run the full setup → exploit pipeline.
 
     1. Create a long-lived master_dir.
@@ -48,7 +49,8 @@ def run_pipeline(repo_path: str) -> str:
     master_dir = tempfile.mkdtemp(prefix="kai_master_")
     try:
         # --- Step 1: run setup agent ---
-        setup_agent = RecursiveAgent(setup_config)
+        setup_cfg = replace(setup_config, verbose=verbose)
+        setup_agent = RecursiveAgent(setup_cfg)
         setup_result = setup_agent.completion(
             {"repo_path": repo_path, "master_dir": master_dir}
         )
@@ -62,7 +64,8 @@ def run_pipeline(repo_path: str) -> str:
         recipe = WorkspaceRecipe.from_dict(json.loads(raw_response))
 
         # --- Step 3: inject workspace into exploit config ---
-        injected_config = inject_workspace(exploit_config, recipe)
+        exploit_cfg = replace(exploit_config, verbose=verbose)
+        injected_config = inject_workspace(exploit_cfg, recipe)
 
         # --- Step 4: run exploit agent ---
         exploit_agent = RecursiveAgent(injected_config)
@@ -113,6 +116,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override max iterations.",
     )
+    agent_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Print rich iteration output to console.",
+    )
 
     # --- pipeline mode ---
     pipe_parser = sub.add_parser("pipeline", help="Run setup → exploit pipeline.")
@@ -120,6 +129,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--repo-path",
         required=True,
         help="Path to the target repository.",
+    )
+    pipe_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Print rich iteration output to console.",
     )
 
     return parser
@@ -131,28 +146,25 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     if args.command == "pipeline":
-        print(run_pipeline(args.repo_path))
+        print(run_pipeline(args.repo_path, verbose=args.verbose))
         return
 
     if args.command == "agent":
         config = AGENTS[args.name]
 
         # Apply overrides without mutating the original config
-        if args.backend or args.model or args.max_iterations:
-            kwargs: dict[str, Any] = {
-                "name": config.name,
-                "system_prompt": config.system_prompt,
-                "tools": config.tools,
-                "agents": config.agents,
-                "backend": args.backend or config.backend,
-                "backend_kwargs": (
-                    {**config.backend_kwargs, "model_name": args.model}
-                    if args.model
-                    else config.backend_kwargs
-                ),
-                "max_iterations": (args.max_iterations or config.max_iterations),
+        overrides: dict[str, Any] = {}
+        if args.backend:
+            overrides["backend"] = args.backend
+        if args.model:
+            overrides["backend_kwargs"] = {
+                **config.backend_kwargs,
+                "model_name": args.model,
             }
-            config = RecursiveAgentConfig(**kwargs)  # type: ignore[arg-type]
+        if args.max_iterations:
+            overrides["max_iterations"] = args.max_iterations
+        overrides["verbose"] = args.verbose
+        config = replace(config, **overrides)
 
         # Resolve input
         raw = args.input

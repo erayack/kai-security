@@ -16,7 +16,7 @@ config = RecursiveAgentConfig(
         "search_files": search_files,
         "run_shell": run_shell,
     },
-    backend="openai",
-    backend_kwargs={"model_name": "gpt-4o"},
+    backend="openrouter",
+    backend_kwargs={"model_name": "minimax/minimax-m2.5"},
     max_iterations=15,
 )

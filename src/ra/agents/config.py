@@ -30,6 +30,7 @@ class RecursiveAgentConfig:
     other_backend_kwargs: list[dict[str, Any]] | None = None
     environment_kwargs: dict[str, Any] = field(default_factory=dict)
     max_iterations: int = 10
+    verbose: bool = False
 
     def validate(self) -> None:
         """Validate this config and all sub-agent configs recursively.
@@ -100,6 +101,7 @@ class RecursiveAgentConfig:
                 k: v for k, v in self.environment_kwargs.items() if not callable(v)
             },
             "max_iterations": self.max_iterations,
+            "verbose": self.verbose,
         }
 
     @classmethod
@@ -132,4 +134,5 @@ class RecursiveAgentConfig:
             other_backend_kwargs=data.get("other_backend_kwargs"),
             environment_kwargs=data.get("environment_kwargs", {}),
             max_iterations=data.get("max_iterations", 10),
+            verbose=data.get("verbose", False),
         )

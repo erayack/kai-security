@@ -259,6 +259,8 @@ class RLM:
                     build_user_prompt(root_prompt, i, context_count, history_count)
                 ]
 
+                self.verbose.print_waiting(i + 1)
+
                 iteration: RLMIteration = self._completion_turn(
                     prompt=current_prompt,
                     lm_handler=lm_handler,
