@@ -93,6 +93,9 @@ class RecursiveAgent:
         """
         from ra.core.rlm import RLM
 
+        env_kwargs = dict(self.config.environment_kwargs)
+        env_kwargs["tools"] = self._build_tools()
+
         return RLM(
             depth=self.depth,
             max_depth=self.max_depth,
@@ -102,7 +105,7 @@ class RecursiveAgent:
             other_backend_kwargs=self.config.other_backend_kwargs,
             custom_system_prompt=self.config.system_prompt,
             environment="local",
-            environment_kwargs={"tools": self._build_tools()},
+            environment_kwargs=env_kwargs,
             max_iterations=self.config.max_iterations,
         )
 

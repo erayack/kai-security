@@ -128,11 +128,15 @@ class LocalREPL(NonIsolatedEnv):
         tools: dict[str, Any] | None = None,
         **kwargs,
     ):
+        factory = kwargs.pop("workspace_factory", None)
         super().__init__(persistent=persistent, depth=depth, **kwargs)
 
         self.lm_handler_address = lm_handler_address
         self.original_cwd = os.getcwd()
-        self.temp_dir = tempfile.mkdtemp(prefix=f"repl_env_{uuid.uuid4()}_")
+        if factory is not None:
+            self.temp_dir = factory()
+        else:
+            self.temp_dir = tempfile.mkdtemp(prefix=f"repl_env_{uuid.uuid4()}_")
         self._lock = threading.Lock()
         self._context_count: int = 0
         self._history_count: int = 0
