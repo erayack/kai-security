@@ -70,15 +70,18 @@ class TestExploitConfig:
         from kai.definitions import exploit_config
 
         names = [a.name for a in exploit_config.agents]
-        assert names == ["recon", "analyzer", "verifier", "fixer"]
+        assert names == [
+            "recon",
+            "analyzer",
+            "verifier",
+            "researcher",
+            "fixer",
+        ]
 
-    def test_root_tools(self) -> None:
+    def test_no_direct_tools(self) -> None:
         from kai.definitions import exploit_config
 
-        assert set(exploit_config.tools.keys()) == {
-            "search_web",
-            "read_url",
-        }
+        assert exploit_config.tools == {}
 
     def test_validation_passes(self) -> None:
         from kai.definitions import exploit_config
@@ -89,16 +92,22 @@ class TestExploitConfig:
         from kai.definitions import exploit_config
 
         recon = exploit_config.agents[0]
-        assert set(recon.tools.keys()) == {"search_code", "read_function"}
+        assert set(recon.tools.keys()) == {
+            "read_file",
+            "list_dir",
+            "search_files",
+            "run_shell",
+        }
 
     def test_analyzer_tools(self) -> None:
         from kai.definitions import exploit_config
 
         analyzer = exploit_config.agents[1]
         assert set(analyzer.tools.keys()) == {
-            "search_code",
-            "read_function",
-            "check_invariant",
+            "read_file",
+            "list_dir",
+            "search_files",
+            "run_shell",
         }
 
     def test_verifier_tools(self) -> None:
@@ -112,10 +121,19 @@ class TestExploitConfig:
             "run_shell",
         }
 
+    def test_researcher_tools(self) -> None:
+        from kai.definitions import exploit_config
+
+        researcher = exploit_config.agents[3]
+        assert set(researcher.tools.keys()) == {
+            "search_web",
+            "read_url",
+        }
+
     def test_fixer_tools(self) -> None:
         from kai.definitions import exploit_config
 
-        fixer = exploit_config.agents[3]
+        fixer = exploit_config.agents[4]
         assert set(fixer.tools.keys()) == {
             "read_file",
             "update_file",
@@ -147,8 +165,9 @@ class TestPrompts:
         from kai.definitions.exploit.prompt import (
             ANALYZER_PROMPT,
             FIXER_PROMPT,
-            ROOT_PROMPT,
             RECON_PROMPT,
+            RESEARCHER_PROMPT,
+            ROOT_PROMPT,
             VERIFIER_PROMPT,
         )
 
@@ -156,6 +175,7 @@ class TestPrompts:
             ROOT_PROMPT,
             RECON_PROMPT,
             ANALYZER_PROMPT,
+            RESEARCHER_PROMPT,
             VERIFIER_PROMPT,
             FIXER_PROMPT,
         ]:
@@ -168,6 +188,7 @@ class TestPrompts:
             "spawn_recon",
             "spawn_analyzer",
             "spawn_verifier",
+            "spawn_researcher",
             "spawn_fixer",
         ]:
             assert name in ROOT_PROMPT
