@@ -9,18 +9,13 @@ from typing import Any
 
 
 def read_file(path: str) -> str:
-    """Read and return the contents of a file."""
+    """Read a file."""
     with open(path) as f:
         return f.read()
 
 
 def list_dir(path: str, recursive: bool = False) -> list[str]:
-    """List entries in a directory.
-
-    Args:
-        path: Directory to list.
-        recursive: If True, walk the tree and return relative paths.
-    """
+    """List a directory. Use recursive=True to walk the tree."""
     if not recursive:
         return sorted(os.listdir(path))
 
@@ -35,10 +30,7 @@ def list_dir(path: str, recursive: bool = False) -> list[str]:
 
 
 def search_files(pattern: str, path: str) -> list[str]:
-    """Grep files under *path* for a regex pattern.
-
-    Returns a list of ``"<file>:<lineno>: <line>"`` strings.
-    """
+    """Grep for a regex pattern under path. Returns 'file:lineno: line' strings."""
     compiled = re.compile(pattern)
     results: list[str] = []
     for root, _dirs, files in os.walk(path):
@@ -55,15 +47,7 @@ def search_files(pattern: str, path: str) -> list[str]:
 
 
 def write_file(path: str, content: str) -> str:
-    """Write content to a file, creating parent directories as needed.
-
-    Args:
-        path: File path (absolute or relative to cwd).
-        content: String content to write.
-
-    Returns:
-        Confirmation message with the path written.
-    """
+    """Write content to a file, creating parent dirs as needed."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w") as f:
         f.write(content)
@@ -71,12 +55,7 @@ def write_file(path: str, content: str) -> str:
 
 
 def run_shell(command: str, cwd: str | None = None) -> dict[str, Any]:
-    """Run a shell command and return stdout/stderr/returncode.
-
-    Args:
-        command: Shell command string.
-        cwd: Working directory (defaults to current).
-    """
+    """Run a shell command. Returns {stdout, stderr, returncode}."""
     result = subprocess.run(
         command,
         shell=True,

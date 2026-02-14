@@ -72,10 +72,13 @@ class TestExploitConfig:
         names = [a.name for a in exploit_config.agents]
         assert names == ["recon", "analyzer", "verifier", "fixer"]
 
-    def test_no_direct_tools(self) -> None:
+    def test_root_tools(self) -> None:
         from kai.definitions import exploit_config
 
-        assert exploit_config.tools == {}
+        assert set(exploit_config.tools.keys()) == {
+            "search_web",
+            "read_url",
+        }
 
     def test_validation_passes(self) -> None:
         from kai.definitions import exploit_config
@@ -114,9 +117,12 @@ class TestExploitConfig:
 
         fixer = exploit_config.agents[3]
         assert set(fixer.tools.keys()) == {
-            "read_function",
-            "apply_patch",
-            "run_tests",
+            "read_file",
+            "update_file",
+            "insert_lines",
+            "delete_lines",
+            "list_dir",
+            "run_shell",
         }
 
     def test_tree_depth(self) -> None:
