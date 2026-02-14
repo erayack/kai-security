@@ -17,6 +17,8 @@ from dataclasses import replace
 from typing import Any
 
 from kai.definitions import exploit_config, setup_config
+from kai.definitions.exploit.tools import make_graph_tools
+from kai.dependency import TreeSitterBuilder
 from kai.workspace.integration import inject_workspace
 from kai.workspace.recipe import WorkspaceRecipe
 from ra.agents import RecursiveAgent, RecursiveAgentConfig
@@ -40,7 +42,15 @@ def run_exploit(recipe: WorkspaceRecipe, *, verbose: bool = False) -> str:
 
     Returns the exploit agent's final response.
     """
+    # Build dependency graph and bind as root tools
+    graph = TreeSitterBuilder().build(recipe.master_path)
+    graph_tools = make_graph_tools(graph)
+
     injected_config = inject_workspace(exploit_config, recipe, verbose=verbose)
+    injected_config = replace(
+        injected_config, tools={**injected_config.tools, **graph_tools}
+    )
+
     exploit_agent = RecursiveAgent(injected_config)
     result = exploit_agent.completion({"master_path": recipe.master_path})
     return result.response if hasattr(result, "response") else str(result)
