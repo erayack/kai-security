@@ -5,11 +5,19 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from kai.definitions.exploit.tools import (
+    _jina_request,
     delete_lines,
     insert_lines,
+    parallel_read_url,
+    parallel_search_web,
     read_file_hashed,
+    read_url,
+    search_web,
     update_file,
 )
 from kai.workspace.tools import (
@@ -160,7 +168,7 @@ class TestReadFileHashed:
     def test_content_preserved(self, tmp_path: Path) -> None:
         f = _write_sample(tmp_path)
         out = read_file_hashed(str(f))
-        contents = [l.split("|", 1)[1] for l in out.splitlines()]
+        contents = [ln.split("|", 1)[1] for ln in out.splitlines()]
         assert contents == SAMPLE.splitlines()
 
 
@@ -176,7 +184,7 @@ class TestUpdateFile:
     def test_range(self, tmp_path: Path) -> None:
         f = _write_sample(tmp_path)
         tagged = read_file_hashed(str(f))
-        refs = [l.split("|")[0] for l in tagged.splitlines()]
+        refs = [ln.split("|")[0] for ln in tagged.splitlines()]
         target = f"{refs[0]}-{refs[2]}"
         result = update_file(str(f), target, "replaced")
         assert "Updated" in result
@@ -223,7 +231,7 @@ class TestDeleteLines:
     def test_range(self, tmp_path: Path) -> None:
         f = _write_sample(tmp_path)
         tagged = read_file_hashed(str(f))
-        refs = [l.split("|")[0] for l in tagged.splitlines()]
+        refs = [ln.split("|")[0] for ln in tagged.splitlines()]
         target = f"{refs[1]}-{refs[2]}"
         result = delete_lines(str(f), target)
         assert "Deleted" in result
@@ -233,3 +241,149 @@ class TestDeleteLines:
         f = _write_sample(tmp_path)
         result = delete_lines(str(f), "1:zz")
         assert "Error" in result
+
+
+# ── Web tools ────────────────────────────────────────────────────
+
+
+def _mock_urlopen(body: str = "response body"):
+    """Return a mock context manager for urllib.request.urlopen."""
+    resp = MagicMock()
+    resp.read.return_value = body.encode("utf-8")
+    resp.__enter__ = lambda s: s
+    resp.__exit__ = MagicMock(return_value=False)
+    return resp
+
+
+class TestJinaRequest:
+    @patch("kai.definitions.exploit.tools.urllib.request.urlopen")
+    def test_returns_response(self, mock_open: MagicMock) -> None:
+        mock_open.return_value = _mock_urlopen("hello")
+        result = _jina_request("https://example.com")
+        assert result == "hello"
+        mock_open.assert_called_once()
+
+    @patch("kai.definitions.exploit.tools.urllib.request.urlopen")
+    def test_adds_auth_header(self, mock_open: MagicMock) -> None:
+        mock_open.return_value = _mock_urlopen()
+        with patch.dict(os.environ, {"JINA_API_KEY": "test-key"}):
+            _jina_request("https://example.com")
+        req = mock_open.call_args[0][0]
+        assert req.get_header("Authorization") == "Bearer test-key"
+
+    @patch("kai.definitions.exploit.tools.urllib.request.urlopen")
+    def test_adds_extra_headers(self, mock_open: MagicMock) -> None:
+        mock_open.return_value = _mock_urlopen()
+        with patch.dict(os.environ, {"JINA_API_KEY": ""}):
+            _jina_request("https://example.com", {"X-Custom": "val"})
+        req = mock_open.call_args[0][0]
+        assert req.get_header("X-custom") == "val"
+
+    @patch("kai.definitions.exploit.tools.urllib.request.urlopen")
+    def test_no_auth_without_key(self, mock_open: MagicMock) -> None:
+        mock_open.return_value = _mock_urlopen()
+        with patch.dict(os.environ, {"JINA_API_KEY": ""}):
+            _jina_request("https://example.com")
+        req = mock_open.call_args[0][0]
+        assert req.get_header("Authorization") is None
+
+    @patch("kai.definitions.exploit.tools.urllib.request.urlopen")
+    def test_network_error_returns_message(self, mock_open: MagicMock) -> None:
+        mock_open.side_effect = ConnectionError("refused")
+        result = _jina_request("https://example.com")
+        assert "[error]" in result
+        assert "ConnectionError" in result
+
+
+class TestSearchWeb:
+    @patch("kai.definitions.exploit.tools._jina_request")
+    def test_builds_url_and_headers(self, mock_req: MagicMock) -> None:
+        mock_req.return_value = "results"
+        result = search_web("reentrancy exploit")
+        assert result == "results"
+        url = mock_req.call_args[0][0]
+        assert url == "https://s.jina.ai/?q=reentrancy+exploit"
+        headers = mock_req.call_args[0][1]
+        assert headers == {"X-Respond-With": "no-content"}
+
+    @patch("kai.definitions.exploit.tools._jina_request")
+    def test_encodes_special_chars(self, mock_req: MagicMock) -> None:
+        mock_req.return_value = ""
+        search_web("CVE-2024-1234 & overflow")
+        url = mock_req.call_args[0][0]
+        # & and spaces encoded as query params (quote_plus)
+        assert url == "https://s.jina.ai/?q=CVE-2024-1234+%26+overflow"
+
+
+class TestReadUrl:
+    @patch("kai.definitions.exploit.tools._jina_request")
+    def test_builds_reader_url(self, mock_req: MagicMock) -> None:
+        mock_req.return_value = "# Page content"
+        result = read_url("https://example.com/page")
+        assert result == "# Page content"
+        url = mock_req.call_args[0][0]
+        assert "r.jina.ai" in url
+        assert "https://example.com/page" in url
+
+
+class TestParallelSearchWeb:
+    @patch("kai.definitions.exploit.tools._jina_request")
+    def test_returns_results_in_order(self, mock_req: MagicMock) -> None:
+        mock_req.side_effect = lambda url, *a, **kw: f"result for {url}"
+        results = parallel_search_web(["query1", "query2", "query3"])
+        assert len(results) == 3
+        assert "query1" in results[0]
+        assert "query3" in results[2]
+
+    @patch("kai.definitions.exploit.tools._jina_request")
+    def test_single_query(self, mock_req: MagicMock) -> None:
+        mock_req.return_value = "one"
+        results = parallel_search_web(["single"])
+        assert results == ["one"]
+
+
+class TestParallelReadUrl:
+    @patch("kai.definitions.exploit.tools._jina_request")
+    def test_returns_results_in_order(self, mock_req: MagicMock) -> None:
+        mock_req.side_effect = lambda url: f"content of {url}"
+        results = parallel_read_url(["https://a.com", "https://b.com"])
+        assert len(results) == 2
+        assert "a.com" in results[0]
+        assert "b.com" in results[1]
+
+    @patch("kai.definitions.exploit.tools._jina_request")
+    def test_single_url(self, mock_req: MagicMock) -> None:
+        mock_req.return_value = "page"
+        results = parallel_read_url(["https://x.com"])
+        assert results == ["page"]
+
+
+# ── Live web tests (require JINA_API_KEY) ────────────────────────
+
+
+def _load_jina_key() -> str:
+    """Load JINA_API_KEY from .env if not already set."""
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except ImportError:
+        pass
+    return os.environ.get("JINA_API_KEY", "")
+
+
+_has_jina_key = bool(_load_jina_key())
+
+
+@pytest.mark.skipif(not _has_jina_key, reason="JINA_API_KEY not set")
+class TestWebLive:
+    def test_search_web_returns_results(self) -> None:
+        result = search_web("python requests library")
+        assert len(result) > 0
+        assert "[error]" not in result
+
+    def test_read_url_returns_content(self) -> None:
+        result = read_url("https://httpbin.org/html")
+        assert len(result) > 0
+        assert "[error]" not in result
+        assert "Herman Melville" in result
