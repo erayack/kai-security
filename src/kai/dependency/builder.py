@@ -232,7 +232,8 @@ class TreeSitterBuilder:
                 f"Install tree-sitter-language-pack "
                 f"or tree-sitter-{lang}"
             )
-        parser.language = tree_sitter.Language(lang_module.language())
+        lang_fn = _get_language_fn(lang_module, lang)
+        parser.language = tree_sitter.Language(lang_fn())
         return parser
 
     # ------------------------------------------------------------------
@@ -744,6 +745,24 @@ def _find_child_by_type(node: Any, type_name: str) -> Optional[Any]:
         if child.type == type_name:
             return child
     return None
+
+
+def _get_language_fn(module: Any, lang: str) -> Any:
+    """Get the language() callable from a tree-sitter lang module.
+
+    Most packages expose ``language()``, but some (e.g.
+    tree-sitter-typescript) use ``language_<sublang>()``.
+    """
+    if hasattr(module, "language"):
+        return module.language
+    # e.g. language_typescript, language_tsx
+    lang_snake = lang.replace("-", "_")
+    fn = getattr(module, f"language_{lang_snake}", None)
+    if fn is not None:
+        return fn
+    raise ImportError(
+        f"Cannot find language() in {module.__name__}"
+    )
 
 
 def _import_lang_module(lang: str) -> Optional[Any]:
