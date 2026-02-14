@@ -6,7 +6,13 @@ import os
 import tempfile
 from pathlib import Path
 
-from kai.workspace.tools import list_dir, read_file, run_shell, search_files
+from kai.workspace.tools import (
+    list_dir,
+    read_file,
+    run_shell,
+    search_files,
+    write_file,
+)
 
 
 def _make_tree(tmp: str) -> None:
@@ -73,6 +79,25 @@ class TestSearchFiles:
             results = search_files(r"line\d_match", tmp)
             assert len(results) == 1
             assert "line2_match" in results[0]
+
+
+class TestWriteFile:
+    def test_writes_content(self, tmp_path: Path) -> None:
+        f = tmp_path / "out.txt"
+        result = write_file(str(f), "hello")
+        assert f.read_text() == "hello"
+        assert "5 chars" in result
+
+    def test_creates_parent_dirs(self, tmp_path: Path) -> None:
+        f = tmp_path / "a" / "b" / "deep.txt"
+        write_file(str(f), "nested")
+        assert f.read_text() == "nested"
+
+    def test_overwrites_existing(self, tmp_path: Path) -> None:
+        f = tmp_path / "x.txt"
+        f.write_text("old")
+        write_file(str(f), "new")
+        assert f.read_text() == "new"
 
 
 class TestRunShell:

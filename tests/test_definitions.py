@@ -103,8 +103,10 @@ class TestExploitConfig:
 
         verifier = exploit_config.agents[2]
         assert set(verifier.tools.keys()) == {
-            "run_exploit",
-            "read_function",
+            "read_file",
+            "write_file",
+            "list_dir",
+            "run_shell",
         }
 
     def test_fixer_tools(self) -> None:

@@ -54,6 +54,22 @@ def search_files(pattern: str, path: str) -> list[str]:
     return results
 
 
+def write_file(path: str, content: str) -> str:
+    """Write content to a file, creating parent directories as needed.
+
+    Args:
+        path: File path (absolute or relative to cwd).
+        content: String content to write.
+
+    Returns:
+        Confirmation message with the path written.
+    """
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as f:
+        f.write(content)
+    return f"Wrote {len(content)} chars to {path}"
+
+
 def run_shell(command: str, cwd: str | None = None) -> dict[str, Any]:
     """Run a shell command and return stdout/stderr/returncode.
 

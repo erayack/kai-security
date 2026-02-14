@@ -5,7 +5,7 @@ from __future__ import annotations
 from ra.agents.config import RecursiveAgentConfig
 
 from kai.definitions.setup.prompt import SYSTEM_PROMPT
-from kai.workspace.tools import list_dir, read_file, run_shell, search_files
+from kai.definitions.setup.tools import list_dir, read_file, run_shell, search_files
 
 config = RecursiveAgentConfig(
     name="setup",
