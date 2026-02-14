@@ -12,7 +12,7 @@ def _make_spawn_fn(
     config: RecursiveAgentConfig,
     parent_depth: int,
     max_depth: int,
-) -> Callable[[Any], str]:
+) -> Callable[..., str]:
     """Build a spawn closure for a sub-agent config.
 
     The closure creates a ``RecursiveAgent`` at ``parent_depth + 1``,
@@ -26,14 +26,14 @@ def _make_spawn_fn(
     """
     pending: list[Any] = []
 
-    def _spawn(data: Any) -> str:
+    def _spawn(**kwargs: Any) -> str:
         try:
             agent = RecursiveAgent(
                 config,
                 depth=parent_depth + 1,
                 max_depth=max_depth,
             )
-            result = agent.completion(data)
+            result = agent.completion(kwargs)
             if isinstance(result, str):
                 return result
             pending.append(result)
