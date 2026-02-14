@@ -2,9 +2,9 @@
 
 Usage::
 
-    uv run python -m kai.main setup --repo-path /path/to/target
-    uv run python -m kai.main exploit --input context.json
     uv run python -m kai.main pipeline --repo-path /path/to/target
+    uv run python -m kai.main pipeline --recipe recipe.json
+    uv run python -m kai.main agent setup --input '{"repo_path": "..."}'
 """
 
 from __future__ import annotations
@@ -35,14 +35,24 @@ def _parse_input(raw: str) -> str | dict[str, Any]:
         return raw
 
 
+def run_exploit(recipe: WorkspaceRecipe, *, verbose: bool = False) -> str:
+    """Run the exploit agent with a pre-built workspace recipe.
+
+    Returns the exploit agent's final response.
+    """
+    injected_config = inject_workspace(exploit_config, recipe, verbose=verbose)
+    exploit_agent = RecursiveAgent(injected_config)
+    result = exploit_agent.completion({"master_path": recipe.master_path})
+    return result.response if hasattr(result, "response") else str(result)
+
+
 def run_pipeline(repo_path: str, *, verbose: bool = False) -> str:
     """Run the full setup → exploit pipeline.
 
     1. Create a long-lived master_dir.
     2. Run the setup agent to build the repo and produce a recipe.
-    3. Inject workspace provisioning into the exploit config tree.
-    4. Run the exploit agent with workspace-injected config.
-    5. Clean up master_dir.
+    3. Run exploit with the resulting recipe.
+    4. Clean up master_dir.
 
     Returns the exploit agent's final response.
     """
@@ -60,23 +70,9 @@ def run_pipeline(repo_path: str, *, verbose: bool = False) -> str:
             else str(setup_result)
         )
 
-        # --- Step 2: deserialize recipe ---
+        # --- Step 2: deserialize recipe and run exploit ---
         recipe = WorkspaceRecipe.from_dict(json.loads(raw_response))
-
-        # --- Step 3: inject workspace into exploit config ---
-        exploit_cfg = replace(exploit_config, verbose=verbose)
-        injected_config = inject_workspace(exploit_cfg, recipe)
-
-        # --- Step 4: run exploit agent ---
-        exploit_agent = RecursiveAgent(injected_config)
-        exploit_result = exploit_agent.completion(
-            {"repo_path": repo_path, "master_dir": master_dir}
-        )
-        return (
-            exploit_result.response
-            if hasattr(exploit_result, "response")
-            else str(exploit_result)
-        )
+        return run_exploit(recipe, verbose=verbose)
     finally:
         shutil.rmtree(master_dir, ignore_errors=True)
 
@@ -125,10 +121,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # --- pipeline mode ---
     pipe_parser = sub.add_parser("pipeline", help="Run setup → exploit pipeline.")
-    pipe_parser.add_argument(
+    pipe_group = pipe_parser.add_mutually_exclusive_group(required=True)
+    pipe_group.add_argument(
         "--repo-path",
-        required=True,
-        help="Path to the target repository.",
+        help="Path to the target repository (runs setup first).",
+    )
+    pipe_group.add_argument(
+        "--recipe",
+        help="Path to a recipe JSON file (skips setup).",
     )
     pipe_parser.add_argument(
         "--verbose",
@@ -146,7 +146,12 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     if args.command == "pipeline":
-        print(run_pipeline(args.repo_path, verbose=args.verbose))
+        if args.recipe:
+            with open(args.recipe) as f:
+                recipe = WorkspaceRecipe.from_dict(json.load(f))
+            print(run_exploit(recipe, verbose=args.verbose))
+        else:
+            print(run_pipeline(args.repo_path, verbose=args.verbose))
         return
 
     if args.command == "agent":
