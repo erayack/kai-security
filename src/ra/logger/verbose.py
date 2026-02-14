@@ -53,32 +53,33 @@ def _to_str(value: Any) -> str:
 
 
 class VerbosePrinter:
-    """
-    Rich console printer for RLM verbose output.
+    """Rich console printer for RLM verbose output.
 
-    Displays beautiful, structured output showing the RLM's execution:
-    - Initial configuration panel
-    - Each iteration with response summaries
-    - Code execution with results
-    - Sub-calls to other models
+    Root agents (depth 0) get full panels.
+    Sub-agents (depth >= 1) get indented, prefixed output.
     """
 
-    def __init__(self, enabled: bool = True):
-        """
-        Initialize the verbose printer.
-
-        Args:
-            enabled: Whether verbose printing is enabled. If False, all methods are no-ops.
-        """
+    def __init__(self, enabled: bool = True, name: str = "", depth: int = 0) -> None:
         self.enabled = enabled
+        self.name = name
+        self.depth = depth
         self._console: Console | None = Console() if enabled else None
         self._iteration_count = 0
+        self._indent = "  │ " * depth
 
     @property
     def console(self) -> Console:
         """Return the console, raising if verbose is disabled."""
         assert self._console is not None
         return self._console
+
+    def _label(self) -> str:
+        """Short label like 'exploit' or 'recon [d1]'."""
+        if not self.name:
+            return "RLM"
+        if self.depth == 0:
+            return self.name
+        return f"{self.name} [d{self.depth}]"
 
     def print_header(
         self,
@@ -93,11 +94,16 @@ class VerbosePrinter:
         if not self.enabled:
             return
 
+        label = self._label()
+
         # Main title
         title = Text()
         title.append("◆ ", style=STYLE_ACCENT)
-        title.append("RLM", style=Style(color=COLORS["primary"], bold=True))
-        title.append(" ━ Recursive Language Model", style=STYLE_MUTED)
+        title.append(label, style=Style(color=COLORS["primary"], bold=True))
+        if self.depth > 0:
+            title.append(" ━ sub-agent", style=STYLE_MUTED)
+        else:
+            title.append(" ━ Recursive Language Model", style=STYLE_MUTED)
 
         # Configuration table
         config_table = Table(
@@ -177,9 +183,10 @@ class VerbosePrinter:
             return
 
         self._iteration_count = iteration
+        label = self._label()
 
         rule = Rule(
-            Text(f" Iteration {iteration} ", style=STYLE_PRIMARY),
+            Text(f" {label} · Iteration {iteration} ", style=STYLE_PRIMARY),
             style=COLORS["border"],
             characters="─",
         )
@@ -189,9 +196,12 @@ class VerbosePrinter:
         """Print a waiting indicator before the LLM call."""
         if not self.enabled:
             return
+        label = self._label()
         msg = Text()
+        msg.append(self._indent, style=STYLE_MUTED)
         msg.append("⏳ ", style=STYLE_ACCENT)
-        msg.append(f"Iteration {iteration}", style=STYLE_PRIMARY)
+        msg.append(f"{label}", style=STYLE_PRIMARY)
+        msg.append(f" · iter {iteration}", style=STYLE_MUTED)
         msg.append(" — waiting for LLM...", style=STYLE_MUTED)
         self.console.print(msg)
 
@@ -202,10 +212,13 @@ class VerbosePrinter:
         if not self.enabled:
             return
 
+        label = self._label()
+
         # Header with timing
         header = Text()
         header.append("◇ ", style=STYLE_ACCENT)
-        header.append("LLM Response", style=STYLE_PRIMARY)
+        header.append(f"{label} ", style=STYLE_PRIMARY)
+        header.append("response", style=STYLE_MUTED)
         if iteration_time:
             header.append(f"  ({iteration_time:.2f}s)", style=STYLE_MUTED)
 
@@ -233,10 +246,13 @@ class VerbosePrinter:
 
         result = code_block.result
 
+        label = self._label()
+
         # Header
         header = Text()
         header.append("▸ ", style=STYLE_SUCCESS)
-        header.append("Code Execution", style=Style(color=COLORS["success"], bold=True))
+        header.append(f"{label} ", style=Style(color=COLORS["success"], bold=True))
+        header.append("exec", style=STYLE_MUTED)
         if result.execution_time:
             header.append(f"  ({result.execution_time:.3f}s)", style=STYLE_MUTED)
 
@@ -349,10 +365,13 @@ class VerbosePrinter:
         if not self.enabled:
             return
 
+        label = self._label()
+
         # Title
         title = Text()
         title.append("★ ", style=STYLE_WARNING)
-        title.append("Final Answer", style=Style(color=COLORS["warning"], bold=True))
+        title.append(f"{label} ", style=Style(color=COLORS["warning"], bold=True))
+        title.append("final answer", style=STYLE_WARNING)
 
         # Answer content
         answer_text = Text(_to_str(answer), style=STYLE_TEXT)
@@ -389,6 +408,8 @@ class VerbosePrinter:
         summary_table.add_column("metric", style=STYLE_MUTED)
         summary_table.add_column("value", style=STYLE_ACCENT)
 
+        label = self._label()
+        summary_table.add_row("Agent", label)
         summary_table.add_row("Iterations", str(total_iterations))
         summary_table.add_row("Total Time", f"{total_time:.2f}s")
 

@@ -54,6 +54,7 @@ class RLM:
         logger: RecursiveAgentLogger | None = None,
         verbose: bool = False,
         persistent: bool = False,
+        name: str = "",
     ):
         """
         Args:
@@ -95,8 +96,9 @@ class RLM:
         self.system_prompt = (
             custom_system_prompt if custom_system_prompt else RLM_SYSTEM_PROMPT
         )
+        self.name = name
         self.logger = logger
-        self.verbose = VerbosePrinter(enabled=verbose)
+        self.verbose = VerbosePrinter(enabled=verbose, name=name, depth=depth)
 
         # Persistence support
         self.persistent = persistent
@@ -123,6 +125,8 @@ class RLM:
                 if environment_kwargs
                 else {},
                 other_backends=list(other_backends) if other_backends else None,
+                name=name,
+                depth=depth,
             )
             if self.logger:
                 self.logger.log_metadata(metadata)

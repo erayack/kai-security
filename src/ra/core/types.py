@@ -226,6 +226,8 @@ class RLMMetadata:
     environment_type: str
     environment_kwargs: dict[str, Any]
     other_backends: list[str] | None = None
+    name: str = ""
+    depth: int = 0
 
     def to_dict(self):
         return {
