@@ -1,3 +1,4 @@
+import ast
 import copy
 import io
 import json
@@ -357,17 +358,55 @@ class LocalREPL(NonIsolatedEnv):
         finally:
             os.chdir(old_cwd)
 
+    @staticmethod
+    def _split_last_expr(code: str) -> tuple[str, str | None]:
+        """Split code into body + trailing expression (if any).
+
+        If the last statement is a bare expression (e.g. a function
+        call whose return value isn't assigned), return (body, expr)
+        so the caller can ``eval()`` the expression and auto-print
+        the result — like interactive Python.
+        """
+        try:
+            tree = ast.parse(code)
+        except SyntaxError:
+            return code, None
+        if not tree.body:
+            return code, None
+        last = tree.body[-1]
+        if not isinstance(last, ast.Expr):
+            return code, None
+        lines = code.splitlines(keepends=True)
+        body = "".join(lines[: last.lineno - 1])
+        expr = "".join(lines[last.lineno - 1:]).strip()
+        return body, expr
+
     def execute_code(self, code: str) -> REPLResult:
-        """Execute code in the persistent namespace and return result."""
+        """Execute code in the persistent namespace and return result.
+
+        If the last statement is a bare expression, its return value
+        is auto-printed (like interactive Python / Jupyter).
+        """
         start_time = time.perf_counter()
 
         # Clear pending LLM calls from previous execution
         self._pending_llm_calls = []
 
+        body, last_expr = self._split_last_expr(code)
+
         with self._capture_output() as (stdout_buf, stderr_buf), self._temp_cwd():
             try:
                 combined = {**self.globals, **self.locals}
-                exec(code, combined, combined)
+
+                if body:
+                    exec(body, combined, combined)
+
+                if last_expr is not None:
+                    result = eval(last_expr, combined, combined)  # noqa: S307
+                    if result is not None:
+                        print(repr(result))
+                else:
+                    exec(code, combined, combined)
 
                 # Update locals with new variables
                 for key, value in combined.items():
