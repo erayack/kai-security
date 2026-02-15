@@ -6,6 +6,7 @@ Provides console output for debugging and understanding RLM execution.
 Uses a "Tokyo Night" inspired color theme.
 """
 
+import sys
 from typing import Any
 
 from rich.console import Console, Group
@@ -69,12 +70,18 @@ class VerbosePrinter:
         self.enabled = enabled
         self.name = name
         self.depth = depth
-        self._console: Console | None = Console() if enabled else None
+        # Use sys.__stdout__ so output bypasses any REPL stdout
+        # capture and streams to the terminal in real-time.
+        self._console: Console | None = (
+            Console(file=sys.__stdout__) if enabled else None
+        )
         self._file_console: Console | None = None
-        if log_file and depth == 0:
+        if log_file:
             self._log_fh = open(log_file, "a")  # noqa: SIM115
             self._file_console = Console(
-                file=self._log_fh, width=120, force_terminal=False,
+                file=self._log_fh,
+                width=120,
+                force_terminal=False,
             )
         self._iteration_count = 0
         self._indent = "  │ " * depth

@@ -51,11 +51,15 @@ def run_exploit(
     graph = TreeSitterBuilder().build(recipe.master_path)
     graph_tools = make_graph_tools(graph)
 
-    injected_config = inject_workspace(exploit_config, recipe, verbose=verbose)
+    injected_config = inject_workspace(
+        exploit_config,
+        recipe,
+        verbose=verbose,
+        log_file=log_file or None,
+    )
     injected_config = replace(
         injected_config,
         tools={**injected_config.tools, **graph_tools},
-        log_file=log_file,
     )
 
     exploit_agent = RecursiveAgent(injected_config)
@@ -186,7 +190,9 @@ def main(argv: list[str] | None = None) -> None:
         else:
             print(
                 run_pipeline(
-                    args.repo_path, verbose=args.verbose, log_file=log_file,
+                    args.repo_path,
+                    verbose=args.verbose,
+                    log_file=log_file,
                 )
             )
         return
