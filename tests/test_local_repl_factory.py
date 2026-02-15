@@ -1,4 +1,4 @@
-"""Tests for LocalREPL workspace_factory support."""
+"""Tests for LocalREPL workspace_factory and auto-print support."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+
+import pytest
 
 from ra.environments.local_repl import LocalREPL
 
@@ -77,3 +79,88 @@ class TestLocalREPLWorkspaceFactory:
         path = repl.temp_dir
         repl.cleanup()
         shutil.rmtree(path, ignore_errors=True)
+
+
+# ── _split_last_expr ─────────────────────────────────────────────
+
+
+class TestSplitLastExpr:
+    def test_bare_function_call(self) -> None:
+        body, expr = LocalREPL._split_last_expr('foo("bar")')
+        assert body == ""
+        assert expr == 'foo("bar")'
+
+    def test_trailing_expr_after_statement(self) -> None:
+        body, expr = LocalREPL._split_last_expr("x = 1\nx + 2")
+        assert body == "x = 1\n"
+        assert expr == "x + 2"
+
+    def test_assignment_not_split(self) -> None:
+        body, expr = LocalREPL._split_last_expr("x = foo()")
+        assert expr is None
+
+    def test_for_loop_not_split(self) -> None:
+        code = "for i in range(3):\n    print(i)"
+        _, expr = LocalREPL._split_last_expr(code)
+        assert expr is None
+
+    def test_syntax_error_returns_none(self) -> None:
+        _, expr = LocalREPL._split_last_expr("def foo(")
+        assert expr is None
+
+    def test_empty_code(self) -> None:
+        _, expr = LocalREPL._split_last_expr("")
+        assert expr is None
+
+    def test_multiline_expr(self) -> None:
+        code = "x = 1\nfoo(\n    x\n)"
+        body, expr = LocalREPL._split_last_expr(code)
+        assert body == "x = 1\n"
+        assert "foo(" in expr
+
+
+# ── Auto-print in execute_code ───────────────────────────────────
+
+
+class TestAutoprint:
+    @pytest.fixture()
+    def repl(self) -> LocalREPL:
+        r = LocalREPL()
+        yield r
+        r.cleanup()
+
+    def test_bare_expr_printed(self, repl: LocalREPL) -> None:
+        result = repl.execute_code("1 + 2")
+        assert "3" in result.stdout
+
+    def test_bare_function_call_printed(self, repl: LocalREPL) -> None:
+        result = repl.execute_code("len([1, 2, 3])")
+        assert "3" in result.stdout
+
+    def test_assignment_not_printed(self, repl: LocalREPL) -> None:
+        result = repl.execute_code("x = 10")
+        assert result.stdout.strip() == ""
+
+    def test_print_not_duplicated(self, repl: LocalREPL) -> None:
+        result = repl.execute_code("print(42)")
+        lines = [ln for ln in result.stdout.strip().splitlines() if ln]
+        assert lines == ["42"]
+
+    def test_none_result_not_printed(self, repl: LocalREPL) -> None:
+        result = repl.execute_code("print('hi')")
+        assert "None" not in result.stdout
+
+    def test_print_plus_trailing_expr(self, repl: LocalREPL) -> None:
+        result = repl.execute_code('print("first")\n42')
+        assert "first" in result.stdout
+        assert "42" in result.stdout
+
+    def test_tool_return_value_visible(self, repl: LocalREPL) -> None:
+        """Simulates the researcher bug: tool called without print()."""
+        repl.execute_code('def search_web(q): return f"results for {q}"')
+        result = repl.execute_code('search_web("CVE-2024")')
+        assert "results for CVE-2024" in result.stdout
+
+    def test_locals_still_updated(self, repl: LocalREPL) -> None:
+        repl.execute_code("x = [1, 2, 3]\nlen(x)")
+        assert repl.locals.get("x") == [1, 2, 3]
