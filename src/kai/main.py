@@ -37,7 +37,12 @@ def _parse_input(raw: str) -> str | dict[str, Any]:
         return raw
 
 
-def run_exploit(recipe: WorkspaceRecipe, *, verbose: bool = False) -> str:
+def run_exploit(
+    recipe: WorkspaceRecipe,
+    *,
+    verbose: bool = False,
+    log_file: str = "",
+) -> str:
     """Run the exploit agent with a pre-built workspace recipe.
 
     Returns the exploit agent's final response.
@@ -48,7 +53,9 @@ def run_exploit(recipe: WorkspaceRecipe, *, verbose: bool = False) -> str:
 
     injected_config = inject_workspace(exploit_config, recipe, verbose=verbose)
     injected_config = replace(
-        injected_config, tools={**injected_config.tools, **graph_tools}
+        injected_config,
+        tools={**injected_config.tools, **graph_tools},
+        log_file=log_file,
     )
 
     exploit_agent = RecursiveAgent(injected_config)
@@ -56,7 +63,12 @@ def run_exploit(recipe: WorkspaceRecipe, *, verbose: bool = False) -> str:
     return result.response if hasattr(result, "response") else str(result)
 
 
-def run_pipeline(repo_path: str, *, verbose: bool = False) -> str:
+def run_pipeline(
+    repo_path: str,
+    *,
+    verbose: bool = False,
+    log_file: str = "",
+) -> str:
     """Run the full setup → exploit pipeline.
 
     1. Create a long-lived master_dir.
@@ -82,7 +94,7 @@ def run_pipeline(repo_path: str, *, verbose: bool = False) -> str:
 
         # --- Step 2: deserialize recipe and run exploit ---
         recipe = WorkspaceRecipe.from_dict(json.loads(raw_response))
-        return run_exploit(recipe, verbose=verbose)
+        return run_exploit(recipe, verbose=verbose, log_file=log_file)
     finally:
         shutil.rmtree(master_dir, ignore_errors=True)
 
@@ -128,6 +140,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Print rich iteration output to console.",
     )
+    agent_parser.add_argument(
+        "--log-file",
+        default="",
+        help="Save full verbose log to this file.",
+    )
 
     # --- pipeline mode ---
     pipe_parser = sub.add_parser("pipeline", help="Run setup → exploit pipeline.")
@@ -146,6 +163,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Print rich iteration output to console.",
     )
+    pipe_parser.add_argument(
+        "--log-file",
+        default="",
+        help="Save full verbose log to this file.",
+    )
 
     return parser
 
@@ -156,12 +178,17 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     if args.command == "pipeline":
+        log_file = args.log_file
         if args.recipe:
             with open(args.recipe) as f:
                 recipe = WorkspaceRecipe.from_dict(json.load(f))
-            print(run_exploit(recipe, verbose=args.verbose))
+            print(run_exploit(recipe, verbose=args.verbose, log_file=log_file))
         else:
-            print(run_pipeline(args.repo_path, verbose=args.verbose))
+            print(
+                run_pipeline(
+                    args.repo_path, verbose=args.verbose, log_file=log_file,
+                )
+            )
         return
 
     if args.command == "agent":
@@ -179,6 +206,8 @@ def main(argv: list[str] | None = None) -> None:
         if args.max_iterations:
             overrides["max_iterations"] = args.max_iterations
         overrides["verbose"] = args.verbose
+        if args.log_file:
+            overrides["log_file"] = args.log_file
         config = replace(config, **overrides)
 
         # Resolve input
