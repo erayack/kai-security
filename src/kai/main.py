@@ -12,8 +12,11 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sys
 import tempfile
 from dataclasses import replace
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from kai.definitions import exploit_config, setup_config
@@ -22,6 +25,7 @@ from kai.dependency import TreeSitterBuilder
 from kai.workspace.integration import inject_workspace
 from kai.workspace.recipe import WorkspaceRecipe
 from ra.agents import RecursiveAgent, RecursiveAgentConfig
+from ra.core.types import RLMChatCompletion
 
 AGENTS: dict[str, RecursiveAgentConfig] = {
     "setup": setup_config,
@@ -37,15 +41,48 @@ def _parse_input(raw: str) -> str | dict[str, Any]:
         return raw
 
 
+def _save_result(
+    result: RLMChatCompletion,
+    output_path: str | None,
+) -> Path:
+    """Persist an agent result to a JSON file.
+
+    If *output_path* is None a timestamped file under ``output/`` is used.
+    Returns the path that was written.
+    """
+    if output_path is None:
+        out_dir = Path("output")
+        out_dir.mkdir(exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        dest = out_dir / f"run_{ts}.json"
+    else:
+        dest = Path(output_path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        exploits = json.loads(result.response)
+    except (json.JSONDecodeError, TypeError):
+        exploits = result.response
+
+    payload = {
+        "model": result.root_model,
+        "execution_time": result.execution_time,
+        "usage": result.usage_summary.to_dict(),
+        "result": exploits,
+    }
+    dest.write_text(json.dumps(payload, indent=2))
+    return dest
+
+
 def run_exploit(
     recipe: WorkspaceRecipe,
     *,
     verbose: bool = False,
     log_file: str = "",
-) -> str:
+) -> RLMChatCompletion:
     """Run the exploit agent with a pre-built workspace recipe.
 
-    Returns the exploit agent's final response.
+    Returns the full ``RLMChatCompletion`` from the exploit agent.
     """
     # Build dependency graph and bind as root tools
     graph = TreeSitterBuilder().build(recipe.master_path)
@@ -63,8 +100,7 @@ def run_exploit(
     )
 
     exploit_agent = RecursiveAgent(injected_config)
-    result = exploit_agent.completion({"master_path": recipe.master_path})
-    return result.response if hasattr(result, "response") else str(result)
+    return exploit_agent.completion({"master_path": recipe.master_path})
 
 
 def run_pipeline(
@@ -72,7 +108,7 @@ def run_pipeline(
     *,
     verbose: bool = False,
     log_file: str = "",
-) -> str:
+) -> RLMChatCompletion:
     """Run the full setup → exploit pipeline.
 
     1. Create a long-lived master_dir.
@@ -80,7 +116,7 @@ def run_pipeline(
     3. Run exploit with the resulting recipe.
     4. Clean up master_dir.
 
-    Returns the exploit agent's final response.
+    Returns the full ``RLMChatCompletion`` from the exploit agent.
     """
     master_dir = tempfile.mkdtemp(prefix="kai_master_")
     try:
@@ -149,6 +185,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default="",
         help="Save full verbose log to this file.",
     )
+    agent_parser.add_argument(
+        "--output",
+        "-o",
+        default=None,
+        help=("Path to save result JSON (default: output/run_<timestamp>.json)."),
+    )
 
     # --- pipeline mode ---
     pipe_parser = sub.add_parser("pipeline", help="Run setup → exploit pipeline.")
@@ -172,6 +214,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default="",
         help="Save full verbose log to this file.",
     )
+    pipe_parser.add_argument(
+        "--output",
+        "-o",
+        default=None,
+        help=("Path to save result JSON (default: output/run_<timestamp>.json)."),
+    )
 
     return parser
 
@@ -186,15 +234,16 @@ def main(argv: list[str] | None = None) -> None:
         if args.recipe:
             with open(args.recipe) as f:
                 recipe = WorkspaceRecipe.from_dict(json.load(f))
-            print(run_exploit(recipe, verbose=args.verbose, log_file=log_file))
+            result = run_exploit(recipe, verbose=args.verbose, log_file=log_file)
         else:
-            print(
-                run_pipeline(
-                    args.repo_path,
-                    verbose=args.verbose,
-                    log_file=log_file,
-                )
+            result = run_pipeline(
+                args.repo_path,
+                verbose=args.verbose,
+                log_file=log_file,
             )
+        print(result.response)
+        dest = _save_result(result, args.output)
+        print(f"Result saved to {dest}", file=sys.stderr)
         return
 
     if args.command == "agent":
@@ -226,8 +275,9 @@ def main(argv: list[str] | None = None) -> None:
 
         agent = RecursiveAgent(config)
         result = agent.completion(data)
-        response = result.response if hasattr(result, "response") else str(result)
-        print(response)
+        print(result.response)
+        dest = _save_result(result, args.output)
+        print(f"Result saved to {dest}", file=sys.stderr)
         return
 
     parser.print_help()

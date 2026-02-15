@@ -65,11 +65,35 @@ uv run python -m kai.main agent exploit --input '{"master_path": "/tmp/master"}'
 
 | Flag | Description |
 |---|---|
+| `--output PATH`, `-o` | Save result JSON to PATH (default: `output/run_<timestamp>.json`) |
 | `--verbose` | Rich console output showing each iteration |
 | `--log-file PATH` | Save verbose output to a file |
 | `--backend NAME` | Override LLM backend (agent mode) |
 | `--model NAME` | Override model name (agent mode) |
 | `--max-iterations N` | Override iteration budget (agent mode) |
+
+### Output
+
+Results are always saved to disk as JSON. By default they go to `output/run_<timestamp>.json`. Use `--output` / `-o` to choose a custom path:
+
+```bash
+# Default — writes to output/run_20250101T120000Z.json
+uv run python -m kai.main pipeline --repo-path /path/to/target
+
+# Custom path
+uv run python -m kai.main pipeline --repo-path /path/to/target -o results/my_run.json
+```
+
+The JSON file contains:
+
+```json
+{
+  "model": "...",
+  "execution_time": 123.4,
+  "usage": { "model_usage_summaries": { ... } },
+  "result": [ ... ]
+}
+```
 
 ## Architecture
 
