@@ -100,7 +100,10 @@ class RLM:
         self.name = name
         self.logger = logger
         self.verbose = VerbosePrinter(
-            enabled=verbose, name=name, depth=depth, log_file=log_file,
+            enabled=verbose,
+            name=name,
+            depth=depth,
+            log_file=log_file,
         )
 
         # Persistence support
