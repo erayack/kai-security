@@ -53,6 +53,7 @@ class RLM:
         other_backend_kwargs: list[dict[str, Any]] | None = None,
         logger: RecursiveAgentLogger | None = None,
         verbose: bool = False,
+        log_file: str = "",
         persistent: bool = False,
         name: str = "",
     ):
@@ -98,7 +99,9 @@ class RLM:
         )
         self.name = name
         self.logger = logger
-        self.verbose = VerbosePrinter(enabled=verbose, name=name, depth=depth)
+        self.verbose = VerbosePrinter(
+            enabled=verbose, name=name, depth=depth, log_file=log_file,
+        )
 
         # Persistence support
         self.persistent = persistent
@@ -269,6 +272,7 @@ class RLM:
                     prompt=current_prompt,
                     lm_handler=lm_handler,
                     environment=environment,
+                    iteration_num=i + 1,
                 )
 
                 # Collect child usage from spawn calls
@@ -285,9 +289,6 @@ class RLM:
                 # If logger is used, log the iteration.
                 if self.logger:
                     self.logger.log(iteration)
-
-                # Verbose output for this iteration
-                self.verbose.print_iteration(iteration, i + 1)
 
                 if final_answer is not None:
                     time_end = time.perf_counter()
@@ -345,6 +346,7 @@ class RLM:
         prompt: str | dict[str, Any],
         lm_handler: LMHandler,
         environment: BaseEnv,
+        iteration_num: int = 0,
     ) -> RLMIteration:
         """
         Perform a single iteration of the RLM, including prompting the model
@@ -352,12 +354,28 @@ class RLM:
         """
         iter_start = time.perf_counter()
         response = lm_handler.completion(prompt)  # type: ignore[arg-type]
+        llm_time = time.perf_counter() - iter_start
+
+        # Print LLM response immediately
+        self.verbose.print_iteration_start(iteration_num)
+        self.verbose.print_completion(response, llm_time)
+
         code_block_strs = find_code_blocks(response)
         code_blocks = []
 
         for code_block_str in code_block_strs:
+            self.verbose.print_pre_execution(code_block_str)
             code_result: REPLResult = environment.execute_code(code_block_str)
-            code_blocks.append(CodeBlock(code=code_block_str, result=code_result))
+            cb = CodeBlock(code=code_block_str, result=code_result)
+            code_blocks.append(cb)
+            self.verbose.print_code_execution(cb)
+            for call in cb.result.rlm_calls:
+                self.verbose.print_subcall(
+                    model=call.root_model,
+                    prompt_preview=str(call.prompt) if call.prompt else "",
+                    response_preview=str(call.response) if call.response else "",
+                    execution_time=call.execution_time,
+                )
 
         iteration_time = time.perf_counter() - iter_start
         return RLMIteration(

@@ -59,11 +59,23 @@ class VerbosePrinter:
     Sub-agents (depth >= 1) get indented, prefixed output.
     """
 
-    def __init__(self, enabled: bool = True, name: str = "", depth: int = 0) -> None:
+    def __init__(
+        self,
+        enabled: bool = True,
+        name: str = "",
+        depth: int = 0,
+        log_file: str = "",
+    ) -> None:
         self.enabled = enabled
         self.name = name
         self.depth = depth
         self._console: Console | None = Console() if enabled else None
+        self._file_console: Console | None = None
+        if log_file and depth == 0:
+            self._log_fh = open(log_file, "a")  # noqa: SIM115
+            self._file_console = Console(
+                file=self._log_fh, width=120, force_terminal=False,
+            )
         self._iteration_count = 0
         self._indent = "  │ " * depth
 
@@ -72,6 +84,13 @@ class VerbosePrinter:
         """Return the console, raising if verbose is disabled."""
         assert self._console is not None
         return self._console
+
+    def _print(self, *args: Any, **kwargs: Any) -> None:
+        """Print to both terminal and log file (if set)."""
+        if self._console:
+            self._console.print(*args, **kwargs)
+        if self._file_console:
+            self._file_console.print(*args, **kwargs)
 
     def _label(self) -> str:
         """Short label like 'exploit' or 'recon [d1]'."""
@@ -156,9 +175,9 @@ class VerbosePrinter:
             padding=(1, 2),
         )
 
-        self.console.print()
-        self.console.print(panel)
-        self.console.print()
+        self._print()
+        self._print(panel)
+        self._print()
 
     def print_metadata(self, metadata: RLMMetadata) -> None:
         """Print RLM metadata as header."""
@@ -190,7 +209,7 @@ class VerbosePrinter:
             style=COLORS["border"],
             characters="─",
         )
-        self.console.print(rule)
+        self._print(rule)
 
     def print_waiting(self, iteration: int) -> None:
         """Print a waiting indicator before the LLM call."""
@@ -203,7 +222,7 @@ class VerbosePrinter:
         msg.append(f"{label}", style=STYLE_PRIMARY)
         msg.append(f" · iter {iteration}", style=STYLE_MUTED)
         msg.append(" — waiting for LLM...", style=STYLE_MUTED)
-        self.console.print(msg)
+        self._print(msg)
 
     def print_completion(
         self, response: Any, iteration_time: float | None = None
@@ -237,7 +256,20 @@ class VerbosePrinter:
             border_style=COLORS["muted"],
             padding=(0, 1),
         )
-        self.console.print(panel)
+        self._print(panel)
+
+    def print_pre_execution(self, code: str) -> None:
+        """Print a message before code execution starts."""
+        if not self.enabled:
+            return
+
+        label = self._label()
+        msg = Text()
+        msg.append(self._indent, style=STYLE_MUTED)
+        msg.append("▸ ", style=STYLE_SUCCESS)
+        msg.append(f"{label}", style=Style(color=COLORS["success"], bold=True))
+        msg.append(" · executing code...", style=STYLE_MUTED)
+        self._print(msg)
 
     def print_code_execution(self, code_block: CodeBlock) -> None:
         """Print code execution details."""
@@ -296,7 +328,7 @@ class VerbosePrinter:
             border_style=COLORS["success"],
             padding=(0, 1),
         )
-        self.console.print(panel)
+        self._print(panel)
 
     def print_subcall(
         self,
@@ -331,7 +363,7 @@ class VerbosePrinter:
             border_style=COLORS["secondary"],
             padding=(0, 1),
         )
-        self.console.print(panel)
+        self._print(panel)
 
     def print_iteration(self, iteration: RLMIteration, iteration_num: int) -> None:
         """
@@ -384,9 +416,9 @@ class VerbosePrinter:
             padding=(1, 2),
         )
 
-        self.console.print()
-        self.console.print(panel)
-        self.console.print()
+        self._print()
+        self._print(panel)
+        self._print()
 
     def print_summary(
         self,
@@ -427,8 +459,8 @@ class VerbosePrinter:
                 summary_table.add_row("Output Tokens", f"{total_output:,}")
 
         # Wrap in rule
-        self.console.print()
-        self.console.print(Rule(style=COLORS["border"], characters="═"))
-        self.console.print(summary_table, justify="center")
-        self.console.print(Rule(style=COLORS["border"], characters="═"))
-        self.console.print()
+        self._print()
+        self._print(Rule(style=COLORS["border"], characters="═"))
+        self._print(summary_table, justify="center")
+        self._print(Rule(style=COLORS["border"], characters="═"))
+        self._print()

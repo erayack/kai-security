@@ -108,6 +108,7 @@ class RecursiveAgent:
             environment_kwargs=env_kwargs,
             max_iterations=self.config.max_iterations,
             verbose=self.config.verbose,
+            log_file=self.config.log_file,
             name=self.config.name,
         )
 

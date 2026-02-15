@@ -31,6 +31,7 @@ class RecursiveAgentConfig:
     environment_kwargs: dict[str, Any] = field(default_factory=dict)
     max_iterations: int = 10
     verbose: bool = False
+    log_file: str = ""
 
     def validate(self) -> None:
         """Validate this config and all sub-agent configs recursively.
