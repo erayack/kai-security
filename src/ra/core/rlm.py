@@ -394,8 +394,15 @@ class RLM:
         """
         current_prompt = message_history + [
             {
-                "role": "assistant",
-                "content": "Please provide a final answer to the user's question based on the information provided.",
+                "role": "user",
+                "content": (
+                    "You have run out of iterations. Provide ONLY "
+                    "your final result — no conversation log, no "
+                    "intermediate steps, no explanation of your "
+                    "process. If you computed a result in your REPL, "
+                    "output just the result data. If you have partial "
+                    "findings, summarize them concisely."
+                ),
             }
         ]
         response = lm_handler.completion(current_prompt)
