@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Callable
 
 from ra.agents.config import RecursiveAgentConfig
@@ -25,11 +26,16 @@ def _make_spawn_fn(
     ``RLMChatCompletion`` so the parent REPL can drain token usage.
     """
     pending: list[Any] = []
+    call_count = [0]  # mutable counter shared across calls
 
     def _spawn(**kwargs: Any) -> str:
+        call_count[0] += 1
+        indexed_config = config
+        if call_count[0] > 1:
+            indexed_config = replace(config, name=f"{config.name}#{call_count[0]}")
         try:
             agent = RecursiveAgent(
-                config,
+                indexed_config,
                 depth=parent_depth + 1,
                 max_depth=max_depth,
             )
