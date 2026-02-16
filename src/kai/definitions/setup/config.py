@@ -18,5 +18,5 @@ config = RecursiveAgentConfig(
     },
     backend="openrouter",
     backend_kwargs={"model_name": "minimax/minimax-m2.5"},
-    max_iterations=15,
+    max_iterations=30,
 )

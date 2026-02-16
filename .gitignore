@@ -45,7 +45,7 @@ benchmark_aggregates.json
 benchmark_metrics.csv
 openrouter_activity_*.csv
 actual_costs_analysis.json
-run.log
+*.log
 
 # repos/
 repos/

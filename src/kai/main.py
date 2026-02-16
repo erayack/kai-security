@@ -118,6 +118,7 @@ def run_pipeline(
 
     Returns the full ``RLMChatCompletion`` from the exploit agent.
     """
+    repo_path = str(Path(repo_path).resolve())
     master_dir = tempfile.mkdtemp(prefix="kai_master_")
     try:
         # --- Step 1: run setup agent ---
