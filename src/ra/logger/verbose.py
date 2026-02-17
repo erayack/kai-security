@@ -7,6 +7,7 @@ Uses a "Tokyo Night" inspired color theme.
 """
 
 import sys
+from pathlib import Path
 from typing import Any
 
 from rich.console import Console, Group
@@ -77,6 +78,7 @@ class VerbosePrinter:
         )
         self._file_console: Console | None = None
         if log_file:
+            Path(log_file).parent.mkdir(parents=True, exist_ok=True)
             self._log_fh = open(log_file, "a")  # noqa: SIM115
             self._file_console = Console(
                 file=self._log_fh,

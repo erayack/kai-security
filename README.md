@@ -95,6 +95,20 @@ The JSON file contains:
 }
 ```
 
+## Supported Languages
+
+The dependency graph indexes source files using [tree-sitter](https://tree-sitter.github.io/) grammars. The following languages are supported:
+
+| Language | Extensions |
+|---|---|
+| Solidity | `.sol` |
+| Rust | `.rs` |
+| Python | `.py` |
+| JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` |
+| TypeScript | `.ts`, `.tsx`, `.mts`, `.cts` |
+| Go | `.go` |
+| C | `.c`, `.h` |
+
 ## Architecture
 
 ```

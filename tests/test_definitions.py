@@ -47,7 +47,7 @@ class TestSetupConfig:
     def test_max_iterations(self) -> None:
         from kai.definitions import setup_config
 
-        assert setup_config.max_iterations == 15
+        assert setup_config.max_iterations == 30
 
     def test_no_sub_agents(self) -> None:
         from kai.definitions import setup_config
