@@ -192,12 +192,12 @@ class LocalREPL(NonIsolatedEnv):
             return json.dumps(value)
         return str(value)
 
-    def _llm_query(self, prompt: str, model: str | None = None) -> str:
+    def _llm_query(
+        self, prompt: str, model: str | None = None, *, _retries: int = 1
+    ) -> str:
         """Query the LM via socket connection to the handler.
 
-        Args:
-            prompt: The prompt to send to the LM.
-            model: Optional model name to use (if handler has multiple clients).
+        Retries once on failure or empty response.
         """
         if self.lm_handler_address is None:
             return "Error: No LM handler configured"
@@ -207,19 +207,22 @@ class LocalREPL(NonIsolatedEnv):
             response = send_lm_request(self.lm_handler_address, request)
 
             if not response.success:
+                if _retries > 0:
+                    return self._llm_query(prompt, model, _retries=0)
                 return f"Error: {response.error}"
 
             assert response.chat_completion is not None
-            # Track this LLM call
-            self._pending_llm_calls.append(
-                response.chat_completion,
-            )
+            self._pending_llm_calls.append(response.chat_completion)
 
             text = response.chat_completion.response
             if not text:
+                if _retries > 0:
+                    return self._llm_query(prompt, model, _retries=0)
                 return "Error: LLM returned empty response"
             return text
         except Exception as e:
+            if _retries > 0:
+                return self._llm_query(prompt, model, _retries=0)
             return f"Error: LM query failed - {e}"
 
     def _llm_query_batched(
