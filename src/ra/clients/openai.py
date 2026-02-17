@@ -17,6 +17,13 @@ DEFAULT_OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 DEFAULT_VERCEL_API_KEY = os.getenv("AI_GATEWAY_API_KEY")
 DEFAULT_PRIME_INTELLECT_BASE_URL = "https://api.pinference.ai/api/v1/"
 
+OPENROUTER_APP_URL = os.getenv("OPENROUTER_APP_URL", "https://kai.dria.co")
+OPENROUTER_APP_TITLE = os.getenv("OPENROUTER_APP_TITLE", "Kai")
+_OPENROUTER_HEADERS = {
+    "HTTP-Referer": OPENROUTER_APP_URL,
+    "X-Title": OPENROUTER_APP_TITLE,
+}
+
 
 class OpenAIClient(BaseLM):
     """
@@ -41,8 +48,21 @@ class OpenAIClient(BaseLM):
                 api_key = DEFAULT_VERCEL_API_KEY
 
         # For vLLM, set base_url to local vLLM server address.
-        self.client = openai.OpenAI(api_key=api_key, base_url=base_url)
-        self.async_client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
+        extra_headers = (
+            _OPENROUTER_HEADERS
+            if base_url == "https://openrouter.ai/api/v1"
+            else None
+        )
+        self.client = openai.OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            default_headers=extra_headers,
+        )
+        self.async_client = openai.AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            default_headers=extra_headers,
+        )
         self.model_name = model_name
 
         # Per-model usage tracking
