@@ -84,6 +84,9 @@ def run_exploit(
 
     Returns the full ``RLMChatCompletion`` from the exploit agent.
     """
+    if log_file:
+        log_file = str(Path(log_file).resolve())
+
     # Build dependency graph and bind as root tools
     graph = TreeSitterBuilder().build(recipe.master_path)
     graph_tools = make_graph_tools(graph)
@@ -263,7 +266,7 @@ def main(argv: list[str] | None = None) -> None:
             overrides["max_iterations"] = args.max_iterations
         overrides["verbose"] = args.verbose
         if args.log_file:
-            overrides["log_file"] = args.log_file
+            overrides["log_file"] = str(Path(args.log_file).resolve())
         config = replace(config, **overrides)
 
         # Resolve input
