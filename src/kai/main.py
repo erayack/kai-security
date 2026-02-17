@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from dataclasses import replace
@@ -25,7 +28,9 @@ from kai.dependency import TreeSitterBuilder
 from kai.workspace.integration import inject_workspace
 from kai.workspace.recipe import WorkspaceRecipe
 from ra.agents import RecursiveAgent, RecursiveAgentConfig
-from ra.core.types import RLMChatCompletion
+from ra.core.types import RLMChatCompletion, UsageSummary
+
+log = logging.getLogger(__name__)
 
 AGENTS: dict[str, RecursiveAgentConfig] = {
     "setup": setup_config,
@@ -74,13 +79,131 @@ def _save_result(
     return dest
 
 
+_BUILD_COMMANDS: list[tuple[str, list[str]]] = [
+    ("foundry.toml", ["forge", "build"]),
+    ("Cargo.toml", ["cargo", "build"]),
+    ("package.json", ["npm", "run", "build"]),
+]
+
+
+def _detect_build_cmd(repo: str) -> list[str] | None:
+    """Return the build command for *repo*, or ``None`` if unknown."""
+    for marker, cmd in _BUILD_COMMANDS:
+        if (Path(repo) / marker).exists():
+            return cmd
+    return None
+
+
+def _apply_fixes(
+    master_path: str,
+    findings: list[dict[str, Any]],
+    round_num: int,
+) -> list[dict[str, Any]]:
+    """Apply patches from *findings* and return the subset that succeeded.
+
+    Creates a branch, applies each patch individually, commits, and
+    runs a build check.  On build failure the commit is rolled back
+    and an empty list is returned.
+    """
+    branch = f"fix/round-{round_num}"
+    run = subprocess.run
+
+    # Create a fix branch
+    run(
+        ["git", "checkout", "-b", branch],
+        cwd=master_path,
+        capture_output=True,
+    )
+
+    applied: list[dict[str, Any]] = []
+    for finding in findings:
+        patch = finding.get("patch", "")
+        if not patch:
+            continue
+        try:
+            fd, tmp_str = tempfile.mkstemp(suffix=".patch")
+            tmp = Path(tmp_str)
+            os.close(fd)
+            tmp.write_text(patch)
+            res = run(
+                ["git", "apply", str(tmp)],
+                cwd=master_path,
+                capture_output=True,
+            )
+            if res.returncode == 0:
+                applied.append(finding)
+            else:
+                log.warning(
+                    "Patch for %s failed: %s",
+                    finding.get("hypothesis", "?"),
+                    res.stderr.decode(errors="replace").strip(),
+                )
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    if not applied:
+        run(["git", "checkout", "-"], cwd=master_path, capture_output=True)
+        run(
+            ["git", "branch", "-D", branch],
+            cwd=master_path,
+            capture_output=True,
+        )
+        return []
+
+    # Commit the applied patches
+    run(["git", "add", "-A"], cwd=master_path, capture_output=True)
+    run(
+        ["git", "commit", "-m", f"Round {round_num} fixes"],
+        cwd=master_path,
+        capture_output=True,
+    )
+
+    # Build check
+    build_cmd = _detect_build_cmd(master_path)
+    if build_cmd:
+        res = run(build_cmd, cwd=master_path, capture_output=True)
+        if res.returncode != 0:
+            log.warning(
+                "Build failed after round %d fixes, rolling back",
+                round_num,
+            )
+            run(
+                ["git", "reset", "--hard", "HEAD~1"],
+                cwd=master_path,
+                capture_output=True,
+            )
+            run(
+                ["git", "checkout", "-"],
+                cwd=master_path,
+                capture_output=True,
+            )
+            run(
+                ["git", "branch", "-D", branch],
+                cwd=master_path,
+                capture_output=True,
+            )
+            return []
+
+    return applied
+
+
 def run_exploit(
     recipe: WorkspaceRecipe,
     *,
     verbose: bool = False,
     log_file: str = "",
+    instructions: str = "",
+    prior_findings: list[dict[str, Any]] | None = None,
 ) -> RLMChatCompletion:
     """Run the exploit agent with a pre-built workspace recipe.
+
+    Parameters
+    ----------
+    instructions:
+        Free-text guidance passed through to the exploit agent context.
+    prior_findings:
+        Already-known vulnerabilities from earlier rounds.  The agent
+        is told not to re-report these and to focus on new bugs.
 
     Returns the full ``RLMChatCompletion`` from the exploit agent.
     """
@@ -102,8 +225,14 @@ def run_exploit(
         tools={**injected_config.tools, **graph_tools},
     )
 
+    context: dict[str, Any] = {"master_path": recipe.master_path}
+    if instructions:
+        context["instructions"] = instructions
+    if prior_findings:
+        context["prior_findings"] = prior_findings
+
     exploit_agent = RecursiveAgent(injected_config)
-    return exploit_agent.completion({"master_path": recipe.master_path})
+    return exploit_agent.completion(context)
 
 
 def run_pipeline(
@@ -111,18 +240,21 @@ def run_pipeline(
     *,
     verbose: bool = False,
     log_file: str = "",
+    instructions: str = "",
+    max_rounds: int = 1,
 ) -> RLMChatCompletion:
     """Run the full setup → exploit pipeline.
 
     1. Create a long-lived master_dir.
     2. Run the setup agent to build the repo and produce a recipe.
-    3. Run exploit with the resulting recipe.
-    4. Clean up master_dir.
+    3. Loop up to *max_rounds* times: run exploit, apply fixes, repeat.
+    4. Clean up master_dir on success (preserved on failure).
 
-    Returns the full ``RLMChatCompletion`` from the exploit agent.
+    Returns a merged ``RLMChatCompletion`` containing all findings.
     """
     repo_path = str(Path(repo_path).resolve())
     master_dir = tempfile.mkdtemp(prefix="kai_master_")
+    succeeded = False
     try:
         # --- Step 1: run setup agent ---
         setup_cfg = replace(setup_config, verbose=verbose)
@@ -136,11 +268,101 @@ def run_pipeline(
             else str(setup_result)
         )
 
-        # --- Step 2: deserialize recipe and run exploit ---
+        # --- Step 2: deserialize recipe ---
         recipe = WorkspaceRecipe.from_dict(json.loads(raw_response))
-        return run_exploit(recipe, verbose=verbose, log_file=log_file)
+
+        # --- Step 3: iterative exploit loop ---
+        result = _run_exploit_loop(
+            recipe,
+            verbose=verbose,
+            log_file=log_file,
+            instructions=instructions,
+            max_rounds=max_rounds,
+        )
+        succeeded = True
+        return result
     finally:
-        shutil.rmtree(master_dir, ignore_errors=True)
+        if succeeded:
+            shutil.rmtree(master_dir, ignore_errors=True)
+        else:
+            log.warning(
+                "Preserving workspace for debugging: %s",
+                master_dir,
+            )
+
+
+def _run_exploit_loop(
+    recipe: WorkspaceRecipe,
+    *,
+    verbose: bool = False,
+    log_file: str = "",
+    instructions: str = "",
+    max_rounds: int = 1,
+) -> RLMChatCompletion:
+    """Run up to *max_rounds* of exploit → fix → re-audit."""
+    all_findings: list[dict[str, Any]] = []
+    fixed_findings: list[dict[str, Any]] = []
+    last_result: RLMChatCompletion | None = None
+    merged_usage = UsageSummary(model_usage_summaries={})
+    total_time = 0.0
+
+    for round_num in range(1, max_rounds + 1):
+        # Per-round log file
+        if log_file and max_rounds > 1:
+            stem = Path(log_file).stem
+            suffix = Path(log_file).suffix
+            parent = Path(log_file).parent
+            round_log = str(parent / f"{stem}_round{round_num}{suffix}")
+        else:
+            round_log = log_file
+
+        result = run_exploit(
+            recipe,
+            verbose=verbose,
+            log_file=round_log,
+            instructions=instructions,
+            prior_findings=fixed_findings or None,
+        )
+        last_result = result
+        merged_usage = merged_usage.merge(result.usage_summary)
+        total_time += result.execution_time
+
+        # Save intermediate so no work is lost
+        _save_result(result, None)
+
+        # Parse new findings
+        try:
+            new_findings = json.loads(result.response)
+        except (json.JSONDecodeError, TypeError):
+            break
+
+        if not isinstance(new_findings, list) or not new_findings:
+            break
+
+        all_findings.extend(new_findings)
+
+        # Apply fixes and continue (unless last round).
+        # Only successfully-applied findings go into prior context
+        # so the next round doesn't skip unfixed bugs.
+        if round_num < max_rounds:
+            fixed = _apply_fixes(recipe.master_path, new_findings, round_num)
+            fixed_findings.extend(fixed)
+
+    # Return merged result when multi-round, or original for single
+    if last_result is None:
+        msg = "No exploit rounds completed"
+        raise RuntimeError(msg)
+
+    if max_rounds == 1:
+        return last_result
+
+    return RLMChatCompletion(
+        root_model=last_result.root_model,
+        prompt=last_result.prompt,
+        response=json.dumps(all_findings),
+        usage_summary=merged_usage,
+        execution_time=total_time,
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -224,6 +446,17 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=("Path to save result JSON (default: output/run_<timestamp>.json)."),
     )
+    pipe_parser.add_argument(
+        "--instructions",
+        default="",
+        help="Extra instructions for the exploit agent.",
+    )
+    pipe_parser.add_argument(
+        "--max-rounds",
+        type=int,
+        default=1,
+        help="Max fix-and-re-audit rounds (default: 1).",
+    )
 
     return parser
 
@@ -235,15 +468,25 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "pipeline":
         log_file = args.log_file
+        instructions = args.instructions
+        max_rounds = args.max_rounds
         if args.recipe:
             with open(args.recipe) as f:
                 recipe = WorkspaceRecipe.from_dict(json.load(f))
-            result = run_exploit(recipe, verbose=args.verbose, log_file=log_file)
+            result = _run_exploit_loop(
+                recipe,
+                verbose=args.verbose,
+                log_file=log_file,
+                instructions=instructions,
+                max_rounds=max_rounds,
+            )
         else:
             result = run_pipeline(
                 args.repo_path,
                 verbose=args.verbose,
                 log_file=log_file,
+                instructions=instructions,
+                max_rounds=max_rounds,
             )
         print(result.response)
         dest = _save_result(result, args.output)

@@ -215,7 +215,10 @@ class LocalREPL(NonIsolatedEnv):
                 response.chat_completion,
             )
 
-            return response.chat_completion.response
+            text = response.chat_completion.response
+            if not text:
+                return "Error: LLM returned empty response"
+            return text
         except Exception as e:
             return f"Error: LM query failed - {e}"
 
@@ -246,7 +249,11 @@ class LocalREPL(NonIsolatedEnv):
                 else:
                     assert response.chat_completion is not None
                     self._pending_llm_calls.append(response.chat_completion)
-                    results.append(response.chat_completion.response)
+                    text = response.chat_completion.response
+                    if not text:
+                        results.append("Error: LLM returned empty response")
+                    else:
+                        results.append(text)
 
             return results
         except Exception as e:
@@ -378,7 +385,7 @@ class LocalREPL(NonIsolatedEnv):
             return code, None
         lines = code.splitlines(keepends=True)
         body = "".join(lines[: last.lineno - 1])
-        expr = "".join(lines[last.lineno - 1:]).strip()
+        expr = "".join(lines[last.lineno - 1 :]).strip()
         return body, expr
 
     def execute_code(self, code: str) -> REPLResult:

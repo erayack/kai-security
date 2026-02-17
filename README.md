@@ -43,6 +43,27 @@ uv run python -m kai.main pipeline --repo-path /path/to/target --verbose
 uv run python -m kai.main pipeline --repo-path /path/to/target --verbose --log-file run.log
 ```
 
+### Iterative fix-and-re-audit
+
+Use `--max-rounds` to run multiple passes. After each round, verified patches are applied to the codebase and the exploit agent re-audits the updated code to find deeper bugs that were hidden behind the first-round issues.
+
+```bash
+# Three rounds of analysis
+uv run python -m kai.main pipeline --repo-path /path/to/target --max-rounds 3 --verbose --log-file audit.log
+```
+
+With `--log-file` and multiple rounds, each round gets its own log: `audit_round1.log`, `audit_round2.log`, etc. Intermediate results are saved to `output/` after each round so no work is lost.
+
+Only findings whose patches apply cleanly are passed as context to subsequent rounds — the agent won't skip bugs that failed to patch.
+
+### Extra instructions
+
+Pass free-text guidance to steer the exploit agent:
+
+```bash
+uv run python -m kai.main pipeline --recipe recipe.json --instructions "Focus on economic invariants and fee arithmetic"
+```
+
 ### Skip setup (use a saved recipe)
 
 If you already have a workspace recipe from a previous setup run:
@@ -63,14 +84,16 @@ uv run python -m kai.main agent exploit --input '{"master_path": "/tmp/master"}'
 
 ### CLI options
 
-| Flag | Description |
-|---|---|
-| `--output PATH`, `-o` | Save result JSON to PATH (default: `output/run_<timestamp>.json`) |
-| `--verbose` | Rich console output showing each iteration |
-| `--log-file PATH` | Save verbose output to a file |
-| `--backend NAME` | Override LLM backend (agent mode) |
-| `--model NAME` | Override model name (agent mode) |
-| `--max-iterations N` | Override iteration budget (agent mode) |
+| Flag | Mode | Description |
+|---|---|---|
+| `--output PATH`, `-o` | both | Save result JSON to PATH (default: `output/run_<timestamp>.json`) |
+| `--verbose` | both | Rich console output showing each iteration |
+| `--log-file PATH` | both | Save verbose output to a file |
+| `--instructions TEXT` | pipeline | Extra instructions for the exploit agent |
+| `--max-rounds N` | pipeline | Fix-and-re-audit rounds (default: 1) |
+| `--backend NAME` | agent | Override LLM backend |
+| `--model NAME` | agent | Override model name |
+| `--max-iterations N` | agent | Override iteration budget |
 
 ### Output
 
