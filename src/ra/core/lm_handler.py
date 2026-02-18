@@ -57,7 +57,7 @@ class LMRequestHandler(StreamRequestHandler):
         end_time = time.perf_counter()
 
         model_usage = client.get_last_usage()
-        root_model = request.model or client.model_name
+        root_model = client.model_name or request.model
         assert root_model is not None, "No model name on request or client"
         usage_summary = UsageSummary(model_usage_summaries={root_model: model_usage})
         return LMResponse.success_response(
@@ -87,7 +87,7 @@ class LMRequestHandler(StreamRequestHandler):
 
         total_time = end_time - start_time
         model_usage = client.get_last_usage()
-        root_model = request.model or client.model_name
+        root_model = client.model_name or request.model
         assert root_model is not None, "No model name on request or client"
         usage_summary = UsageSummary(model_usage_summaries={root_model: model_usage})
 
