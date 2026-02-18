@@ -164,3 +164,22 @@ class TestAutoprint:
     def test_locals_still_updated(self, repl: LocalREPL) -> None:
         repl.execute_code("x = [1, 2, 3]\nlen(x)")
         assert repl.locals.get("x") == [1, 2, 3]
+
+    def test_no_double_exec_assignment_ending(self, repl: LocalREPL) -> None:
+        """Code ending with an assignment must run exactly once."""
+        code = "items = []\nitems.append(1)\nprint(len(items))\nx = 42"
+        result = repl.execute_code(code)
+        assert result.stdout.strip() == "1"
+        assert repl.locals["items"] == [1]
+
+    def test_no_double_exec_for_loop_ending(self, repl: LocalREPL) -> None:
+        """Code ending with a for loop must run exactly once."""
+        code = "nums = []\nfor i in range(3):\n    nums.append(i)"
+        repl.execute_code(code)
+        assert repl.locals["nums"] == [0, 1, 2]
+
+    def test_no_double_exec_if_ending(self, repl: LocalREPL) -> None:
+        """Code ending with an if statement must run exactly once."""
+        code = "counter = [0]\nif True:\n    counter[0] += 1"
+        repl.execute_code(code)
+        assert repl.locals["counter"] == [1]
