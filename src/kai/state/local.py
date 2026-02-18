@@ -88,73 +88,132 @@ class LocalStateManager(StateManager):
 
     def create_run(self, record: RunRecord) -> None:
         """Persist a new run record."""
-        with self._lock:
-            path = self._run_dir(record.run_id) / "run.json"
-            self._write_json(path, record.to_dict())
+        try:
+            with self._lock:
+                path = self._run_dir(record.run_id) / "run.json"
+                self._write_json(path, record.to_dict())
+        except Exception:
+            log.exception("create_run failed for %s", record.run_id)
 
     def update_run(self, run_id: str, **fields: object) -> None:
         """Update fields on an existing run record."""
-        with self._lock:
-            path = self._run_dir(run_id) / "run.json"
-            data = self._read_json(path)
-            if data is None:
-                log.warning("update_run: run %s not found", run_id)
-                return
-            data.update(fields)
-            self._write_json(path, data)
+        try:
+            with self._lock:
+                path = self._run_dir(run_id) / "run.json"
+                data = self._read_json(path)
+                if data is None:
+                    log.warning("update_run: run %s not found", run_id)
+                    return
+                data.update(fields)
+                self._write_json(path, data)
+        except Exception:
+            log.exception("update_run failed for %s", run_id)
 
     def get_run(self, run_id: str) -> RunRecord | None:
         """Return the run record, or ``None`` if not found."""
-        with self._lock:
-            path = self._run_dir(run_id) / "run.json"
-            data = self._read_json(path)
-            if data is None:
-                return None
-            return RunRecord.from_dict(data)
+        try:
+            with self._lock:
+                path = self._run_dir(run_id) / "run.json"
+                data = self._read_json(path)
+                if data is None:
+                    return None
+                return RunRecord.from_dict(data)
+        except Exception:
+            log.exception("get_run failed for %s", run_id)
+            return None
 
     # -- Progress tracking --
 
     def add_status_update(self, update: StatusUpdate) -> None:
         """Append a status update (one JSON line)."""
-        with self._lock:
-            path = self._run_dir(update.run_id) / "status_updates.jsonl"
-            with open(path, "a") as f:
-                f.write(json.dumps(update.to_dict()) + "\n")
+        try:
+            with self._lock:
+                path = self._run_dir(update.run_id) / "status_updates.jsonl"
+                with open(path, "a") as f:
+                    f.write(json.dumps(update.to_dict()) + "\n")
+        except Exception:
+            log.exception("add_status_update failed for run %s", update.run_id)
 
-    def get_status_updates(self, run_id: str) -> list[StatusUpdate]:
-        """Return all status updates for a run."""
-        with self._lock:
-            path = self._run_dir(run_id) / "status_updates.jsonl"
-            if not path.exists():
+    @staticmethod
+    def _tail_lines(path: Path, n: int) -> list[str]:
+        """Read the last *n* lines from a file without loading it all."""
+        with open(path, "rb") as f:
+            f.seek(0, 2)  # end of file
+            size = f.tell()
+            if size == 0:
                 return []
-            updates: list[StatusUpdate] = []
-            for line in path.read_text().splitlines():
-                line = line.strip()
-                if line:
-                    updates.append(StatusUpdate.from_dict(json.loads(line)))
-            return updates
+            buf = bytearray()
+            pos = size
+            lines_found = 0
+            while pos > 0 and lines_found <= n:
+                chunk = min(4096, pos)
+                pos -= chunk
+                f.seek(pos)
+                buf[0:0] = f.read(chunk)
+                lines_found = buf.count(b"\n")
+            decoded = buf.decode("utf-8", errors="replace").splitlines()
+            return decoded[-n:]
+
+    def get_status_updates(
+        self,
+        run_id: str,
+        last_n: int = 1,
+    ) -> list[StatusUpdate]:
+        """Return status updates for a run.
+
+        Args:
+            run_id: The run to query.
+            last_n: Only deserialize and return the last *n* lines.
+                Reads from the tail of the file to avoid loading the
+                full history into memory.
+        """
+        try:
+            with self._lock:
+                path = self._run_dir(run_id) / "status_updates.jsonl"
+                if not path.exists():
+                    return []
+                lines = self._tail_lines(path, last_n)
+                updates: list[StatusUpdate] = []
+                for raw in lines:
+                    raw = raw.strip()
+                    if raw:
+                        updates.append(StatusUpdate.from_dict(json.loads(raw)))
+                return updates
+        except Exception:
+            log.exception("get_status_updates failed for %s", run_id)
+            return []
 
     # -- Exploits --
 
     def add_exploit(self, exploit: ExploitRecord) -> None:
         """Persist a new exploit record."""
-        with self._lock:
-            records = self._read_exploits(exploit.run_id)
-            records.append(exploit)
-            self._write_exploits(exploit.run_id, records)
+        try:
+            with self._lock:
+                records = self._read_exploits(exploit.run_id)
+                records.append(exploit)
+                self._write_exploits(exploit.run_id, records)
+        except Exception:
+            log.exception("add_exploit failed for run %s", exploit.run_id)
 
     def update_exploit(self, run_id: str, exploit_id: str, **fields: object) -> None:
         """Update fields on an existing exploit record."""
-        with self._lock:
-            records = self._read_exploits(run_id)
-            for rec in records:
-                if rec.exploit_id == exploit_id:
-                    for k, v in fields.items():
-                        setattr(rec, k, v)
-                    self._write_exploits(run_id, records)
-                    return
-            log.warning(
-                "update_exploit: exploit %s not found in run %s",
+        try:
+            with self._lock:
+                records = self._read_exploits(run_id)
+                for rec in records:
+                    if rec.exploit_id == exploit_id:
+                        for k, v in fields.items():
+                            setattr(rec, k, v)
+                        self._write_exploits(run_id, records)
+                        return
+                log.warning(
+                    "update_exploit: exploit %s not found in run %s",
+                    exploit_id,
+                    run_id,
+                )
+        except Exception:
+            log.exception(
+                "update_exploit failed for %s in run %s",
                 exploit_id,
                 run_id,
             )
@@ -167,14 +226,18 @@ class LocalStateManager(StateManager):
         function: str,
     ) -> ExploitRecord | None:
         """Look up an exploit by its identifying triple."""
-        with self._lock:
-            for rec in self._read_exploits(run_id):
-                if (
-                    rec.hypothesis == hypothesis
-                    and rec.file == file
-                    and rec.function == function
-                ):
-                    return rec
+        try:
+            with self._lock:
+                for rec in self._read_exploits(run_id):
+                    if (
+                        rec.hypothesis == hypothesis
+                        and rec.file == file
+                        and rec.function == function
+                    ):
+                        return rec
+                return None
+        except Exception:
+            log.exception("find_exploit failed for run %s", run_id)
             return None
 
     def get_exploits(
@@ -183,25 +246,36 @@ class LocalStateManager(StateManager):
         status: str | None = None,
     ) -> list[ExploitRecord]:
         """Return exploits for a run, optionally filtered by status."""
-        with self._lock:
-            records = self._read_exploits(run_id)
-            if status is not None:
-                return [r for r in records if r.status == status]
-            return list(records)
+        try:
+            with self._lock:
+                records = self._read_exploits(run_id)
+                if status is not None:
+                    return [r for r in records if r.status == status]
+                return list(records)
+        except Exception:
+            log.exception("get_exploits failed for %s", run_id)
+            return []
 
     # -- Fixes --
 
     def add_fix(self, fix: FixRecord) -> None:
         """Persist a new fix record."""
-        with self._lock:
-            records = self._read_fixes(fix.run_id)
-            records.append(fix)
-            self._write_fixes(fix.run_id, records)
+        try:
+            with self._lock:
+                records = self._read_fixes(fix.run_id)
+                records.append(fix)
+                self._write_fixes(fix.run_id, records)
+        except Exception:
+            log.exception("add_fix failed for run %s", fix.run_id)
 
     def get_fixes(self, run_id: str) -> list[FixRecord]:
         """Return all fixes for a run."""
-        with self._lock:
-            return self._read_fixes(run_id)
+        try:
+            with self._lock:
+                return self._read_fixes(run_id)
+        except Exception:
+            log.exception("get_fixes failed for %s", run_id)
+            return []
 
     # -- Summarization --
 
@@ -221,8 +295,8 @@ class LocalStateManager(StateManager):
 
         # Build a concise context for the summarizer
         lines: list[str] = []
-        lines.append(f"Run {run_id} — {len(updates)} iterations")
-        for u in updates[-10:]:  # last 10 iterations
+        lines.append(f"Run {run_id} — latest iteration")
+        for u in updates:
             spawn_tag = " [spawned sub-agents]" if u.has_spawn_calls else ""
             lines.append(f"  iter {u.iteration_num}: {u.agent_name}{spawn_tag}")
 

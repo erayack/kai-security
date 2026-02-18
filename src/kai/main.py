@@ -273,17 +273,24 @@ def run_pipeline(
     sm: StateManager | None = None
     rid: str | None = None
     if not no_state:
-        sm = LocalStateManager(state_dir=state_dir)
-        rid = str(uuid.uuid4())
-        sm.create_run(
-            RunRecord(
-                run_id=rid,
-                repo_path=repo_path,
-                started_at=datetime.now(timezone.utc).isoformat(),
-                status="running",
-                root_model=exploit_config.backend_kwargs.get("model_name", "unknown"),
+        try:
+            sm = LocalStateManager(state_dir=state_dir)
+            rid = str(uuid.uuid4())
+            sm.create_run(
+                RunRecord(
+                    run_id=rid,
+                    repo_path=repo_path,
+                    started_at=datetime.now(timezone.utc).isoformat(),
+                    status="running",
+                    root_model=exploit_config.backend_kwargs.get(
+                        "model_name", "unknown"
+                    ),
+                )
             )
-        )
+        except Exception:
+            log.exception("Failed to initialize state manager")
+            sm = None
+            rid = None
 
     succeeded = False
     try:
@@ -548,17 +555,22 @@ def main(argv: list[str] | None = None) -> None:
             sm: StateManager | None = None
             rid: str | None = None
             if not no_state:
-                sm = LocalStateManager(state_dir=state_dir)
-                rid = str(uuid.uuid4())
-                sm.create_run(
-                    RunRecord(
-                        run_id=rid,
-                        repo_path=args.recipe,
-                        started_at=datetime.now(timezone.utc).isoformat(),
-                        status="running",
-                        root_model="unknown",
+                try:
+                    sm = LocalStateManager(state_dir=state_dir)
+                    rid = str(uuid.uuid4())
+                    sm.create_run(
+                        RunRecord(
+                            run_id=rid,
+                            repo_path=args.recipe,
+                            started_at=datetime.now(timezone.utc).isoformat(),
+                            status="running",
+                            root_model="unknown",
+                        )
                     )
-                )
+                except Exception:
+                    log.exception("Failed to initialize state manager")
+                    sm = None
+                    rid = None
             result = _run_exploit_loop(
                 recipe,
                 verbose=args.verbose,

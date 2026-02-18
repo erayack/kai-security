@@ -99,7 +99,7 @@ class TestStatusUpdates:
         )
         mgr.add_status_update(u1)
         mgr.add_status_update(u2)
-        updates = mgr.get_status_updates("r1")
+        updates = mgr.get_status_updates("r1", last_n=2)
         assert len(updates) == 2
         assert updates[0].iteration_num == 1
         assert updates[1].iteration_num == 2
@@ -299,4 +299,4 @@ class TestSummarizeProgress:
         )
         summary = mgr.summarize_progress("r1")
         assert "r1" in summary
-        assert "1 iterations" in summary
+        assert "latest iteration" in summary

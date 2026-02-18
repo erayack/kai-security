@@ -41,8 +41,12 @@ class StateManager(ABC):
         """Append a status update for a run."""
 
     @abstractmethod
-    def get_status_updates(self, run_id: str) -> list[StatusUpdate]:
-        """Return all status updates for a run, ordered by iteration."""
+    def get_status_updates(
+        self,
+        run_id: str,
+        last_n: int = 1,
+    ) -> list[StatusUpdate]:
+        """Return the last *n* status updates for a run."""
 
     # -- Exploits --
 
