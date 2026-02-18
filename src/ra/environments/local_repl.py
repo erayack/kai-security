@@ -393,6 +393,59 @@ class LocalREPL(NonIsolatedEnv):
 
     _exec_timeout: int = int(os.environ.get("KAI_EXEC_TIMEOUT", 600))
 
+    @staticmethod
+    def _find_assignment_targets(code: str) -> set[str]:
+        """Return simple Name targets from all assignments in *code*.
+
+        Handles plain assignments (``x = ...``), annotated assignments,
+        and tuple/list unpacking (``a, b = ...``).  Attribute and
+        subscript targets are silently skipped — they can't be
+        recovered without the live object.
+        """
+        try:
+            tree = ast.parse(code)
+        except SyntaxError:
+            return set()
+
+        names: set[str] = set()
+
+        def _collect(node: ast.AST) -> None:
+            if isinstance(node, ast.Name):
+                names.add(node.id)
+            elif isinstance(node, (ast.Tuple, ast.List)):
+                for elt in node.elts:
+                    _collect(elt)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    _collect(target)
+            elif isinstance(node, ast.AnnAssign) and node.target is not None:
+                _collect(node.target)
+
+        return names
+
+    def _writeback_locals(
+        self,
+        namespace: dict[str, Any],
+        targets: set[str],
+        error_msg: str | None = None,
+    ) -> None:
+        """Write *namespace* back to ``self.locals``.
+
+        If *error_msg* is provided, any assignment target not yet
+        present in *namespace* receives the error string so downstream
+        code sees the failure as a value rather than a ``NameError``.
+        """
+        if error_msg:
+            for name in targets:
+                if name not in namespace:
+                    namespace[name] = error_msg
+
+        for key, value in namespace.items():
+            if key not in self.globals and not key.startswith("_"):
+                self.locals[key] = value
+
     def execute_code(self, code: str) -> REPLResult:
         """Execute code in the persistent namespace and return result.
 
@@ -401,6 +454,9 @@ class LocalREPL(NonIsolatedEnv):
 
         Execution is guarded by ``_exec_timeout`` (default 600 s).
         On timeout the result contains a ``TimeoutError`` on stderr.
+
+        On error or timeout, variables assigned before the failure are
+        preserved and any unassigned targets receive the error string.
         """
         start_time = time.perf_counter()
 
@@ -408,6 +464,7 @@ class LocalREPL(NonIsolatedEnv):
         self._pending_llm_calls = []
 
         body, last_expr = self._split_last_expr(code)
+        targets = self._find_assignment_targets(code)
 
         # Shared state between main thread and worker
         combined = {**self.globals, **self.locals}
@@ -440,24 +497,22 @@ class LocalREPL(NonIsolatedEnv):
             if worker.is_alive():
                 # Timeout — worker is orphaned as a daemon thread
                 stdout = stdout_buf.getvalue()
-                stderr = (
-                    stderr_buf.getvalue()
-                    + f"\nTimeoutError: execution exceeded "
+                error_msg = (
+                    f"[error] TimeoutError: execution exceeded "
                     f"{self._exec_timeout}s limit"
                 )
+                stderr = stderr_buf.getvalue() + f"\n{error_msg}"
+                # Snapshot: thread may still be running
+                self._writeback_locals(dict(combined), targets, error_msg)
             elif exc_holder:
                 stdout = stdout_buf.getvalue()
                 e = exc_holder[0]
-                stderr = (
-                    stderr_buf.getvalue()
-                    + f"\n{type(e).__name__}: {e}"
-                )
+                error_msg = f"[error] {type(e).__name__}: {e}"
+                stderr = stderr_buf.getvalue() + f"\n{error_msg}"
+                # Thread has exited — safe to read combined
+                self._writeback_locals(combined, targets, error_msg)
             else:
-                # Update locals with new variables
-                for key, value in combined.items():
-                    if key not in self.globals and not key.startswith("_"):
-                        self.locals[key] = value
-
+                self._writeback_locals(combined, targets)
                 stdout = stdout_buf.getvalue()
                 stderr = stderr_buf.getvalue()
 

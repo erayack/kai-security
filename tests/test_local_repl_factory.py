@@ -191,3 +191,43 @@ class TestAutoprint:
         result = repl.execute_code(code)
         assert "TimeoutError" in result.stderr
         assert "1s limit" in result.stderr
+
+    def test_timeout_assigns_error_to_target(self, repl: LocalREPL) -> None:
+        """On timeout, the assignment target gets the error string."""
+        repl._exec_timeout = 1
+        code = "import time\ndef slow(): time.sleep(10); return 1\nx = slow()"
+        repl.execute_code(code)
+        assert isinstance(repl.locals.get("x"), str)
+        assert "[error]" in repl.locals["x"]
+        assert "TimeoutError" in repl.locals["x"]
+
+    def test_error_assigns_error_to_target(self, repl: LocalREPL) -> None:
+        """On exception, the assignment target gets the error string."""
+        code = "y = 1 / 0"
+        repl.execute_code(code)
+        assert isinstance(repl.locals.get("y"), str)
+        assert "[error]" in repl.locals["y"]
+        assert "ZeroDivisionError" in repl.locals["y"]
+
+    def test_error_preserves_earlier_assignments(self, repl: LocalREPL) -> None:
+        """Variables assigned before the error survive."""
+        code = "a = 42\nb = 1 / 0"
+        repl.execute_code(code)
+        assert repl.locals.get("a") == 42
+        assert isinstance(repl.locals.get("b"), str)
+        assert "[error]" in repl.locals["b"]
+
+    def test_tuple_unpack_targets_get_error(self, repl: LocalREPL) -> None:
+        """Tuple unpacking targets get the error on failure."""
+        code = "p, q = 1 / 0"
+        repl.execute_code(code)
+        assert isinstance(repl.locals.get("p"), str)
+        assert "[error]" in repl.locals["p"]
+        assert isinstance(repl.locals.get("q"), str)
+        assert "[error]" in repl.locals["q"]
+
+    def test_error_var_usable_next_iteration(self, repl: LocalREPL) -> None:
+        """Error-assigned variable is accessible in the next exec."""
+        repl.execute_code("x = 1 / 0")
+        result = repl.execute_code("print(x)")
+        assert "[error]" in result.stdout
