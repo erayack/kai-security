@@ -415,8 +415,6 @@ class LocalREPL(NonIsolatedEnv):
                     result = eval(last_expr, combined, combined)  # noqa: S307
                     if result is not None:
                         print(repr(result))
-                else:
-                    exec(code, combined, combined)
 
                 # Update locals with new variables
                 for key, value in combined.items():

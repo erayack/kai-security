@@ -323,7 +323,9 @@ class RLM:
 
             # Default behavior: we run out of iterations, provide one final answer
             time_end = time.perf_counter()
-            final_answer = self._default_answer(message_history, lm_handler)
+            final_answer = self._default_answer(
+                message_history, lm_handler, environment=environment
+            )
             usage = lm_handler.get_usage_summary().merge(child_usage)
             self.verbose.print_final_answer(final_answer)
             self.verbose.print_summary(
@@ -389,11 +391,17 @@ class RLM:
         )
 
     def _default_answer(
-        self, message_history: list[dict[str, Any]], lm_handler: LMHandler
+        self,
+        message_history: list[dict[str, Any]],
+        lm_handler: LMHandler,
+        environment: BaseEnv | None = None,
     ) -> str:
         """
         Default behavior if the RLM runs out of iterations and does not find a final answer.
         It will take the message history, and try to generate a final answer from it.
+
+        If an environment is provided, FINAL_VAR references in the
+        response are resolved against the REPL namespace.
         """
         current_prompt = message_history + [
             {
@@ -403,12 +411,18 @@ class RLM:
                     "your final result — no conversation log, no "
                     "intermediate steps, no explanation of your "
                     "process. If you computed a result in your REPL, "
-                    "output just the result data. If you have partial "
-                    "findings, summarize them concisely."
+                    "output just the result data via FINAL_VAR. "
+                    "If you have partial findings, summarize them "
+                    "concisely."
                 ),
             }
         ]
         response = lm_handler.completion(current_prompt)
+
+        # Resolve FINAL_VAR against the environment if available.
+        resolved = find_final_answer(response, environment=environment)
+        if resolved is not None:
+            response = resolved
 
         if self.logger:
             self.logger.log(
