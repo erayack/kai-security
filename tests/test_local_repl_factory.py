@@ -183,3 +183,11 @@ class TestAutoprint:
         code = "counter = [0]\nif True:\n    counter[0] += 1"
         repl.execute_code(code)
         assert repl.locals["counter"] == [1]
+
+    def test_timeout_kills_long_running_code(self, repl: LocalREPL) -> None:
+        """Code exceeding _exec_timeout returns a TimeoutError."""
+        repl._exec_timeout = 1  # 1 second for testing
+        code = "import time\ntime.sleep(10)"
+        result = repl.execute_code(code)
+        assert "TimeoutError" in result.stderr
+        assert "1s limit" in result.stderr

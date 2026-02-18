@@ -391,11 +391,16 @@ class LocalREPL(NonIsolatedEnv):
         expr = "".join(lines[last.lineno - 1 :]).strip()
         return body, expr
 
+    _exec_timeout: int = int(os.environ.get("KAI_EXEC_TIMEOUT", 600))
+
     def execute_code(self, code: str) -> REPLResult:
         """Execute code in the persistent namespace and return result.
 
         If the last statement is a bare expression, its return value
         is auto-printed (like interactive Python / Jupyter).
+
+        Execution is guarded by ``_exec_timeout`` (default 600 s).
+        On timeout the result contains a ``TimeoutError`` on stderr.
         """
         start_time = time.perf_counter()
 
@@ -404,18 +409,50 @@ class LocalREPL(NonIsolatedEnv):
 
         body, last_expr = self._split_last_expr(code)
 
+        # Shared state between main thread and worker
+        combined = {**self.globals, **self.locals}
+        exc_holder: list[Exception] = []
+        succeeded = False
+
         with self._capture_output() as (stdout_buf, stderr_buf), self._temp_cwd():
-            try:
-                combined = {**self.globals, **self.locals}
 
-                if body:
-                    exec(body, combined, combined)
+            def _run() -> None:
+                nonlocal succeeded
+                try:
+                    if body:
+                        exec(body, combined, combined)
 
-                if last_expr is not None:
-                    result = eval(last_expr, combined, combined)  # noqa: S307
-                    if result is not None:
-                        print(repr(result))
+                    if last_expr is not None:
+                        result = eval(  # noqa: S307
+                            last_expr, combined, combined
+                        )
+                        if result is not None:
+                            print(repr(result))
 
+                    succeeded = True
+                except Exception as e:
+                    exc_holder.append(e)
+
+            worker = threading.Thread(target=_run, daemon=True)
+            worker.start()
+            worker.join(timeout=self._exec_timeout)
+
+            if worker.is_alive():
+                # Timeout — worker is orphaned as a daemon thread
+                stdout = stdout_buf.getvalue()
+                stderr = (
+                    stderr_buf.getvalue()
+                    + f"\nTimeoutError: execution exceeded "
+                    f"{self._exec_timeout}s limit"
+                )
+            elif exc_holder:
+                stdout = stdout_buf.getvalue()
+                e = exc_holder[0]
+                stderr = (
+                    stderr_buf.getvalue()
+                    + f"\n{type(e).__name__}: {e}"
+                )
+            else:
                 # Update locals with new variables
                 for key, value in combined.items():
                     if key not in self.globals and not key.startswith("_"):
@@ -423,9 +460,6 @@ class LocalREPL(NonIsolatedEnv):
 
                 stdout = stdout_buf.getvalue()
                 stderr = stderr_buf.getvalue()
-            except Exception as e:
-                stdout = stdout_buf.getvalue()
-                stderr = stderr_buf.getvalue() + f"\n{type(e).__name__}: {e}"
 
         # Drain sub-agent completions from spawn tools
         for fn in self._tools.values():

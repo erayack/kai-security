@@ -62,7 +62,7 @@ def run_shell(command: str, cwd: str | None = None) -> dict[str, Any]:
         capture_output=True,
         text=True,
         cwd=cwd,
-        timeout=300,
+        timeout=int(os.environ.get("KAI_SHELL_TIMEOUT", 300)),
     )
     return {
         "stdout": result.stdout,
