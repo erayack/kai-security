@@ -25,7 +25,9 @@ SYSTEM_PROMPT = textwrap.dedent("""\
         List entries in a directory. Set `recursive=True` to walk the tree.
 
     - `search_files(pattern: str, path: str) -> list[str]`
-        Grep files under path for a regex pattern. Returns matching file paths.
+        Grep for a regex under a directory. `path` must be a \
+        directory (e.g. "src/"), not a file. Returns \
+        "file:lineno: line" strings.
 
     - `run_shell(command: str, cwd: str | None = None) -> dict`
         Run a shell command. Returns `{"stdout", "stderr", "returncode"}`.
