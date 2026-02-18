@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from typing import Any, Callable
 
@@ -13,6 +14,7 @@ def _make_spawn_fn(
     config: RecursiveAgentConfig,
     parent_depth: int,
     max_depth: int,
+    on_spawn_result: Callable[..., None] | None = None,
 ) -> Callable[..., str]:
     """Build a spawn closure for a sub-agent config.
 
@@ -41,8 +43,26 @@ def _make_spawn_fn(
             )
             result = agent.completion(kwargs)
             if isinstance(result, str):
+                if on_spawn_result is not None:
+                    try:
+                        on_spawn_result(
+                            config.name,
+                            json.dumps(kwargs, default=str),
+                            result,
+                        )
+                    except Exception:
+                        pass
                 return result
             pending.append(result)
+            if on_spawn_result is not None:
+                try:
+                    on_spawn_result(
+                        config.name,
+                        json.dumps(kwargs, default=str),
+                        result.response,
+                    )
+                except Exception:
+                    pass
             return result.response
         except SpawnError as exc:
             return f"[spawn_{config.name} error] {type(exc).__name__}: {exc}"
@@ -88,7 +108,12 @@ class RecursiveAgent:
         """Merge direct tools with spawn functions for sub-agents."""
         tools: dict[str, Any] = dict(self.config.tools)
         for sub in self.config.agents:
-            tools[f"spawn_{sub.name}"] = _make_spawn_fn(sub, self.depth, self.max_depth)
+            tools[f"spawn_{sub.name}"] = _make_spawn_fn(
+                sub,
+                self.depth,
+                self.max_depth,
+                on_spawn_result=self.config.on_spawn_result,
+            )
         return tools
 
     def _build_rlm(self) -> Any:
@@ -116,6 +141,7 @@ class RecursiveAgent:
             verbose=self.config.verbose,
             log_file=self.config.log_file,
             name=self.config.name,
+            on_iteration=self.config.on_iteration,
         )
 
     def completion(self, data: str | dict[str, Any]) -> Any:

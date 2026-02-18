@@ -32,6 +32,8 @@ class RecursiveAgentConfig:
     max_iterations: int = 10
     verbose: bool = False
     log_file: str = ""
+    on_iteration: Callable[..., None] | None = None
+    on_spawn_result: Callable[..., None] | None = None
 
     def validate(self) -> None:
         """Validate this config and all sub-agent configs recursively.

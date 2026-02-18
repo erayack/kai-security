@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +26,8 @@ from typing import Any
 from kai.definitions import exploit_config, setup_config
 from kai.definitions.exploit.tools import make_graph_tools
 from kai.dependency import TreeSitterBuilder
+from kai.state import LocalStateManager, StateManager, inject_state_manager
+from kai.state.models import RunRecord
 from kai.workspace.integration import inject_workspace
 from kai.workspace.recipe import WorkspaceRecipe
 from ra.agents import RecursiveAgent, RecursiveAgentConfig
@@ -194,6 +197,8 @@ def run_exploit(
     log_file: str = "",
     instructions: str = "",
     prior_findings: list[dict[str, Any]] | None = None,
+    state_manager: StateManager | None = None,
+    run_id: str | None = None,
 ) -> RLMChatCompletion:
     """Run the exploit agent with a pre-built workspace recipe.
 
@@ -204,6 +209,10 @@ def run_exploit(
     prior_findings:
         Already-known vulnerabilities from earlier rounds.  The agent
         is told not to re-report these and to focus on new bugs.
+    state_manager:
+        Optional state manager for progress tracking.
+    run_id:
+        Run identifier (required when *state_manager* is given).
 
     Returns the full ``RLMChatCompletion`` from the exploit agent.
     """
@@ -225,6 +234,9 @@ def run_exploit(
         tools={**injected_config.tools, **graph_tools},
     )
 
+    if state_manager is not None and run_id is not None:
+        injected_config = inject_state_manager(injected_config, state_manager, run_id)
+
     context: dict[str, Any] = {"master_path": recipe.master_path}
     if instructions:
         context["instructions"] = instructions
@@ -242,6 +254,8 @@ def run_pipeline(
     log_file: str = "",
     instructions: str = "",
     max_rounds: int = 1,
+    state_dir: str = "output/state",
+    no_state: bool = False,
 ) -> RLMChatCompletion:
     """Run the full setup → exploit pipeline.
 
@@ -254,6 +268,23 @@ def run_pipeline(
     """
     repo_path = str(Path(repo_path).resolve())
     master_dir = tempfile.mkdtemp(prefix="kai_master_")
+
+    # State tracking
+    sm: StateManager | None = None
+    rid: str | None = None
+    if not no_state:
+        sm = LocalStateManager(state_dir=state_dir)
+        rid = str(uuid.uuid4())
+        sm.create_run(
+            RunRecord(
+                run_id=rid,
+                repo_path=repo_path,
+                started_at=datetime.now(timezone.utc).isoformat(),
+                status="running",
+                root_model=exploit_config.backend_kwargs.get("model_name", "unknown"),
+            )
+        )
+
     succeeded = False
     try:
         # --- Step 1: run setup agent ---
@@ -278,9 +309,33 @@ def run_pipeline(
             log_file=log_file,
             instructions=instructions,
             max_rounds=max_rounds,
+            state_manager=sm,
+            run_id=rid,
         )
         succeeded = True
+
+        if sm is not None and rid is not None:
+            exploits = sm.get_exploits(rid)
+            fixes = sm.get_fixes(rid)
+            sm.update_run(
+                rid,
+                status="completed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                execution_time=result.execution_time,
+                usage_summary=result.usage_summary.to_dict(),
+                total_exploits=len(exploits),
+                total_fixes=len(fixes),
+            )
+
         return result
+    except Exception:
+        if sm is not None and rid is not None:
+            sm.update_run(
+                rid,
+                status="failed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+            )
+        raise
     finally:
         if succeeded:
             shutil.rmtree(master_dir, ignore_errors=True)
@@ -298,6 +353,8 @@ def _run_exploit_loop(
     log_file: str = "",
     instructions: str = "",
     max_rounds: int = 1,
+    state_manager: StateManager | None = None,
+    run_id: str | None = None,
 ) -> RLMChatCompletion:
     """Run up to *max_rounds* of exploit → fix → re-audit."""
     all_findings: list[dict[str, Any]] = []
@@ -322,6 +379,8 @@ def _run_exploit_loop(
             log_file=round_log,
             instructions=instructions,
             prior_findings=fixed_findings or None,
+            state_manager=state_manager,
+            run_id=run_id,
         )
         last_result = result
         merged_usage = merged_usage.merge(result.usage_summary)
@@ -457,6 +516,17 @@ def _build_parser() -> argparse.ArgumentParser:
         default=1,
         help="Max fix-and-re-audit rounds (default: 1).",
     )
+    pipe_parser.add_argument(
+        "--state-dir",
+        default="output/state",
+        help="Directory for state storage (default: output/state).",
+    )
+    pipe_parser.add_argument(
+        "--no-state",
+        action="store_true",
+        default=False,
+        help="Disable state tracking.",
+    )
 
     return parser
 
@@ -470,16 +540,40 @@ def main(argv: list[str] | None = None) -> None:
         log_file = args.log_file
         instructions = args.instructions
         max_rounds = args.max_rounds
+        state_dir = args.state_dir
+        no_state = args.no_state
         if args.recipe:
             with open(args.recipe) as f:
                 recipe = WorkspaceRecipe.from_dict(json.load(f))
+            sm: StateManager | None = None
+            rid: str | None = None
+            if not no_state:
+                sm = LocalStateManager(state_dir=state_dir)
+                rid = str(uuid.uuid4())
+                sm.create_run(
+                    RunRecord(
+                        run_id=rid,
+                        repo_path=args.recipe,
+                        started_at=datetime.now(timezone.utc).isoformat(),
+                        status="running",
+                        root_model="unknown",
+                    )
+                )
             result = _run_exploit_loop(
                 recipe,
                 verbose=args.verbose,
                 log_file=log_file,
                 instructions=instructions,
                 max_rounds=max_rounds,
+                state_manager=sm,
+                run_id=rid,
             )
+            if sm is not None and rid is not None:
+                sm.update_run(
+                    rid,
+                    status="completed",
+                    finished_at=datetime.now(timezone.utc).isoformat(),
+                )
         else:
             result = run_pipeline(
                 args.repo_path,
@@ -487,6 +581,8 @@ def main(argv: list[str] | None = None) -> None:
                 log_file=log_file,
                 instructions=instructions,
                 max_rounds=max_rounds,
+                state_dir=state_dir,
+                no_state=no_state,
             )
         print(result.response)
         dest = _save_result(result, args.output)

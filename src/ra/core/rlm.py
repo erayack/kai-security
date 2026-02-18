@@ -56,6 +56,7 @@ class RLM:
         log_file: str = "",
         persistent: bool = False,
         name: str = "",
+        on_iteration: Any | None = None,
     ):
         """
         Args:
@@ -109,6 +110,8 @@ class RLM:
         # Persistence support
         self.persistent = persistent
         self._persistent_env: SupportsPersistence | None = None
+
+        self.on_iteration = on_iteration
 
         # Validate persistence support at initialization
         if self.persistent:
@@ -292,6 +295,9 @@ class RLM:
                 # If logger is used, log the iteration.
                 if self.logger:
                     self.logger.log(iteration)
+
+                if self.on_iteration:
+                    self.on_iteration(iteration, i + 1)
 
                 if final_answer is not None:
                     time_end = time.perf_counter()
