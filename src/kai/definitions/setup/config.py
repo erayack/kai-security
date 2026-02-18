@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from ra.agents.config import RecursiveAgentConfig
 
 from kai.definitions.setup.prompt import SYSTEM_PROMPT
@@ -17,6 +19,10 @@ config = RecursiveAgentConfig(
         "run_shell": run_shell,
     },
     backend="openrouter",
-    backend_kwargs={"model_name": "minimax/minimax-m2.5"},
+    backend_kwargs={
+        "model_name": os.environ.get(
+            "KAI_SETUP_MODEL", "minimax/minimax-m2.5"
+        ),
+    },
     max_iterations=30,
 )
