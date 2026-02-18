@@ -49,6 +49,28 @@ All models are routed through OpenRouter. Before deploying a new model, run the 
 uv run --with pytest --with python-dotenv -- pytest tests/test_model_repl.py -v
 ```
 
+### Iteration budgets
+
+Each agent's iteration limit can be tuned independently:
+
+| Variable | Default | Agent |
+|---|---|---|
+| `KAI_ROOT_ITERS` | `45` | Root exploit orchestrator |
+| `KAI_RECON_ITERS` | `15` | Reconnaissance |
+| `KAI_ANALYZER_ITERS` | `30` | Vulnerability analysis |
+| `KAI_VERIFIER_ITERS` | `30` | PoC verification |
+| `KAI_FIXER_ITERS` | `25` | Patch generation |
+| `KAI_RESEARCHER_ITERS` | `15` | Web research |
+| `KAI_SETUP_ITERS` | `30` | Project setup |
+
+### Timeouts
+
+| Variable | Default | Controls |
+|---|---|---|
+| `KAI_EXEC_TIMEOUT` | `600` | REPL code execution (seconds) |
+| `KAI_SOCKET_TIMEOUT` | `300` | LLM request socket (seconds) |
+| `KAI_SHELL_TIMEOUT` | `300` | Shell command subprocess (seconds) |
+
 ## Usage
 
 ### Full pipeline (setup + exploit)
