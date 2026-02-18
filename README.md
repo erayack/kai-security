@@ -29,6 +29,26 @@ cp .env.example .env
 | `OPENROUTER_API_KEY` | Yes | LLM calls (sub-agents) |
 | `JINA_API_KEY` | Optional | Web search and URL reading (researcher agent) |
 
+### Model configuration
+
+Each agent's model can be overridden via environment variables. Set these in `.env` or export them:
+
+| Variable | Default | Agent |
+|---|---|---|
+| `KAI_ROOT_MODEL` | `anthropic/claude-opus-4.5` | Root exploit orchestrator |
+| `KAI_RECON_MODEL` | `openai/gpt-5.2` | Reconnaissance |
+| `KAI_ANALYZER_MODEL` | `minimax/minimax-m2.5` | Vulnerability analysis |
+| `KAI_VERIFIER_MODEL` | `openai/gpt-5.2` | PoC verification |
+| `KAI_FIXER_MODEL` | `openai/gpt-5.2` | Patch generation |
+| `KAI_RESEARCHER_MODEL` | `minimax/minimax-m2.5` | Web research |
+| `KAI_SETUP_MODEL` | `minimax/minimax-m2.5` | Project setup |
+
+All models are routed through OpenRouter. Before deploying a new model, run the REPL compliance test to verify it can follow the interaction pattern:
+
+```bash
+uv run --with pytest --with python-dotenv -- pytest tests/test_model_repl.py -v
+```
+
 ## Usage
 
 ### Full pipeline (setup + exploit)
