@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from kai.definitions import exploit_config, setup_config
+from kai.definitions import exploit_config, exploit_spawn_parsers, setup_config
 from kai.definitions.exploit.tools import make_graph_tools
 from kai.dependency import TreeSitterBuilder
 from kai.state import LocalStateManager, StateManager, inject_state_manager
@@ -235,7 +235,10 @@ def run_exploit(
     )
 
     if state_manager is not None and run_id is not None:
-        injected_config = inject_state_manager(injected_config, state_manager, run_id)
+        injected_config = inject_state_manager(
+            injected_config, state_manager, run_id,
+            spawn_parsers=exploit_spawn_parsers,
+        )
 
     context: dict[str, Any] = {"master_path": recipe.master_path}
     if instructions:
@@ -335,7 +338,7 @@ def run_pipeline(
             )
 
         return result
-    except Exception:
+    except BaseException:
         if sm is not None and rid is not None:
             sm.update_run(
                 rid,
