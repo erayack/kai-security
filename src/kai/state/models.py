@@ -63,11 +63,12 @@ class StatusUpdate:
     run_id: str
     iteration_num: int
     timestamp: str  # ISO 8601
-    agent_name: str
-    response_text: str
-    code_blocks: list[dict[str, Any]] = field(default_factory=list)
+    agent_name: str  # "exploit" for root, or sub-agent name
     has_spawn_calls: bool = False
     iteration_time: float | None = None
+    spawn_agent: str | None = None
+    spawn_kwargs: dict[str, Any] | None = None
+    spawn_result: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict."""
@@ -76,10 +77,11 @@ class StatusUpdate:
             "iteration_num": self.iteration_num,
             "timestamp": self.timestamp,
             "agent_name": self.agent_name,
-            "response_text": self.response_text,
-            "code_blocks": self.code_blocks,
             "has_spawn_calls": self.has_spawn_calls,
             "iteration_time": self.iteration_time,
+            "spawn_agent": self.spawn_agent,
+            "spawn_kwargs": self.spawn_kwargs,
+            "spawn_result": self.spawn_result,
         }
 
     @classmethod
@@ -90,10 +92,11 @@ class StatusUpdate:
             iteration_num=data["iteration_num"],
             timestamp=data["timestamp"],
             agent_name=data["agent_name"],
-            response_text=data["response_text"],
-            code_blocks=data.get("code_blocks", []),
             has_spawn_calls=data.get("has_spawn_calls", False),
             iteration_time=data.get("iteration_time"),
+            spawn_agent=data.get("spawn_agent"),
+            spawn_kwargs=data.get("spawn_kwargs"),
+            spawn_result=data.get("spawn_result"),
         )
 
 

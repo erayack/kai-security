@@ -67,10 +67,10 @@ class TestStatusUpdate:
             iteration_num=3,
             timestamp="2025-01-01T00:00:00Z",
             agent_name="exploit",
-            response_text="I found a bug",
-            code_blocks=[{"code": "print(1)", "result": {}}],
             has_spawn_calls=True,
             iteration_time=1.5,
+            spawn_agent="analyzer",
+            spawn_kwargs={"targets": ["file.sol"]},
         )
         d = update.to_dict()
         restored = StatusUpdate.from_dict(d)
@@ -82,11 +82,11 @@ class TestStatusUpdate:
             iteration_num=1,
             timestamp="t",
             agent_name="a",
-            response_text="text",
         )
-        assert update.code_blocks == []
         assert update.has_spawn_calls is False
         assert update.iteration_time is None
+        assert update.spawn_agent is None
+        assert update.spawn_kwargs is None
 
 
 class TestExploitRecord:

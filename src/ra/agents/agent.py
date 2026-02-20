@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
-import json
+import logging
 from dataclasses import replace
 from typing import Any, Callable
 
 from ra.agents.config import RecursiveAgentConfig
+from ra.core.types import SpawnRecord
 from ra.exceptions import SpawnError
+
+log = logging.getLogger(__name__)
 
 
 def _make_spawn_fn(
     config: RecursiveAgentConfig,
     parent_depth: int,
     max_depth: int,
-    on_spawn_result: Callable[..., None] | None = None,
+    log_file: str = "",
 ) -> Callable[..., str]:
     """Build a spawn closure for a sub-agent config.
 
@@ -23,18 +26,44 @@ def _make_spawn_fn(
     Errors are caught so a failing sub-agent never crashes the
     parent's REPL.
 
-    The returned function exposes a ``_pending_completions`` list
-    attribute. Each successful sub-agent run appends its full
-    ``RLMChatCompletion`` so the parent REPL can drain token usage.
+    The returned function exposes:
+    - ``_pending_completions``: list of ``RLMChatCompletion`` for
+      token usage rollup.
+    - ``_spawn_records``: list of ``SpawnRecord`` for deterministic
+      spawn data collection.
     """
     pending: list[Any] = []
+    records: list[SpawnRecord] = []
     call_count = [0]  # mutable counter shared across calls
+
+    def _log_error(msg: str) -> None:
+        log.error(msg)
+        if log_file:
+            try:
+                with open(log_file, "a") as fh:
+                    fh.write(f"\n[spawn error] {msg}\n")
+            except OSError:
+                pass
 
     def _spawn(**kwargs: Any) -> str:
         call_count[0] += 1
         indexed_config = config
         if call_count[0] > 1:
-            indexed_config = replace(config, name=f"{config.name}#{call_count[0]}")
+            indexed_config = replace(
+                config, name=f"{config.name}#{call_count[0]}"
+            )
+
+        # Forward cooperative cancellation event from parent REPL
+        cancel_event = getattr(_spawn, "_cancel_event", None)
+        if cancel_event is not None:
+            indexed_config = replace(
+                indexed_config,
+                environment_kwargs={
+                    **indexed_config.environment_kwargs,
+                    "cancel_event": cancel_event,
+                },
+            )
+
         try:
             agent = RecursiveAgent(
                 indexed_config,
@@ -43,29 +72,31 @@ def _make_spawn_fn(
             )
             result = agent.completion(kwargs)
             if isinstance(result, str):
-                if on_spawn_result is not None:
-                    try:
-                        on_spawn_result(
-                            config.name,
-                            json.dumps(kwargs, default=str),
-                            result,
-                        )
-                    except Exception:
-                        pass
+                records.append(SpawnRecord(
+                    agent_name=config.name,
+                    kwargs=kwargs,
+                    result=result,
+                ))
                 return result
             pending.append(result)
-            if on_spawn_result is not None:
-                try:
-                    on_spawn_result(
-                        config.name,
-                        json.dumps(kwargs, default=str),
-                        result.response,
-                    )
-                except Exception:
-                    pass
-            return result.response
+            result_str = result.response
+            records.append(SpawnRecord(
+                agent_name=config.name,
+                kwargs=kwargs,
+                result=result_str,
+            ))
+            return result_str
         except SpawnError as exc:
-            return f"[spawn_{config.name} error] {type(exc).__name__}: {exc}"
+            error_msg = (
+                f"[spawn_{config.name} error] "
+                f"{type(exc).__name__}: {exc}"
+            )
+            records.append(SpawnRecord(
+                agent_name=config.name,
+                kwargs=kwargs,
+                result=error_msg,
+            ))
+            return error_msg
 
     _spawn.__name__ = f"spawn_{config.name}"
     _spawn.__qualname__ = f"spawn_{config.name}"
@@ -75,6 +106,7 @@ def _make_spawn_fn(
         f"iterations) and returns the final answer string."
     )
     _spawn._pending_completions = pending  # type: ignore[attr-defined]
+    _spawn._spawn_records = records  # type: ignore[attr-defined]
     return _spawn
 
 
@@ -112,7 +144,7 @@ class RecursiveAgent:
                 sub,
                 self.depth,
                 self.max_depth,
-                on_spawn_result=self.config.on_spawn_result,
+                log_file=self.config.log_file,
             )
         return tools
 
@@ -134,6 +166,7 @@ class RecursiveAgent:
             backend_kwargs=self.config.backend_kwargs,
             other_backends=self.config.other_backends,
             other_backend_kwargs=self.config.other_backend_kwargs,
+            query_model=self.config.query_model,
             custom_system_prompt=self.config.system_prompt,
             environment="local",
             environment_kwargs=env_kwargs,

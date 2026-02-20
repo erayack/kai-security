@@ -297,8 +297,12 @@ class LocalStateManager(StateManager):
         lines: list[str] = []
         lines.append(f"Run {run_id} — latest iteration")
         for u in updates:
-            spawn_tag = " [spawned sub-agents]" if u.has_spawn_calls else ""
-            lines.append(f"  iter {u.iteration_num}: {u.agent_name}{spawn_tag}")
+            parts = [f"  iter {u.iteration_num}: {u.agent_name}"]
+            if u.spawn_agent:
+                parts.append(f" [spawned {u.spawn_agent}]")
+            elif u.has_spawn_calls:
+                parts.append(" [spawned sub-agents]")
+            lines.append("".join(parts))
 
         if exploits:
             by_status: dict[str, int] = {}

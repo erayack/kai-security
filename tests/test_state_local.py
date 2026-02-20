@@ -88,14 +88,12 @@ class TestStatusUpdates:
             iteration_num=1,
             timestamp="t1",
             agent_name="exploit",
-            response_text="found something",
         )
         u2 = StatusUpdate(
             run_id="r1",
             iteration_num=2,
             timestamp="t2",
             agent_name="exploit",
-            response_text="more stuff",
         )
         mgr.add_status_update(u1)
         mgr.add_status_update(u2)
@@ -116,7 +114,6 @@ class TestStatusUpdates:
                 iteration_num=1,
                 timestamp="t",
                 agent_name="a",
-                response_text="text",
             )
         )
         path = tmp_path / "r1" / "status_updates.jsonl"
@@ -294,7 +291,6 @@ class TestSummarizeProgress:
                 iteration_num=1,
                 timestamp="t",
                 agent_name="exploit",
-                response_text="found a bug",
             )
         )
         summary = mgr.summarize_progress("r1")

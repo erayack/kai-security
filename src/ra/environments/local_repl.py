@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from ra.core.comms_utils import LMRequest, send_lm_request, send_lm_request_batched
-from ra.core.types import REPLResult, RLMChatCompletion
+from ra.core.types import REPLResult, RLMChatCompletion, SpawnRecord
 from ra.environments.base_env import NonIsolatedEnv
 
 # =============================================================================
@@ -130,6 +130,7 @@ class LocalREPL(NonIsolatedEnv):
         **kwargs,
     ):
         factory = kwargs.pop("workspace_factory", None)
+        self._query_model: str | None = kwargs.pop("query_model", None)
         super().__init__(persistent=persistent, depth=depth, **kwargs)
 
         self.lm_handler_address = lm_handler_address
@@ -201,6 +202,9 @@ class LocalREPL(NonIsolatedEnv):
         """
         if self.lm_handler_address is None:
             return "Error: No LM handler configured"
+
+        if model is None:
+            model = self._query_model
 
         try:
             request = LMRequest(prompt=prompt, model=model, depth=self.depth)
@@ -391,7 +395,7 @@ class LocalREPL(NonIsolatedEnv):
         expr = "".join(lines[last.lineno - 1 :]).strip()
         return body, expr
 
-    _exec_timeout: int = int(os.environ.get("KAI_EXEC_TIMEOUT", 600))
+    _exec_timeout: int = int(os.environ.get("KAI_EXEC_TIMEOUT", 1200))
 
     @staticmethod
     def _find_assignment_targets(code: str) -> set[str]:
@@ -452,7 +456,7 @@ class LocalREPL(NonIsolatedEnv):
         If the last statement is a bare expression, its return value
         is auto-printed (like interactive Python / Jupyter).
 
-        Execution is guarded by ``_exec_timeout`` (default 600 s).
+        Execution is guarded by ``_exec_timeout`` (default 1200 s).
         On timeout the result contains a ``TimeoutError`` on stderr.
 
         On error or timeout, variables assigned before the failure are
@@ -470,6 +474,16 @@ class LocalREPL(NonIsolatedEnv):
         combined = {**self.globals, **self.locals}
         exc_holder: list[Exception] = []
         succeeded = False
+
+        # Cooperative cancellation: stamp every tool so spawn functions
+        # can forward the event to child RLM instances.
+        # Bound methods don't support attribute assignment — skip them.
+        cancel_event = threading.Event()
+        for fn in self._tools.values():
+            try:
+                fn._cancel_event = cancel_event
+            except AttributeError:
+                pass
 
         with self._capture_output() as (stdout_buf, stderr_buf), self._temp_cwd():
 
@@ -495,6 +509,8 @@ class LocalREPL(NonIsolatedEnv):
             worker.join(timeout=self._exec_timeout)
 
             if worker.is_alive():
+                # Signal child RLMs to stop at next iteration boundary
+                cancel_event.set()
                 # Timeout — worker is orphaned as a daemon thread
                 stdout = stdout_buf.getvalue()
                 error_msg = (
@@ -516,12 +532,17 @@ class LocalREPL(NonIsolatedEnv):
                 stdout = stdout_buf.getvalue()
                 stderr = stderr_buf.getvalue()
 
-        # Drain sub-agent completions from spawn tools
+        # Drain sub-agent completions and spawn records from tools
+        spawn_records: list[SpawnRecord] = []
         for fn in self._tools.values():
             pending = getattr(fn, "_pending_completions", None)
             if pending:
                 self._pending_llm_calls.extend(pending)
                 pending.clear()
+            records = getattr(fn, "_spawn_records", None)
+            if records:
+                spawn_records.extend(records)
+                records.clear()
 
         return REPLResult(
             stdout=stdout,
@@ -529,6 +550,7 @@ class LocalREPL(NonIsolatedEnv):
             locals=self.locals.copy(),
             execution_time=time.perf_counter() - start_time,
             rlm_calls=self._pending_llm_calls.copy(),
+            spawn_records=spawn_records,
         )
 
     def __enter__(self):
