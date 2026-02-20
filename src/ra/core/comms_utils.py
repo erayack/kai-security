@@ -15,7 +15,7 @@ from typing import Any
 from ra.core.types import RLMChatCompletion
 from ra.exceptions import LMError
 
-_SOCKET_TIMEOUT: int = int(os.environ.get("KAI_SOCKET_TIMEOUT", 300))
+_SOCKET_TIMEOUT: int = int(os.environ.get("KAI_SOCKET_TIMEOUT", 900))
 
 # =============================================================================
 # Message Dataclasses
