@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+from typing import Any
 
 from ra.agents.config import RecursiveAgentConfig
 
@@ -24,6 +25,12 @@ def _make_config(
     )
 
 
+def _dummy_processor(
+    sm: object, run_id: str, kwargs: dict[str, Any], raw: str,
+) -> str:
+    return raw
+
+
 class TestInjectStateManager:
     def test_sets_on_iteration(self) -> None:
         mgr = LocalStateManager(state_dir=tempfile.mkdtemp())
@@ -38,13 +45,10 @@ class TestInjectStateManager:
         child = _make_config(name="analyzer", agents=[grandchild])
         config = _make_config(name="root", agents=[child])
         injected = inject_state_manager(config, mgr, "run-1")
-        # Root has on_iteration
         assert injected.on_iteration is not None
-        # Child also has on_iteration
         assert len(injected.agents) == 1
         child_injected = injected.agents[0]
         assert child_injected.on_iteration is not None
-        # Grandchild has on_iteration
         grandchild_injected = child_injected.agents[0]
         assert grandchild_injected.on_iteration is not None
 
@@ -53,3 +57,48 @@ class TestInjectStateManager:
         config = _make_config()
         inject_state_manager(config, mgr, "run-1")
         assert config.on_iteration is None
+
+    def test_sets_result_processor_on_matching_child(self) -> None:
+        mgr = LocalStateManager(state_dir=tempfile.mkdtemp())
+        child = _make_config(name="analyzer")
+        config = _make_config(name="root", agents=[child])
+        injected = inject_state_manager(
+            config, mgr, "run-1",
+            result_processors={"analyzer": _dummy_processor},
+        )
+        assert injected.agents[0].result_processor is not None
+        assert callable(injected.agents[0].result_processor)
+
+    def test_no_result_processor_on_unmatched_child(self) -> None:
+        mgr = LocalStateManager(state_dir=tempfile.mkdtemp())
+        child = _make_config(name="verifier")
+        config = _make_config(name="root", agents=[child])
+        injected = inject_state_manager(
+            config, mgr, "run-1",
+            result_processors={"analyzer": _dummy_processor},
+        )
+        assert injected.agents[0].result_processor is None
+
+    def test_bound_processor_calls_through(self) -> None:
+        """The bound closure should invoke the processor correctly."""
+        mgr = LocalStateManager(state_dir=tempfile.mkdtemp())
+        calls: list[tuple[str, str]] = []
+
+        def tracking_processor(
+            sm: object, run_id: str,
+            kwargs: dict[str, Any], raw: str,
+        ) -> str:
+            calls.append((run_id, raw))
+            return f"enriched:{raw}"
+
+        child = _make_config(name="analyzer")
+        config = _make_config(name="root", agents=[child])
+        injected = inject_state_manager(
+            config, mgr, "run-1",
+            result_processors={"analyzer": tracking_processor},
+        )
+        bound = injected.agents[0].result_processor
+        assert bound is not None
+        result = bound({}, "test_data")
+        assert result == "enriched:test_data"
+        assert calls == [("run-1", "test_data")]

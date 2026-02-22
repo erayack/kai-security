@@ -49,9 +49,7 @@ def _make_spawn_fn(
         call_count[0] += 1
         indexed_config = config
         if call_count[0] > 1:
-            indexed_config = replace(
-                config, name=f"{config.name}#{call_count[0]}"
-            )
+            indexed_config = replace(config, name=f"{config.name}#{call_count[0]}")
 
         # Forward cooperative cancellation event from parent REPL
         cancel_event = getattr(_spawn, "_cancel_event", None)
@@ -72,30 +70,37 @@ def _make_spawn_fn(
             )
             result = agent.completion(kwargs)
             if isinstance(result, str):
-                records.append(SpawnRecord(
+                result_str = result
+            else:
+                pending.append(result)
+                result_str = result.response
+
+            if config.result_processor is not None:
+                try:
+                    result_str = config.result_processor(
+                        kwargs,
+                        result_str,
+                    )
+                except Exception:
+                    _log_error(f"result_processor failed for {config.name}")
+
+            records.append(
+                SpawnRecord(
                     agent_name=config.name,
                     kwargs=kwargs,
-                    result=result,
-                ))
-                return result
-            pending.append(result)
-            result_str = result.response
-            records.append(SpawnRecord(
-                agent_name=config.name,
-                kwargs=kwargs,
-                result=result_str,
-            ))
+                    result=result_str,
+                )
+            )
             return result_str
         except SpawnError as exc:
-            error_msg = (
-                f"[spawn_{config.name} error] "
-                f"{type(exc).__name__}: {exc}"
+            error_msg = f"[spawn_{config.name} error] {type(exc).__name__}: {exc}"
+            records.append(
+                SpawnRecord(
+                    agent_name=config.name,
+                    kwargs=kwargs,
+                    result=error_msg,
+                )
             )
-            records.append(SpawnRecord(
-                agent_name=config.name,
-                kwargs=kwargs,
-                result=error_msg,
-            ))
             return error_msg
 
     _spawn.__name__ = f"spawn_{config.name}"

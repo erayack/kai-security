@@ -13,28 +13,21 @@ from kai.state.models import StatusUpdate
 
 log = logging.getLogger(__name__)
 
-# Type alias for spawn-result parser functions.
-SpawnParser = Callable[[StateManager, str, str], None]
-
 
 def make_on_iteration_hook(
     state_manager: StateManager,
     run_id: str,
     agent_name: str,
-    spawn_parsers: dict[str, SpawnParser] | None = None,
 ) -> Callable[[RLMIteration, int], None]:
     """Return a callback that saves RLM iterations as StatusUpdates.
 
     Spawn data is read deterministically from
-    ``REPLResult.spawn_records``.  If *spawn_parsers* is provided,
-    each spawn record whose ``agent_name`` matches a key is dispatched
-    to the corresponding parser function.
+    ``REPLResult.spawn_records``.  Domain-specific parsing is handled
+    by ``result_processor`` on each sub-agent config (runs inside the
+    spawn function), so this hook only records status updates.
     """
-    parsers = spawn_parsers or {}
 
-    def _on_iteration(
-        iteration: RLMIteration, iteration_num: int
-    ) -> None:
+    def _on_iteration(iteration: RLMIteration, iteration_num: int) -> None:
         if not iteration.code_blocks:
             return
         try:
@@ -58,19 +51,6 @@ def make_on_iteration_hook(
                 spawn_result=first.result if first else None,
             )
             state_manager.add_status_update(update)
-
-            # Dispatch each record to its parser
-            for record in all_records:
-                parser = parsers.get(record.agent_name)
-                if parser is None:
-                    continue
-                try:
-                    parser(state_manager, run_id, record.result)
-                except Exception:
-                    log.exception(
-                        "spawn record parser failed for agent %s",
-                        record.agent_name,
-                    )
         except Exception:
             log.exception("on_iteration hook failed")
 

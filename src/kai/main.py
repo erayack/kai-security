@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from kai.definitions import exploit_config, exploit_spawn_parsers, setup_config
+from kai.definitions import exploit_config, exploit_result_processors, setup_config
 from kai.definitions.exploit.tools import make_graph_tools
 from kai.dependency import TreeSitterBuilder
 from kai.state import LocalStateManager, StateManager, inject_state_manager
@@ -236,8 +236,10 @@ def run_exploit(
 
     if state_manager is not None and run_id is not None:
         injected_config = inject_state_manager(
-            injected_config, state_manager, run_id,
-            spawn_parsers=exploit_spawn_parsers,
+            injected_config,
+            state_manager,
+            run_id,
+            result_processors=exploit_result_processors,
         )
 
     context: dict[str, Any] = {"master_path": recipe.master_path}
@@ -567,7 +569,9 @@ def main(argv: list[str] | None = None) -> None:
                             repo_path=args.recipe,
                             started_at=datetime.now(timezone.utc).isoformat(),
                             status="running",
-                            root_model="unknown",
+                            root_model=exploit_config.backend_kwargs.get(
+                                "model_name", "unknown"
+                            ),
                         )
                     )
                 except Exception:
