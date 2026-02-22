@@ -44,7 +44,7 @@ class LocalStateManager(StateManager):
         summary_backend: str = "openrouter",
         summary_model: str | None = None,
     ) -> None:
-        self._state_dir = Path(state_dir)
+        self._state_dir = Path(state_dir).resolve()
         self._summary_backend = summary_backend
         self._summary_model = summary_model or os.environ.get(
             "KAI_SUMMARY_MODEL", _DEFAULT_SUMMARY_MODEL
