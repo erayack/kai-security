@@ -117,6 +117,17 @@ class UsageSummary:
 ########################################################
 ########   Types for REPL and RLM Iterations   #########
 ########################################################
+
+
+@dataclass
+class SpawnRecord:
+    """Record of a single sub-agent spawn call."""
+
+    agent_name: str
+    kwargs: dict[str, Any]
+    result: str
+
+
 @dataclass
 class RLMChatCompletion:
     """Record of a single LLM call made from within the environment."""
@@ -154,6 +165,7 @@ class REPLResult:
     locals: dict
     execution_time: float | None
     llm_calls: list["RLMChatCompletion"]
+    spawn_records: list["SpawnRecord"]
 
     def __init__(
         self,
@@ -162,15 +174,22 @@ class REPLResult:
         locals: dict,
         execution_time: float | None = None,
         rlm_calls: list["RLMChatCompletion"] | None = None,
+        spawn_records: list["SpawnRecord"] | None = None,
     ):
         self.stdout = stdout
         self.stderr = stderr
         self.locals = locals
         self.execution_time = execution_time
         self.rlm_calls = rlm_calls or []
+        self.spawn_records = spawn_records or []
 
     def __str__(self):
-        return f"REPLResult(stdout={self.stdout}, stderr={self.stderr}, locals={self.locals}, execution_time={self.execution_time}, rlm_calls={len(self.rlm_calls)})"
+        return (
+            f"REPLResult(stdout={self.stdout}, stderr={self.stderr}, "
+            f"locals={self.locals}, execution_time={self.execution_time}, "
+            f"rlm_calls={len(self.rlm_calls)}, "
+            f"spawn_records={len(self.spawn_records)})"
+        )
 
     def to_dict(self):
         return {
@@ -179,6 +198,14 @@ class REPLResult:
             "locals": {k: _serialize_value(v) for k, v in self.locals.items()},
             "execution_time": self.execution_time,
             "rlm_calls": [call.to_dict() for call in self.rlm_calls],
+            "spawn_records": [
+                {
+                    "agent_name": r.agent_name,
+                    "kwargs": r.kwargs,
+                    "result": r.result,
+                }
+                for r in self.spawn_records
+            ],
         }
 
 

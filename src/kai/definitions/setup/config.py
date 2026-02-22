@@ -24,5 +24,5 @@ config = RecursiveAgentConfig(
             "KAI_SETUP_MODEL", "minimax/minimax-m2.5"
         ),
     },
-    max_iterations=30,
+    max_iterations=int(os.environ.get("KAI_SETUP_ITERS", 30)),
 )

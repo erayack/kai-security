@@ -1,3 +1,4 @@
+import threading
 import time
 from contextlib import contextmanager
 from typing import Any
@@ -51,11 +52,13 @@ class RLM:
         custom_system_prompt: str | None = None,
         other_backends: list[ClientBackend] | None = None,
         other_backend_kwargs: list[dict[str, Any]] | None = None,
+        query_model: str | None = None,
         logger: RecursiveAgentLogger | None = None,
         verbose: bool = False,
         log_file: str = "",
         persistent: bool = False,
         name: str = "",
+        on_iteration: Any | None = None,
     ):
         """
         Args:
@@ -90,6 +93,7 @@ class RLM:
 
         self.other_backends = other_backends
         self.other_backend_kwargs = other_backend_kwargs
+        self.query_model = query_model
 
         self.depth = depth
         self.max_depth = max_depth
@@ -109,6 +113,13 @@ class RLM:
         # Persistence support
         self.persistent = persistent
         self._persistent_env: SupportsPersistence | None = None
+
+        self.on_iteration = on_iteration
+
+        # Cooperative cancellation: parent can signal this RLM to stop
+        self._cancel_event: threading.Event | None = self.environment_kwargs.pop(
+            "cancel_event", None
+        )
 
         # Validate persistence support at initialization
         if self.persistent:
@@ -170,6 +181,13 @@ class RLM:
                     )
                 lm_handler.register_client(other_client.model_name, other_client)
 
+        # Register a dedicated client for llm_query if query_model set
+        if self.query_model:
+            query_kwargs = dict(self.backend_kwargs or {})
+            query_kwargs["model_name"] = self.query_model
+            query_client: BaseLM = get_client(self.backend, query_kwargs)
+            lm_handler.register_client(self.query_model, query_client)
+
         lm_handler.start()
 
         # Environment: reuse if persistent, otherwise create fresh
@@ -189,6 +207,8 @@ class RLM:
             env_kwargs["lm_handler_address"] = (lm_handler.host, lm_handler.port)
             env_kwargs["context_payload"] = prompt
             env_kwargs["depth"] = self.depth + 1  # Environment depth is RLM depth + 1
+            if self.query_model:
+                env_kwargs["query_model"] = self.query_model
             environment: BaseEnv = get_environment(self.environment_type, env_kwargs)
 
             if self.persistent:
@@ -254,6 +274,13 @@ class RLM:
             child_usage = UsageSummary(model_usage_summaries={})
 
             for i in range(self.max_iterations):
+                # Cooperative cancellation: parent timed out
+                if (
+                    self._cancel_event is not None
+                    and self._cancel_event.is_set()
+                ):
+                    break
+
                 # Current prompt = message history + additional prompt suffix
                 context_count = (
                     environment.get_context_count()
@@ -292,6 +319,9 @@ class RLM:
                 # If logger is used, log the iteration.
                 if self.logger:
                     self.logger.log(iteration)
+
+                if self.on_iteration:
+                    self.on_iteration(iteration, i + 1)
 
                 if final_answer is not None:
                     time_end = time.perf_counter()

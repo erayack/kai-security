@@ -71,7 +71,6 @@ class TestExploitConfig:
 
         names = [a.name for a in exploit_config.agents]
         assert names == [
-            "recon",
             "analyzer",
             "verifier",
             "researcher",
@@ -88,21 +87,10 @@ class TestExploitConfig:
 
         exploit_config.validate()
 
-    def test_recon_tools(self) -> None:
-        from kai.definitions import exploit_config
-
-        recon = exploit_config.agents[0]
-        assert set(recon.tools.keys()) == {
-            "read_file",
-            "list_dir",
-            "search_files",
-            "run_shell",
-        }
-
     def test_analyzer_tools(self) -> None:
         from kai.definitions import exploit_config
 
-        analyzer = exploit_config.agents[1]
+        analyzer = exploit_config.agents[0]
         assert set(analyzer.tools.keys()) == {
             "read_file",
             "list_dir",
@@ -113,7 +101,7 @@ class TestExploitConfig:
     def test_verifier_tools(self) -> None:
         from kai.definitions import exploit_config
 
-        verifier = exploit_config.agents[2]
+        verifier = exploit_config.agents[1]
         assert set(verifier.tools.keys()) == {
             "read_file",
             "write_file",
@@ -124,7 +112,7 @@ class TestExploitConfig:
     def test_researcher_tools(self) -> None:
         from kai.definitions import exploit_config
 
-        researcher = exploit_config.agents[3]
+        researcher = exploit_config.agents[2]
         assert set(researcher.tools.keys()) == {
             "search_web",
             "read_url",
@@ -133,7 +121,7 @@ class TestExploitConfig:
     def test_fixer_tools(self) -> None:
         from kai.definitions import exploit_config
 
-        fixer = exploit_config.agents[4]
+        fixer = exploit_config.agents[3]
         assert set(fixer.tools.keys()) == {
             "read_file",
             "update_file",
@@ -165,7 +153,6 @@ class TestPrompts:
         from kai.definitions.exploit.prompt import (
             ANALYZER_PROMPT,
             FIXER_PROMPT,
-            RECON_PROMPT,
             RESEARCHER_PROMPT,
             ROOT_PROMPT,
             VERIFIER_PROMPT,
@@ -173,7 +160,6 @@ class TestPrompts:
 
         for prompt in [
             ROOT_PROMPT,
-            RECON_PROMPT,
             ANALYZER_PROMPT,
             RESEARCHER_PROMPT,
             VERIFIER_PROMPT,
@@ -185,7 +171,6 @@ class TestPrompts:
         from kai.definitions.exploit.prompt import ROOT_PROMPT
 
         for name in [
-            "spawn_recon",
             "spawn_analyzer",
             "spawn_verifier",
             "spawn_researcher",

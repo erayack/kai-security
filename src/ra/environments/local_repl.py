@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from ra.core.comms_utils import LMRequest, send_lm_request, send_lm_request_batched
-from ra.core.types import REPLResult, RLMChatCompletion
+from ra.core.types import REPLResult, RLMChatCompletion, SpawnRecord
 from ra.environments.base_env import NonIsolatedEnv
 
 # =============================================================================
@@ -130,6 +130,7 @@ class LocalREPL(NonIsolatedEnv):
         **kwargs,
     ):
         factory = kwargs.pop("workspace_factory", None)
+        self._query_model: str | None = kwargs.pop("query_model", None)
         super().__init__(persistent=persistent, depth=depth, **kwargs)
 
         self.lm_handler_address = lm_handler_address
@@ -201,6 +202,9 @@ class LocalREPL(NonIsolatedEnv):
         """
         if self.lm_handler_address is None:
             return "Error: No LM handler configured"
+
+        if model is None:
+            model = self._query_model
 
         try:
             request = LMRequest(prompt=prompt, model=model, depth=self.depth)
@@ -391,11 +395,72 @@ class LocalREPL(NonIsolatedEnv):
         expr = "".join(lines[last.lineno - 1 :]).strip()
         return body, expr
 
+    _exec_timeout: int = int(os.environ.get("KAI_EXEC_TIMEOUT", 1200))
+
+    @staticmethod
+    def _find_assignment_targets(code: str) -> set[str]:
+        """Return simple Name targets from all assignments in *code*.
+
+        Handles plain assignments (``x = ...``), annotated assignments,
+        and tuple/list unpacking (``a, b = ...``).  Attribute and
+        subscript targets are silently skipped — they can't be
+        recovered without the live object.
+        """
+        try:
+            tree = ast.parse(code)
+        except SyntaxError:
+            return set()
+
+        names: set[str] = set()
+
+        def _collect(node: ast.AST) -> None:
+            if isinstance(node, ast.Name):
+                names.add(node.id)
+            elif isinstance(node, (ast.Tuple, ast.List)):
+                for elt in node.elts:
+                    _collect(elt)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    _collect(target)
+            elif isinstance(node, ast.AnnAssign) and node.target is not None:
+                _collect(node.target)
+
+        return names
+
+    def _writeback_locals(
+        self,
+        namespace: dict[str, Any],
+        targets: set[str],
+        error_msg: str | None = None,
+    ) -> None:
+        """Write *namespace* back to ``self.locals``.
+
+        If *error_msg* is provided, any assignment target not yet
+        present in *namespace* receives the error string so downstream
+        code sees the failure as a value rather than a ``NameError``.
+        """
+        if error_msg:
+            for name in targets:
+                if name not in namespace:
+                    namespace[name] = error_msg
+
+        for key, value in namespace.items():
+            if key not in self.globals and not key.startswith("_"):
+                self.locals[key] = value
+
     def execute_code(self, code: str) -> REPLResult:
         """Execute code in the persistent namespace and return result.
 
         If the last statement is a bare expression, its return value
         is auto-printed (like interactive Python / Jupyter).
+
+        Execution is guarded by ``_exec_timeout`` (default 1200 s).
+        On timeout the result contains a ``TimeoutError`` on stderr.
+
+        On error or timeout, variables assigned before the failure are
+        preserved and any unassigned targets receive the error string.
         """
         start_time = time.perf_counter()
 
@@ -403,36 +468,81 @@ class LocalREPL(NonIsolatedEnv):
         self._pending_llm_calls = []
 
         body, last_expr = self._split_last_expr(code)
+        targets = self._find_assignment_targets(code)
+
+        # Shared state between main thread and worker
+        combined = {**self.globals, **self.locals}
+        exc_holder: list[Exception] = []
+        succeeded = False
+
+        # Cooperative cancellation: stamp every tool so spawn functions
+        # can forward the event to child RLM instances.
+        # Bound methods don't support attribute assignment — skip them.
+        cancel_event = threading.Event()
+        for fn in self._tools.values():
+            try:
+                fn._cancel_event = cancel_event
+            except AttributeError:
+                pass
 
         with self._capture_output() as (stdout_buf, stderr_buf), self._temp_cwd():
-            try:
-                combined = {**self.globals, **self.locals}
 
-                if body:
-                    exec(body, combined, combined)
+            def _run() -> None:
+                nonlocal succeeded
+                try:
+                    if body:
+                        exec(body, combined, combined)
 
-                if last_expr is not None:
-                    result = eval(last_expr, combined, combined)  # noqa: S307
-                    if result is not None:
-                        print(repr(result))
+                    if last_expr is not None:
+                        result = eval(  # noqa: S307
+                            last_expr, combined, combined
+                        )
+                        if result is not None:
+                            print(repr(result))
 
-                # Update locals with new variables
-                for key, value in combined.items():
-                    if key not in self.globals and not key.startswith("_"):
-                        self.locals[key] = value
+                    succeeded = True
+                except Exception as e:
+                    exc_holder.append(e)
 
+            worker = threading.Thread(target=_run, daemon=True)
+            worker.start()
+            worker.join(timeout=self._exec_timeout)
+
+            if worker.is_alive():
+                # Signal child RLMs to stop at next iteration boundary
+                cancel_event.set()
+                # Timeout — worker is orphaned as a daemon thread
+                stdout = stdout_buf.getvalue()
+                error_msg = (
+                    f"[error] TimeoutError: execution exceeded "
+                    f"{self._exec_timeout}s limit"
+                )
+                stderr = stderr_buf.getvalue() + f"\n{error_msg}"
+                # Snapshot: thread may still be running
+                self._writeback_locals(dict(combined), targets, error_msg)
+            elif exc_holder:
+                stdout = stdout_buf.getvalue()
+                e = exc_holder[0]
+                error_msg = f"[error] {type(e).__name__}: {e}"
+                stderr = stderr_buf.getvalue() + f"\n{error_msg}"
+                # Thread has exited — safe to read combined
+                self._writeback_locals(combined, targets, error_msg)
+            else:
+                self._writeback_locals(combined, targets)
                 stdout = stdout_buf.getvalue()
                 stderr = stderr_buf.getvalue()
-            except Exception as e:
-                stdout = stdout_buf.getvalue()
-                stderr = stderr_buf.getvalue() + f"\n{type(e).__name__}: {e}"
 
-        # Drain sub-agent completions from spawn tools
+        # Drain sub-agent completions and spawn records from tools
+        spawn_records: list[SpawnRecord] = []
         for fn in self._tools.values():
             pending = getattr(fn, "_pending_completions", None)
             if pending:
                 self._pending_llm_calls.extend(pending)
                 pending.clear()
+            records = getattr(fn, "_spawn_records", None)
+            if records:
+                spawn_records.extend(records)
+                records.clear()
 
         return REPLResult(
             stdout=stdout,
@@ -440,6 +550,7 @@ class LocalREPL(NonIsolatedEnv):
             locals=self.locals.copy(),
             execution_time=time.perf_counter() - start_time,
             rlm_calls=self._pending_llm_calls.copy(),
+            spawn_records=spawn_records,
         )
 
     def __enter__(self):

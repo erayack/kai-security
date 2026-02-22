@@ -6,6 +6,7 @@ Used for communication between LMHandler and environment subprocesses.
 """
 
 import json
+import os
 import socket
 import struct
 from dataclasses import dataclass
@@ -13,6 +14,8 @@ from typing import Any
 
 from ra.core.types import RLMChatCompletion
 from ra.exceptions import LMError
+
+_SOCKET_TIMEOUT: int = int(os.environ.get("KAI_SOCKET_TIMEOUT", 900))
 
 # =============================================================================
 # Message Dataclasses
@@ -181,7 +184,7 @@ def socket_recv(sock: socket.socket) -> dict:
     return json.loads(payload.decode("utf-8"))
 
 
-def socket_request(address: tuple[str, int], data: dict, timeout: int = 300) -> dict:
+def socket_request(address: tuple[str, int], data: dict, timeout: int = _SOCKET_TIMEOUT) -> dict:
     """Send a request and receive a response over a new socket connection.
 
     Opens a new TCP connection, sends the request, waits for response, then closes.
@@ -209,7 +212,7 @@ def socket_request(address: tuple[str, int], data: dict, timeout: int = 300) -> 
 def send_lm_request(
     address: tuple[str, int],
     request: LMRequest,
-    timeout: int = 300,
+    timeout: int = _SOCKET_TIMEOUT,
     depth: int | None = None,
 ) -> LMResponse:
     """Send an LM request and return typed response.
@@ -236,7 +239,7 @@ def send_lm_request_batched(
     address: tuple[str, int],
     prompts: list[str | dict[str, Any]],
     model: str | None = None,
-    timeout: int = 300,
+    timeout: int = _SOCKET_TIMEOUT,
     depth: int = 0,
 ) -> list[LMResponse]:
     """Send a batched LM request and return a list of typed responses.
