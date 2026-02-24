@@ -6,17 +6,29 @@ aggregation services.
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 from ra.core.types import CodeBlock, RLMIteration, RLMMetadata
 
-_MAX_PREVIEW = 200
+_DEFAULT_PREVIEW = 500
 
 
-def _oneline(text: str, limit: int = _MAX_PREVIEW) -> str:
+def _preview_limit() -> int:
+    """Read preview character limit from env, default 500."""
+    raw = os.environ.get("KAI_LOG_PREVIEW_CHARS", "")
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        return _DEFAULT_PREVIEW
+
+
+def _oneline(text: str, limit: int | None = None) -> str:
     """Collapse multi-line text to a single line, truncated."""
+    if limit is None:
+        limit = _preview_limit()
     flat = " ".join(text.split())
     if len(flat) > limit:
         return flat[:limit] + "..."
