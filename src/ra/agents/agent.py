@@ -178,6 +178,7 @@ class RecursiveAgent:
             max_iterations=self.config.max_iterations,
             verbose=self.config.verbose,
             log_file=self.config.log_file,
+            log_structured=self.config.log_structured,
             name=self.config.name,
             on_iteration=self.config.on_iteration,
         )

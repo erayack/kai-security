@@ -760,9 +760,7 @@ def _get_language_fn(module: Any, lang: str) -> Any:
     fn = getattr(module, f"language_{lang_snake}", None)
     if fn is not None:
         return fn
-    raise ImportError(
-        f"Cannot find language() in {module.__name__}"
-    )
+    raise ImportError(f"Cannot find language() in {module.__name__}")
 
 
 def _import_lang_module(lang: str) -> Optional[Any]:

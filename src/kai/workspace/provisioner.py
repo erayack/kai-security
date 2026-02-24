@@ -35,9 +35,7 @@ def provision_workspace(recipe: WorkspaceRecipe) -> str:
         src = os.path.join(master, d)
         dst = os.path.join(ws, d)
         if os.path.exists(src):
-            shutil.copytree(
-                src, dst, symlinks=True, ignore_dangling_symlinks=True
-            )
+            shutil.copytree(src, dst, symlinks=True, ignore_dangling_symlinks=True)
 
     for f in recipe.copy_files:
         src = os.path.join(master, f)

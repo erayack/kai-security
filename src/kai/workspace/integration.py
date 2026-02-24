@@ -32,12 +32,14 @@ def inject_workspace(
     *,
     verbose: bool | None = None,
     log_file: str | None = None,
+    log_structured: bool | None = None,
 ) -> RecursiveAgentConfig:
     """Return a copy of *config* with workspace_factory where needed.
 
     Only agents whose tools overlap with ``_WORKSPACE_TOOLS`` get a
-    workspace factory.  If *verbose* or *log_file* are given they are
-    propagated to all nodes.  The original config is not mutated.
+    workspace factory.  If *verbose*, *log_file*, or *log_structured*
+    are given they are propagated to all nodes.  The original config
+    is not mutated.
     """
     overrides: dict[str, object] = {}
 
@@ -52,12 +54,20 @@ def inject_workspace(
         overrides["verbose"] = verbose
     if log_file is not None:
         overrides["log_file"] = log_file
+    if log_structured is not None:
+        overrides["log_structured"] = log_structured
 
     return replace(
         config,
         **overrides,
         agents=[
-            inject_workspace(a, recipe, verbose=verbose, log_file=log_file)
+            inject_workspace(
+                a,
+                recipe,
+                verbose=verbose,
+                log_file=log_file,
+                log_structured=log_structured,
+            )
             for a in config.agents
         ],
     )

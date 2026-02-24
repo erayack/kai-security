@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from kai.definitions import exploit_config, exploit_result_processors, setup_config
+from kai.logging_config import configure_logging
 from kai.definitions.exploit.tools import make_graph_tools
 from kai.dependency import TreeSitterBuilder
 from kai.state import LocalStateManager, StateManager, inject_state_manager
@@ -195,6 +196,7 @@ def run_exploit(
     *,
     verbose: bool = False,
     log_file: str = "",
+    log_structured: bool = False,
     instructions: str = "",
     prior_findings: list[dict[str, Any]] | None = None,
     state_manager: StateManager | None = None,
@@ -228,6 +230,7 @@ def run_exploit(
         recipe,
         verbose=verbose,
         log_file=log_file or None,
+        log_structured=log_structured or None,
     )
     injected_config = replace(
         injected_config,
@@ -257,6 +260,7 @@ def run_pipeline(
     *,
     verbose: bool = False,
     log_file: str = "",
+    log_structured: bool = False,
     instructions: str = "",
     max_rounds: int = 1,
     state_dir: str = "output/state",
@@ -300,7 +304,9 @@ def run_pipeline(
     succeeded = False
     try:
         # --- Step 1: run setup agent ---
-        setup_cfg = replace(setup_config, verbose=verbose)
+        setup_cfg = replace(
+            setup_config, verbose=verbose, log_structured=log_structured
+        )
         setup_agent = RecursiveAgent(setup_cfg)
         setup_result = setup_agent.completion(
             {"repo_path": repo_path, "master_dir": master_dir}
@@ -319,6 +325,7 @@ def run_pipeline(
             recipe,
             verbose=verbose,
             log_file=log_file,
+            log_structured=log_structured,
             instructions=instructions,
             max_rounds=max_rounds,
             state_manager=sm,
@@ -363,6 +370,7 @@ def _run_exploit_loop(
     *,
     verbose: bool = False,
     log_file: str = "",
+    log_structured: bool = False,
     instructions: str = "",
     max_rounds: int = 1,
     state_manager: StateManager | None = None,
@@ -389,6 +397,7 @@ def _run_exploit_loop(
             recipe,
             verbose=verbose,
             log_file=round_log,
+            log_structured=log_structured,
             instructions=instructions,
             prior_findings=fixed_findings or None,
             state_manager=state_manager,
@@ -483,6 +492,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Save full verbose log to this file.",
     )
     agent_parser.add_argument(
+        "--log-structured",
+        action="store_true",
+        default=False,
+        help="Emit structured JSON logs (for CloudWatch / log aggregation).",
+    )
+    agent_parser.add_argument(
         "--output",
         "-o",
         default=None,
@@ -510,6 +525,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--log-file",
         default="",
         help="Save full verbose log to this file.",
+    )
+    pipe_parser.add_argument(
+        "--log-structured",
+        action="store_true",
+        default=False,
+        help="Emit structured JSON logs (for CloudWatch / log aggregation).",
     )
     pipe_parser.add_argument(
         "--output",
@@ -548,6 +569,12 @@ def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    # Resolve structured logging: CLI flag or env var
+    structured = getattr(args, "log_structured", False) or os.environ.get(
+        "KAI_LOG_STRUCTURED", ""
+    ) in ("1", "true", "yes")
+    configure_logging(structured=structured)
+
     if args.command == "pipeline":
         log_file = args.log_file
         instructions = args.instructions
@@ -582,6 +609,7 @@ def main(argv: list[str] | None = None) -> None:
                 recipe,
                 verbose=args.verbose,
                 log_file=log_file,
+                log_structured=structured,
                 instructions=instructions,
                 max_rounds=max_rounds,
                 state_manager=sm,
@@ -598,6 +626,7 @@ def main(argv: list[str] | None = None) -> None:
                 args.repo_path,
                 verbose=args.verbose,
                 log_file=log_file,
+                log_structured=structured,
                 instructions=instructions,
                 max_rounds=max_rounds,
                 state_dir=state_dir,
@@ -623,6 +652,7 @@ def main(argv: list[str] | None = None) -> None:
         if args.max_iterations:
             overrides["max_iterations"] = args.max_iterations
         overrides["verbose"] = args.verbose
+        overrides["log_structured"] = structured
         if args.log_file:
             overrides["log_file"] = str(Path(args.log_file).resolve())
         config = replace(config, **overrides)

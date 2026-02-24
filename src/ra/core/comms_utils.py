@@ -184,7 +184,9 @@ def socket_recv(sock: socket.socket) -> dict:
     return json.loads(payload.decode("utf-8"))
 
 
-def socket_request(address: tuple[str, int], data: dict, timeout: int = _SOCKET_TIMEOUT) -> dict:
+def socket_request(
+    address: tuple[str, int], data: dict, timeout: int = _SOCKET_TIMEOUT
+) -> dict:
     """Send a request and receive a response over a new socket connection.
 
     Opens a new TCP connection, sends the request, waits for response, then closes.
