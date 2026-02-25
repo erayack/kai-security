@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -53,5 +54,83 @@ def make_on_iteration_hook(
             state_manager.add_status_update(update)
         except Exception:
             log.exception("on_iteration hook failed")
+
+    return _on_iteration
+
+
+def make_rollout_on_iteration_hook(
+    state_manager: StateManager,
+    run_id: str,
+    agent_name: str,
+    depth: int = 0,
+    backend: str = "",
+    model: str = "",
+) -> Callable[[RLMIteration, int], None]:
+    """Return a callback that writes per-agent rollout JSONL.
+
+    Each time ``iteration_num == 1`` is seen, a new spawn is assumed:
+    a fresh ``spawn_id`` is generated and a metadata entry is emitted.
+    Every entry carries the ``spawn_id`` so multiple spawns of the
+    same agent can be distinguished within a single file.
+
+    When ``iteration.final_answer`` is not ``None`` a result entry is
+    appended.
+    """
+    spawn_id: list[str] = []  # mutable; empty means no spawn yet
+
+    def _on_iteration(iteration: RLMIteration, iteration_num: int) -> None:
+        try:
+            ts = datetime.now(timezone.utc).isoformat()
+
+            # New spawn detected — emit metadata
+            if iteration_num == 1 or not spawn_id:
+                spawn_id.clear()
+                spawn_id.append(uuid.uuid4().hex[:12])
+                state_manager.open_rollout(
+                    run_id,
+                    agent_name,
+                    depth,
+                    {
+                        "spawn_id": spawn_id[0],
+                        "timestamp": ts,
+                        "backend": backend,
+                        "model": model,
+                    },
+                )
+
+            sid = spawn_id[0]
+
+            # Build iteration payload
+            code_blocks: list[dict[str, object]] = []
+            for cb in iteration.code_blocks:
+                code_blocks.append(
+                    {"code": cb.code, "output": cb.result.stdout}
+                )
+
+            state_manager.save_rollout_iteration(
+                run_id,
+                agent_name,
+                {
+                    "spawn_id": sid,
+                    "timestamp": ts,
+                    "response": iteration.response,
+                    "code_blocks": code_blocks,
+                },
+                iteration_num,
+            )
+
+            if iteration.final_answer is not None:
+                state_manager.save_rollout_result(
+                    run_id,
+                    agent_name,
+                    {
+                        "spawn_id": sid,
+                        "timestamp": ts,
+                        "final_answer": iteration.final_answer,
+                        "iteration": iteration_num,
+                    },
+                )
+        except Exception:
+            log.exception("rollout hook failed for %s", agent_name)
 
     return _on_iteration

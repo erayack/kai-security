@@ -201,6 +201,8 @@ def run_exploit(
     prior_findings: list[dict[str, Any]] | None = None,
     state_manager: StateManager | None = None,
     run_id: str | None = None,
+    save_rollouts: bool = False,
+    rollout_agents: set[str] | None = None,
 ) -> RLMChatCompletion:
     """Run the exploit agent with a pre-built workspace recipe.
 
@@ -243,6 +245,8 @@ def run_exploit(
             state_manager,
             run_id,
             result_processors=exploit_result_processors,
+            save_rollouts=save_rollouts,
+            rollout_agents=rollout_agents,
         )
 
     context: dict[str, Any] = {"master_path": recipe.master_path}
@@ -265,6 +269,8 @@ def run_pipeline(
     max_rounds: int = 1,
     state_dir: str = "output/state",
     no_state: bool = False,
+    save_rollouts: bool = False,
+    rollout_agents: set[str] | None = None,
 ) -> RLMChatCompletion:
     """Run the full setup → exploit pipeline.
 
@@ -330,6 +336,8 @@ def run_pipeline(
             max_rounds=max_rounds,
             state_manager=sm,
             run_id=rid,
+            save_rollouts=save_rollouts,
+            rollout_agents=rollout_agents,
         )
         succeeded = True
 
@@ -375,6 +383,8 @@ def _run_exploit_loop(
     max_rounds: int = 1,
     state_manager: StateManager | None = None,
     run_id: str | None = None,
+    save_rollouts: bool = False,
+    rollout_agents: set[str] | None = None,
 ) -> RLMChatCompletion:
     """Run up to *max_rounds* of exploit → fix → re-audit."""
     all_findings: list[dict[str, Any]] = []
@@ -402,6 +412,8 @@ def _run_exploit_loop(
             prior_findings=fixed_findings or None,
             state_manager=state_manager,
             run_id=run_id,
+            save_rollouts=save_rollouts,
+            rollout_agents=rollout_agents,
         )
         last_result = result
         merged_usage = merged_usage.merge(result.usage_summary)
@@ -503,6 +515,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=("Path to save result JSON (default: output/run_<timestamp>.json)."),
     )
+    agent_parser.add_argument(
+        "--save-rollouts",
+        action="store_true",
+        default=False,
+        help="Save per-agent rollout histories as JSONL.",
+    )
 
     # --- pipeline mode ---
     pipe_parser = sub.add_parser("pipeline", help="Run setup → exploit pipeline.")
@@ -560,8 +578,28 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Disable state tracking.",
     )
+    pipe_parser.add_argument(
+        "--save-rollouts",
+        action="store_true",
+        default=False,
+        help="Save per-agent rollout histories as JSONL.",
+    )
 
     return parser
+
+
+def _resolve_rollout_flags(
+    args: argparse.Namespace,
+) -> tuple[bool, set[str] | None]:
+    """Return ``(save_rollouts, rollout_agents)`` from CLI + env."""
+    save = getattr(args, "save_rollouts", False) or os.environ.get(
+        "KAI_SAVE_ROLLOUTS", ""
+    ) in ("1", "true", "yes")
+    raw = os.environ.get("KAI_ROLLOUT_AGENTS", "").strip()
+    agents: set[str] | None = None
+    if raw:
+        agents = {a.strip() for a in raw.split(",") if a.strip()}
+    return save, agents
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -574,6 +612,9 @@ def main(argv: list[str] | None = None) -> None:
         "KAI_LOG_STRUCTURED", ""
     ) in ("1", "true", "yes")
     configure_logging(structured=structured)
+
+    # Resolve rollout flags
+    save_rollouts, rollout_agents = _resolve_rollout_flags(args)
 
     if args.command == "pipeline":
         log_file = args.log_file
@@ -614,6 +655,8 @@ def main(argv: list[str] | None = None) -> None:
                 max_rounds=max_rounds,
                 state_manager=sm,
                 run_id=rid,
+                save_rollouts=save_rollouts,
+                rollout_agents=rollout_agents,
             )
             if sm is not None and rid is not None:
                 sm.update_run(
@@ -631,6 +674,8 @@ def main(argv: list[str] | None = None) -> None:
                 max_rounds=max_rounds,
                 state_dir=state_dir,
                 no_state=no_state,
+                save_rollouts=save_rollouts,
+                rollout_agents=rollout_agents,
             )
         print(result.response)
         dest = _save_result(result, args.output)
