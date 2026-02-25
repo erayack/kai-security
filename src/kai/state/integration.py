@@ -6,12 +6,28 @@ from dataclasses import replace
 from typing import Any, Callable
 
 from ra.agents.config import RecursiveAgentConfig
+from ra.core.types import RLMIteration
 
 from kai.state.base import StateManager
-from kai.state.hooks import make_on_iteration_hook
+from kai.state.hooks import (
+    make_on_iteration_hook,
+    make_rollout_on_iteration_hook,
+)
 
 # Processor signature before binding: (state_manager, run_id, kwargs, raw) -> str
 ResultProcessor = Callable[[StateManager, str, dict[str, Any], str], str]
+
+
+def _chain_hooks(
+    *hooks: Callable[[RLMIteration, int], None],
+) -> Callable[[RLMIteration, int], None]:
+    """Return a single callback that invokes all *hooks* in order."""
+
+    def _chained(iteration: RLMIteration, iteration_num: int) -> None:
+        for hook in hooks:
+            hook(iteration, iteration_num)
+
+    return _chained
 
 
 def inject_state_manager(
@@ -19,6 +35,10 @@ def inject_state_manager(
     state_manager: StateManager,
     run_id: str,
     result_processors: dict[str, ResultProcessor] | None = None,
+    *,
+    save_rollouts: bool = False,
+    rollout_agents: set[str] | None = None,
+    _depth: int = 0,
 ) -> RecursiveAgentConfig:
     """Return a copy of *config* with state-tracking hooks attached.
 
@@ -30,12 +50,34 @@ def inject_state_manager(
             function.  Each matching sub-agent config gets a bound
             ``result_processor`` closure so enrichment runs inside the
             spawn function.
+        save_rollouts: When ``True``, also attach rollout-writing hooks
+            that persist per-agent iteration histories as JSONL.
+        rollout_agents: If given, only record rollouts for agents whose
+            names appear in this set.  ``None`` means record all.
     """
-    on_iteration = make_on_iteration_hook(
+    status_hook = make_on_iteration_hook(
         state_manager,
         run_id,
         config.name,
     )
+
+    hooks: list[Callable[[RLMIteration, int], None]] = [status_hook]
+
+    if save_rollouts:
+        record = rollout_agents is None or config.name in rollout_agents
+        if record:
+            model = config.backend_kwargs.get("model_name", "")
+            rollout_hook = make_rollout_on_iteration_hook(
+                state_manager,
+                run_id,
+                config.name,
+                depth=_depth,
+                backend=str(config.backend),
+                model=str(model),
+            )
+            hooks.append(rollout_hook)
+
+    on_iteration = hooks[0] if len(hooks) == 1 else _chain_hooks(*hooks)
 
     processors = result_processors or {}
 
@@ -46,6 +88,9 @@ def inject_state_manager(
             state_manager,
             run_id,
             result_processors=result_processors,
+            save_rollouts=save_rollouts,
+            rollout_agents=rollout_agents,
+            _depth=_depth + 1,
         )
         processor_fn = processors.get(child.name)
         if processor_fn is not None:

@@ -33,6 +33,7 @@ class RecursiveAgentConfig:
     max_iterations: int = 10
     verbose: bool = False
     log_file: str = ""
+    log_structured: bool = False
     on_iteration: Callable[..., None] | None = None
     result_processor: Callable[[dict[str, Any], str], str] | None = None
 
@@ -107,6 +108,7 @@ class RecursiveAgentConfig:
             },
             "max_iterations": self.max_iterations,
             "verbose": self.verbose,
+            "log_structured": self.log_structured,
         }
 
     @classmethod
@@ -141,4 +143,5 @@ class RecursiveAgentConfig:
             environment_kwargs=data.get("environment_kwargs", {}),
             max_iterations=data.get("max_iterations", 10),
             verbose=data.get("verbose", False),
+            log_structured=data.get("log_structured", False),
         )

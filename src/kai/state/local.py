@@ -277,6 +277,89 @@ class LocalStateManager(StateManager):
             log.exception("get_fixes failed for %s", run_id)
             return []
 
+    # -- Rollouts --
+
+    def _rollout_path(self, run_id: str, agent_name: str) -> Path:
+        d = self._run_dir(run_id) / "rollouts"
+        d.mkdir(parents=True, exist_ok=True)
+        return d / f"{agent_name}.jsonl"
+
+    def open_rollout(
+        self,
+        run_id: str,
+        agent_name: str,
+        depth: int,
+        metadata: dict[str, object],
+    ) -> None:
+        """Write a metadata entry to start a new rollout file."""
+        try:
+            with self._lock:
+                path = self._rollout_path(run_id, agent_name)
+                entry = {
+                    "type": "metadata",
+                    "agent": agent_name,
+                    "depth": depth,
+                    **metadata,
+                }
+                with open(path, "a") as f:
+                    f.write(json.dumps(entry) + "\n")
+        except Exception:
+            log.exception(
+                "open_rollout failed for %s in run %s",
+                agent_name,
+                run_id,
+            )
+
+    def save_rollout_iteration(
+        self,
+        run_id: str,
+        agent_name: str,
+        iteration: dict[str, object],
+        num: int,
+    ) -> None:
+        """Append an iteration entry to an agent's rollout file."""
+        try:
+            with self._lock:
+                path = self._rollout_path(run_id, agent_name)
+                entry = {
+                    "type": "iteration",
+                    "agent": agent_name,
+                    "iteration": num,
+                    **iteration,
+                }
+                with open(path, "a") as f:
+                    f.write(json.dumps(entry) + "\n")
+        except Exception:
+            log.exception(
+                "save_rollout_iteration failed for %s in run %s",
+                agent_name,
+                run_id,
+            )
+
+    def save_rollout_result(
+        self,
+        run_id: str,
+        agent_name: str,
+        result: dict[str, object],
+    ) -> None:
+        """Append a final-result entry to an agent's rollout file."""
+        try:
+            with self._lock:
+                path = self._rollout_path(run_id, agent_name)
+                entry = {
+                    "type": "result",
+                    "agent": agent_name,
+                    **result,
+                }
+                with open(path, "a") as f:
+                    f.write(json.dumps(entry) + "\n")
+        except Exception:
+            log.exception(
+                "save_rollout_result failed for %s in run %s",
+                agent_name,
+                run_id,
+            )
+
     # -- Summarization --
 
     def summarize_progress(self, run_id: str) -> str:

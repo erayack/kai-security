@@ -49,9 +49,7 @@ class OpenAIClient(BaseLM):
 
         # For vLLM, set base_url to local vLLM server address.
         extra_headers = (
-            _OPENROUTER_HEADERS
-            if base_url == "https://openrouter.ai/api/v1"
-            else None
+            _OPENROUTER_HEADERS if base_url == "https://openrouter.ai/api/v1" else None
         )
         self.client = openai.OpenAI(
             api_key=api_key,

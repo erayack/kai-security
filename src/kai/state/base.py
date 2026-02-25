@@ -86,6 +86,37 @@ class StateManager(ABC):
     def get_fixes(self, run_id: str) -> list[FixRecord]:
         """Return all fixes for a run."""
 
+    # -- Rollouts --
+
+    @abstractmethod
+    def open_rollout(
+        self,
+        run_id: str,
+        agent_name: str,
+        depth: int,
+        metadata: dict[str, object],
+    ) -> None:
+        """Write a metadata entry to start a new rollout file."""
+
+    @abstractmethod
+    def save_rollout_iteration(
+        self,
+        run_id: str,
+        agent_name: str,
+        iteration: dict[str, object],
+        num: int,
+    ) -> None:
+        """Append an iteration entry to an agent's rollout file."""
+
+    @abstractmethod
+    def save_rollout_result(
+        self,
+        run_id: str,
+        agent_name: str,
+        result: dict[str, object],
+    ) -> None:
+        """Append a final-result entry to an agent's rollout file."""
+
     # -- Summarization --
 
     @abstractmethod

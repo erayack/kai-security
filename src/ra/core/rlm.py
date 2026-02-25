@@ -17,7 +17,7 @@ from ra.core.types import (
 )
 from ra.environments import BaseEnv, SupportsPersistence, get_environment
 from ra.exceptions import LMError, SetupRLMError
-from ra.logger import RecursiveAgentLogger, VerbosePrinter
+from ra.logger import RecursiveAgentLogger, create_printer
 from ra.utils.parsing import (
     find_code_blocks,
     find_final_answer,
@@ -56,6 +56,7 @@ class RLM:
         logger: RecursiveAgentLogger | None = None,
         verbose: bool = False,
         log_file: str = "",
+        log_structured: bool = False,
         persistent: bool = False,
         name: str = "",
         on_iteration: Any | None = None,
@@ -103,11 +104,12 @@ class RLM:
         )
         self.name = name
         self.logger = logger
-        self.verbose = VerbosePrinter(
+        self.verbose = create_printer(
             enabled=verbose,
             name=name,
             depth=depth,
             log_file=log_file,
+            structured=log_structured,
         )
 
         # Persistence support
@@ -275,10 +277,7 @@ class RLM:
 
             for i in range(self.max_iterations):
                 # Cooperative cancellation: parent timed out
-                if (
-                    self._cancel_event is not None
-                    and self._cancel_event.is_set()
-                ):
+                if self._cancel_event is not None and self._cancel_event.is_set():
                     break
 
                 # Current prompt = message history + additional prompt suffix
