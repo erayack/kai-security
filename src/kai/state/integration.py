@@ -77,9 +77,7 @@ def inject_state_manager(
             )
             hooks.append(rollout_hook)
 
-    on_iteration = (
-        hooks[0] if len(hooks) == 1 else _chain_hooks(*hooks)
-    )
+    on_iteration = hooks[0] if len(hooks) == 1 else _chain_hooks(*hooks)
 
     processors = result_processors or {}
 

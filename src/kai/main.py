@@ -17,12 +17,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from kai import generate_id
 from kai.definitions import exploit_config, exploit_result_processors, setup_config
 from kai.logging_config import configure_logging
 from kai.definitions.exploit.tools import make_graph_tools
@@ -290,7 +290,7 @@ def run_pipeline(
     if not no_state:
         try:
             sm = LocalStateManager(state_dir=state_dir)
-            rid = str(uuid.uuid4())
+            rid = generate_id()
             sm.create_run(
                 RunRecord(
                     run_id=rid,
@@ -630,7 +630,7 @@ def main(argv: list[str] | None = None) -> None:
             if not no_state:
                 try:
                     sm = LocalStateManager(state_dir=state_dir)
-                    rid = str(uuid.uuid4())
+                    rid = generate_id()
                     sm.create_run(
                         RunRecord(
                             run_id=rid,

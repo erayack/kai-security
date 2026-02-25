@@ -6,8 +6,8 @@ import os
 import shutil
 import subprocess
 import tempfile
-import uuid
 
+from kai import generate_id
 from kai.workspace.recipe import WorkspaceRecipe
 
 
@@ -22,7 +22,7 @@ def provision_workspace(recipe: WorkspaceRecipe) -> str:
     Returns the path to the new workspace directory.
     """
     master = recipe.master_path
-    ws = tempfile.mkdtemp(prefix=f"kai_ws_{uuid.uuid4()}_")
+    ws = tempfile.mkdtemp(prefix=f"kai_ws_{generate_id()}_")
 
     for d in recipe.symlink_dirs:
         src = os.path.join(master, d)

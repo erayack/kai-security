@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from datetime import datetime, timezone
 from typing import Callable
+
+from kai import generate_id
 
 from ra.core.types import RLMIteration, SpawnRecord
 
@@ -85,7 +86,7 @@ def make_rollout_on_iteration_hook(
             # New spawn detected — emit metadata
             if iteration_num == 1 or not spawn_id:
                 spawn_id.clear()
-                spawn_id.append(uuid.uuid4().hex[:12])
+                spawn_id.append(generate_id())
                 state_manager.open_rollout(
                     run_id,
                     agent_name,
@@ -103,9 +104,7 @@ def make_rollout_on_iteration_hook(
             # Build iteration payload
             code_blocks: list[dict[str, object]] = []
             for cb in iteration.code_blocks:
-                code_blocks.append(
-                    {"code": cb.code, "output": cb.result.stdout}
-                )
+                code_blocks.append({"code": cb.code, "output": cb.result.stdout})
 
             state_manager.save_rollout_iteration(
                 run_id,
