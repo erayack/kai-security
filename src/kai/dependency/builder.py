@@ -33,6 +33,10 @@ class LangConfig:
     superclass_list_type: Optional[str] = None
     # Type definition node types (struct, enum, typedef)
     type_def_types: List[str] = field(default_factory=list)
+    # Parameter extraction: node type wrapping parameter list
+    param_list_type: str = ""
+    # Parameter extraction: child types to treat as parameters
+    param_item_types: List[str] = field(default_factory=list)
 
 
 LANG_CONFIGS: Dict[str, LangConfig] = {
@@ -52,6 +56,15 @@ LANG_CONFIGS: Dict[str, LangConfig] = {
         name_field="identifier",
         body_field="block",
         superclass_list_type="argument_list",
+        param_list_type="parameters",
+        param_item_types=[
+            "identifier",
+            "typed_parameter",
+            "default_parameter",
+            "typed_default_parameter",
+            "list_splat_pattern",
+            "dictionary_splat_pattern",
+        ],
     ),
     "javascript": LangConfig(
         extensions=[".js", ".jsx", ".mjs", ".cjs"],
@@ -67,6 +80,8 @@ LANG_CONFIGS: Dict[str, LangConfig] = {
         name_field="identifier",
         body_field="class_body",
         superclass_list_type="class_heritage",
+        param_list_type="formal_parameters",
+        param_item_types=["identifier", "assignment_pattern"],
     ),
     "typescript": LangConfig(
         extensions=[".ts", ".tsx", ".mts", ".cts"],
@@ -86,6 +101,11 @@ LANG_CONFIGS: Dict[str, LangConfig] = {
         body_field="class_body",
         superclass_list_type="class_heritage",
         type_def_types=["type_alias_declaration", "enum_declaration"],
+        param_list_type="formal_parameters",
+        param_item_types=[
+            "required_parameter",
+            "optional_parameter",
+        ],
     ),
     "solidity": LangConfig(
         extensions=[".sol"],
@@ -102,6 +122,7 @@ LANG_CONFIGS: Dict[str, LangConfig] = {
             "enum_declaration",
             "event_definition",
         ],
+        param_item_types=["parameter"],
     ),
     "c": LangConfig(
         extensions=[".c", ".h"],
@@ -116,6 +137,8 @@ LANG_CONFIGS: Dict[str, LangConfig] = {
             "enum_specifier",
             "type_definition",
         ],
+        param_list_type="parameter_list",
+        param_item_types=["parameter_declaration"],
     ),
     "go": LangConfig(
         extensions=[".go"],
@@ -130,6 +153,8 @@ LANG_CONFIGS: Dict[str, LangConfig] = {
         name_field="identifier",
         body_field="block",
         type_def_types=["type_declaration"],
+        param_list_type="parameter_list",
+        param_item_types=["parameter_declaration"],
     ),
     "rust": LangConfig(
         extensions=[".rs"],
@@ -141,6 +166,8 @@ LANG_CONFIGS: Dict[str, LangConfig] = {
         name_field="identifier",
         body_field="block",
         type_def_types=["enum_item", "type_item"],
+        param_list_type="parameters",
+        param_item_types=["parameter", "self_parameter"],
     ),
 }
 
@@ -491,6 +518,11 @@ class TreeSitterBuilder:
         else:
             graph.add_edge(file_id, uid, EdgeKind.DEFINES)
 
+        # Extract parameter metadata
+        params = self._extract_params(node, cfg, src)
+        if params:
+            graph.node(uid).meta["params"] = params
+
         # Extract calls inside the function body
         self._collect_calls(node, cfg, uid, src, graph)
 
@@ -684,6 +716,113 @@ class TreeSitterBuilder:
                 graph._out[src][kind].discard(old_dst)
                 graph._in[old_dst][kind].discard(src)
             graph.add_edge(src, new_dst, kind, **meta)
+
+    # ------------------------------------------------------------------
+    # Parameter extraction
+    # ------------------------------------------------------------------
+
+    def _extract_params(
+        self,
+        node: Any,
+        cfg: LangConfig,
+        src: bytes,
+    ) -> list[dict[str, str]]:
+        """Extract parameter names and optional types from a function node."""
+        if not cfg.param_list_type and not cfg.param_item_types:
+            return []
+
+        # Solidity special case: no param_list_type, scan direct children
+        if not cfg.param_list_type:
+            param_list = node
+        else:
+            param_list = _find_child_by_type(node, cfg.param_list_type)
+            # C: parameters inside function_declarator
+            if param_list is None:
+                decl = _find_child_by_type(node, "function_declarator")
+                if decl:
+                    param_list = _find_child_by_type(decl, cfg.param_list_type)
+            if param_list is None:
+                return []
+
+        params: list[dict[str, str]] = []
+        for child in param_list.children:
+            if child.type not in cfg.param_item_types:
+                continue
+            param = self._parse_single_param(child, cfg, src)
+            if param:
+                params.append(param)
+        return params
+
+    @staticmethod
+    def _parse_single_param(
+        child: Any,
+        cfg: LangConfig,
+        src: bytes,
+    ) -> dict[str, str] | None:
+        """Parse a single parameter AST node into a dict."""
+        # Bare identifier (Python untyped, JS identifier)
+        if child.type == "identifier":
+            name = _text(child, src)
+            return {"name": name} if name else None
+
+        # Rust self_parameter
+        if child.type == "self_parameter":
+            return {"name": _text(child, src) or "self"}
+
+        # Python *args / **kwargs splat patterns
+        if child.type in (
+            "list_splat_pattern",
+            "dictionary_splat_pattern",
+        ):
+            for sub in child.children:
+                if sub.type == "identifier":
+                    prefix = "*" if child.type == "list_splat_pattern" else "**"
+                    return {"name": prefix + _text(sub, src)}
+            return None
+
+        # JS assignment_pattern: name = default
+        if child.type == "assignment_pattern":
+            left = child.children[0] if child.children else None
+            if left and left.type == "identifier":
+                return {"name": _text(left, src)}
+            return None
+
+        # Common strategy: find identifier for name, type annotation
+        name = ""
+        type_str = ""
+
+        for sub in child.children:
+            if sub.type == "identifier" and not name:
+                name = _text(sub, src)
+            elif sub.type == "type" and not type_str:
+                # Python type annotation
+                type_str = _text(sub, src)
+            elif sub.type == "type_annotation" and not type_str:
+                # TS type annotation
+                type_str = _text(sub, src).lstrip(": ").strip()
+            elif sub.type == "type_identifier" and not type_str:
+                # Go / C type
+                type_str = _text(sub, src)
+            elif sub.type == "pointer_type" and not type_str:
+                type_str = _text(sub, src)
+            elif sub.type == "slice_type" and not type_str:
+                type_str = _text(sub, src)
+            elif sub.type == "reference_type" and not type_str:
+                # Rust &str, &mut T
+                type_str = _text(sub, src)
+            elif sub.type == "generic_type" and not type_str:
+                type_str = _text(sub, src)
+            elif sub.type == "primitive_type" and not type_str:
+                # C int, char, etc.
+                type_str = _text(sub, src)
+
+        if not name:
+            return None
+
+        result: dict[str, str] = {"name": name}
+        if type_str:
+            result["type"] = type_str
+        return result
 
     # ------------------------------------------------------------------
     # Helpers
