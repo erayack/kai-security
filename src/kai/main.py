@@ -199,6 +199,7 @@ def run_exploit(
     log_structured: bool = False,
     instructions: str = "",
     prior_findings: list[dict[str, Any]] | None = None,
+    pending_candidates: list[dict[str, Any]] | None = None,
     state_manager: StateManager | None = None,
     run_id: str | None = None,
     save_rollouts: bool = False,
@@ -254,6 +255,8 @@ def run_exploit(
         context["instructions"] = instructions
     if prior_findings:
         context["prior_findings"] = prior_findings
+    if pending_candidates:
+        context["pending_candidates"] = pending_candidates
 
     exploit_agent = RecursiveAgent(injected_config)
     return exploit_agent.completion(context)
@@ -389,6 +392,7 @@ def _run_exploit_loop(
     """Run up to *max_rounds* of exploit → fix → re-audit."""
     all_findings: list[dict[str, Any]] = []
     fixed_findings: list[dict[str, Any]] = []
+    pending_for_next: list[dict[str, Any]] | None = None
     last_result: RLMChatCompletion | None = None
     merged_usage = UsageSummary(model_usage_summaries={})
     total_time = 0.0
@@ -410,6 +414,7 @@ def _run_exploit_loop(
             log_structured=log_structured,
             instructions=instructions,
             prior_findings=fixed_findings or None,
+            pending_candidates=pending_for_next,
             state_manager=state_manager,
             run_id=run_id,
             save_rollouts=save_rollouts,
@@ -439,6 +444,34 @@ def _run_exploit_loop(
         if round_num < max_rounds:
             fixed = _apply_fixes(recipe.master_path, new_findings, round_num)
             fixed_findings.extend(fixed)
+
+            # Collect leftover work for the next round: candidates
+            # never verified and confirmed exploits never fixed.
+            # Both need re-verification because _apply_fixes may
+            # have changed the codebase.
+            pending: list[dict[str, Any]] = []
+            if state_manager is not None and run_id is not None:
+                for e in state_manager.get_exploits(run_id, status="candidate"):
+                    pending.append(
+                        {
+                            "hypothesis": e.hypothesis,
+                            "file": e.file,
+                            "function": e.function,
+                            "exploit_sketch": e.exploit_sketch,
+                        }
+                    )
+                for e in state_manager.get_exploits(run_id, status="verified"):
+                    if e.confirmed:
+                        item: dict[str, Any] = {
+                            "hypothesis": e.hypothesis,
+                            "file": e.file,
+                            "function": e.function,
+                            "exploit_sketch": e.exploit_sketch,
+                        }
+                        if e.poc_code:
+                            item["poc_code"] = e.poc_code
+                        pending.append(item)
+            pending_for_next = pending or None
 
     # Return merged result when multi-round, or original for single
     if last_result is None:
