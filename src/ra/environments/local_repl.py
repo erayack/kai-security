@@ -197,15 +197,9 @@ class LocalREPL(NonIsolatedEnv):
                     try:
                         value = json.loads(repair_json(trimmed))
                     except (json.JSONDecodeError, ValueError):
-                        return (
-                            f"Error: Variable '{variable_name}'"
-                            " not found"
-                        )
+                        return f"Error: Variable '{variable_name}' not found"
                 else:
-                    return (
-                        f"Error: Variable '{variable_name}'"
-                        " not found"
-                    )
+                    return f"Error: Variable '{variable_name}' not found"
 
         if isinstance(value, (dict, list)):
             return json.dumps(value)
