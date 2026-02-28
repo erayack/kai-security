@@ -58,83 +58,6 @@ SYSTEM_PROMPT = textwrap.dedent("""\
     6. **Determine post-copy commands.** Any commands a worker sandbox should run after copying editable dirs and symlinking heavy dirs (e.g., re-linking, recompiling).
     7. **Build and return the WorkspaceRecipe dict.**
 
-    ## Example Strategy
-
-    Here is an example of how you might approach this task:
-    ```repl
-    # Step 1: Inspect context and repo structure
-    print(context)
-    repo_path = context["repo_path"]
-    master_dir = context["master_dir"]
-    top_level = list_dir(repo_path)
-    print(top_level)
-    ```
-
-    Then read key config files and delegate analysis to sub-agents:
-    ```repl
-    # Read config files concurrently
-    config_candidates = ["README.md", "foundry.toml", "package.json", "Makefile", "Cargo.toml", "hardhat.config.js"]
-    config_contents = {}
-    for f in config_candidates:
-        try:
-            config_contents[f] = read_file(f"{repo_path}/{f}")
-        except Exception:
-            pass
-
-    # Ask a sub-agent to analyze the project
-    config_summary = llm_query(
-        f"Analyze this repository's build system and dependencies based on these config files. "
-        f"What type of project is this? How do I install deps and build it?\\n\\n"
-        + "\\n\\n".join(f"=== {k} ===\\n{v}" for k, v in config_contents.items())
-    )
-    print(config_summary)
-    ```
-
-    Then after building, classify directories:
-    ```repl
-    # Get full recursive listing
-    all_files = list_dir(f"{master_dir}", recursive=True)
-    all_files_str = "\\n".join(all_files)
-
-    # Use sub-agent to classify dirs
-    classification = llm_query(
-        f"Given this repository file listing, classify the top-level directories into two groups:\\n"
-        f"1. Heavy/read-only dirs that should be symlinked (node_modules, lib, .git, out, cache, artifacts, dependencies)\\n"
-        f"2. Editable source dirs that should be deep-copied (src, test, contracts, script)\\n"
-        f"3. Root config files that should be copied\\n\\n"
-        f"File listing:\\n{all_files_str}\\n\\n"
-        f"Return your answer as three lists."
-    )
-    print(classification)
-    ```
-
-    When you have multiple independent analysis tasks, use batched queries:
-    ```repl
-    # Analyze multiple directories concurrently
-    dirs_to_analyze = ["src", "test", "lib", "contracts"]
-    prompts = [
-        f"Look at this directory listing and determine if it contains editable source code or is a read-only dependency.\\n"
-        f"Directory: {d}\\nContents:\\n" + "\\n".join(list_dir(f"{master_dir}/{d}", recursive=True))
-        for d in dirs_to_analyze
-    ]
-    analyses = llm_query_batched(prompts)
-    for d, analysis in zip(dirs_to_analyze, analyses):
-        print(f"{d}: {analysis}")
-    ```
-
-    Finally, assemble and return the recipe:
-    ```repl
-    recipe = {
-        "master_path": master_dir,
-        "symlink_dirs": ["node_modules", "lib", ".git", "out", "cache"],
-        "copy_dirs": ["src", "test", "contracts", "script"],
-        "copy_files": ["foundry.toml", "remappings.txt", "package.json"],
-        "post_copy_commands": ["forge build"],
-    }
-    print(recipe)
-    ```
-    In the next step, return FINAL_VAR(recipe).
-
     ## Output Format
 
     The final `WorkspaceRecipe` dict MUST have exactly these keys:
@@ -144,9 +67,22 @@ SYSTEM_PROMPT = textwrap.dedent("""\
     - `"copy_files"`: list[str] — individual root-level files to copy
     - `"post_copy_commands"`: list[str] — commands to run in a worker sandbox after copy/symlink
 
-    IMPORTANT: When you are done with the iterative process, you MUST provide a final answer inside a FINAL function when you have completed your task. Do not use these tags unless you have completed your task. You have two options:
-    1. Use FINAL(your final answer here) to provide the answer directly
-    2. Use FINAL_VAR(variable_name) to return a variable you have created in the REPL environment as your final output
+    ## Rules
 
-    Think step by step carefully, plan, and execute this plan immediately in your response — do not just say "I will do this" or "I will do that". Output to the REPL environment and recursive sub-agents as much as possible. Remember that your sub-agents are powerful — they have their own REPL environments and can spawn their own LLM calls, so do not hesitate to delegate complex reasoning to them.
+    - Write EXACTLY ONE ```repl``` code block per response. You \
+      cannot see execution output until your next iteration, so \
+      anything after the first block is written blind. Write one \
+      block, see the result, then decide your next step.
+    - Use `llm_query` liberally to analyze large outputs — your \
+      REPL output is truncated so printing large content directly \
+      is unreliable.
+
+    IMPORTANT: When you are done with the iterative process, you \
+    MUST provide a final answer. You have two options:
+    1. FINAL(literal text) — returns the text verbatim.
+    2. FINAL_VAR(variable_name) — resolves the named variable from \
+       the REPL and returns its value.
+    WARNING: FINAL(my_var) does NOT resolve the variable — it \
+    returns the literal string "my_var". If your answer is in a \
+    variable, you MUST use FINAL_VAR.
 """)
