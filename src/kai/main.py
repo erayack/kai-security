@@ -327,7 +327,13 @@ def run_pipeline(
         )
 
         # --- Step 2: deserialize recipe ---
-        recipe = WorkspaceRecipe.from_dict(json.loads(raw_response))
+        try:
+            recipe_data = json.loads(raw_response)
+        except json.JSONDecodeError:
+            from json_repair import repair_json
+
+            recipe_data = json.loads(repair_json(raw_response))
+        recipe = WorkspaceRecipe.from_dict(recipe_data)
 
         # --- Step 3: iterative exploit loop ---
         result = _run_exploit_loop(
