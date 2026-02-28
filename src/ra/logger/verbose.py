@@ -401,6 +401,27 @@ class VerbosePrinter:
                     execution_time=call.execution_time,
                 )
 
+    def print_extend(
+        self,
+        old_max: int,
+        new_max: int,
+        granted: int,
+        cap: int,
+    ) -> None:
+        """Print an iteration-extension notice."""
+        if not self.enabled:
+            return
+        label = self._label()
+        msg = Text()
+        msg.append(self._indent, style=STYLE_MUTED)
+        msg.append("↻ ", style=STYLE_WARNING)
+        msg.append(f"{label}", style=STYLE_PRIMARY)
+        msg.append(
+            f" · extending iterations {old_max} → {new_max} (+{granted}, cap {cap})",
+            style=STYLE_WARNING,
+        )
+        self._print(msg)
+
     def print_final_answer(self, answer: Any) -> None:
         """Print the final answer."""
         if not self.enabled:

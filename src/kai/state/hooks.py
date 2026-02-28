@@ -59,6 +59,41 @@ def make_on_iteration_hook(
     return _on_iteration
 
 
+def make_on_extend_hook(
+    state_manager: StateManager,
+    run_id: str,
+    iters_per_candidate: int = 5,
+) -> Callable[[int], int | None]:
+    """Return a callback that extends iterations for unverified candidates.
+
+    When the root agent hits its iteration limit, this hook checks
+    whether any exploit candidates are still at ``status="candidate"``
+    and grants extra iterations (~``iters_per_candidate`` per pending
+    candidate) so the same agent can finish verification/fixing without
+    losing REPL state.
+    """
+
+    def _on_extend(current_iteration: int) -> int | None:
+        pending = state_manager.get_exploits(run_id, status="candidate")
+        if not pending:
+            log.info(
+                "on_extend: no unverified candidates at iteration %d",
+                current_iteration,
+            )
+            return None
+        extra = len(pending) * iters_per_candidate
+        log.info(
+            "on_extend: %d unverified candidate(s) at iteration %d, "
+            "requesting %d extra iterations",
+            len(pending),
+            current_iteration,
+            extra,
+        )
+        return extra
+
+    return _on_extend
+
+
 def make_rollout_on_iteration_hook(
     state_manager: StateManager,
     run_id: str,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import replace
 from typing import Any, Callable
 
@@ -10,9 +11,13 @@ from ra.core.types import RLMIteration
 
 from kai.state.base import StateManager
 from kai.state.hooks import (
+    make_on_extend_hook,
     make_on_iteration_hook,
     make_rollout_on_iteration_hook,
 )
+
+_DEFAULT_MAX_EXTEND_ITERS = 15
+_DEFAULT_EXTEND_ITERS_PER_CANDIDATE = 5
 
 # Processor signature before binding: (state_manager, run_id, kwargs, raw) -> str
 ResultProcessor = Callable[[StateManager, str, dict[str, Any], str], str]
@@ -108,8 +113,26 @@ def inject_state_manager(
             )
         children.append(injected_child)
 
+    extras: dict[str, Any] = {}
+    if _depth == 0:
+        iters_per_candidate = int(
+            os.environ.get(
+                "KAI_EXTEND_ITERS_PER_CANDIDATE",
+                _DEFAULT_EXTEND_ITERS_PER_CANDIDATE,
+            )
+        )
+        extras["on_extend"] = make_on_extend_hook(
+            state_manager,
+            run_id,
+            iters_per_candidate=iters_per_candidate,
+        )
+        extras["max_iterations_limit"] = config.max_iterations + int(
+            os.environ.get("KAI_MAX_EXTEND_ITERS", _DEFAULT_MAX_EXTEND_ITERS)
+        )
+
     return replace(
         config,
         on_iteration=on_iteration,
         agents=children,
+        **extras,
     )
