@@ -218,10 +218,24 @@ def serialize_locals(state):
 _locals = load_state()
 
 def FINAL_VAR(variable_name):
-    variable_name = variable_name.strip().strip("\\"\\'")
-    if variable_name in _locals:
-        return str(_locals[variable_name])
-    return f"Error: Variable '{{variable_name}}' not found"
+    if not isinstance(variable_name, str):
+        value = variable_name
+    else:
+        variable_name = variable_name.strip().strip("\\"\\'")
+        if variable_name in _locals:
+            value = _locals[variable_name]
+        else:
+            trimmed = variable_name.strip()
+            if trimmed.startswith(("{{", "[")):
+                try:
+                    value = json.loads(trimmed)
+                except (json.JSONDecodeError, ValueError):
+                    return f"Error: Variable '{{variable_name}}' not found"
+            else:
+                return f"Error: Variable '{{variable_name}}' not found"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value)
+    return str(value)
 
 _globals = {{
     "__builtins__": __builtins__,

@@ -1,7 +1,7 @@
 import threading
 import time
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, Callable
 
 from ra.clients import BaseLM, get_client
 from ra.core.lm_handler import LMHandler
@@ -60,6 +60,9 @@ class RLM:
         persistent: bool = False,
         name: str = "",
         on_iteration: Any | None = None,
+        on_extend: Callable[[int], int | None] | None = None,
+        max_iterations_limit: int | None = None,
+        on_early_stop: Callable[[int], str | None] | None = None,
     ):
         """
         Args:
@@ -76,6 +79,15 @@ class RLM:
             logger: The logger to use for the RLM.
             verbose: Whether to print verbose output in rich to console.
             persistent: If True, reuse the environment across completion() calls for multi-turn conversations.
+            on_extend: Callback invoked when iterations reach the current limit.
+                Receives the current iteration count and returns the number of
+                extra iterations to grant (or ``None``/0 to stop).
+            max_iterations_limit: Hard ceiling on total iterations including
+                extensions.  Defaults to ``max_iterations`` (no extension).
+            on_early_stop: Callback invoked when a final answer is detected.
+                Receives the current iteration count and returns a nudge
+                prompt string to inject (suppressing the final answer) or
+                ``None`` to accept the answer normally.
         """
         # Store config for spawning per-completion
         self.backend = backend
@@ -117,6 +129,11 @@ class RLM:
         self._persistent_env: SupportsPersistence | None = None
 
         self.on_iteration = on_iteration
+        self.on_extend = on_extend
+        self.on_early_stop = on_early_stop
+        self.max_iterations_limit = (
+            max_iterations_limit if max_iterations_limit is not None else max_iterations
+        )
 
         # Cooperative cancellation: parent can signal this RLM to stop
         self._cancel_event: threading.Event | None = self.environment_kwargs.pop(
@@ -275,7 +292,9 @@ class RLM:
             message_history = self._setup_prompt(prompt)
             child_usage = UsageSummary(model_usage_summaries={})
 
-            for i in range(self.max_iterations):
+            effective_max = self.max_iterations
+            i = 0
+            while i < effective_max:
                 # Cooperative cancellation: parent timed out
                 if self._cancel_event is not None and self._cancel_event.is_set():
                     break
@@ -315,6 +334,15 @@ class RLM:
                 )
                 iteration.final_answer = final_answer
 
+                # Suppress early termination when hook says to continue
+                nudge: str | None = None
+                if final_answer is not None and self.on_early_stop:
+                    nudge = self.on_early_stop(i + 1)
+                    if nudge is not None:
+                        final_answer = None
+                        iteration.final_answer = None
+                        self.verbose.print_nudge(i + 1)
+
                 # If logger is used, log the iteration.
                 if self.logger:
                     self.logger.log(iteration)
@@ -350,6 +378,29 @@ class RLM:
                 # Update message history with the new messages.
                 message_history.extend(new_messages)
 
+                # Inject nudge if early stop was suppressed
+                if nudge is not None:
+                    message_history.append({"role": "user", "content": nudge})
+
+                i += 1
+
+                # At the boundary, ask if we should extend
+                if i == effective_max and self.on_extend:
+                    extra = self.on_extend(i)
+                    if extra and extra > 0:
+                        old_max = effective_max
+                        effective_max = min(
+                            effective_max + extra,
+                            self.max_iterations_limit,
+                        )
+                        granted = effective_max - old_max
+                        self.verbose.print_extend(
+                            old_max,
+                            effective_max,
+                            granted,
+                            self.max_iterations_limit,
+                        )
+
             # Default behavior: we run out of iterations, provide one final answer
             time_end = time.perf_counter()
             final_answer = self._default_answer(
@@ -358,7 +409,7 @@ class RLM:
             usage = lm_handler.get_usage_summary().merge(child_usage)
             self.verbose.print_final_answer(final_answer)
             self.verbose.print_summary(
-                self.max_iterations, time_end - time_start, usage.to_dict()
+                effective_max, time_end - time_start, usage.to_dict()
             )
 
             # Store message history in persistent environment

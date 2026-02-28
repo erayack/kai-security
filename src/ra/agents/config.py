@@ -35,6 +35,9 @@ class RecursiveAgentConfig:
     log_file: str = ""
     log_structured: bool = False
     on_iteration: Callable[..., None] | None = None
+    on_extend: Callable[[int], int | None] | None = None
+    max_iterations_limit: int | None = None
+    on_early_stop: Callable[[int], str | None] | None = None
     result_processor: Callable[[dict[str, Any], str], str] | None = None
 
     def validate(self) -> None:

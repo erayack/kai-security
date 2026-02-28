@@ -225,15 +225,25 @@ class LocalStateManager(StateManager):
         file: str,
         function: str,
     ) -> ExploitRecord | None:
-        """Look up an exploit by its identifying triple."""
+        """Look up an exploit by its identifying triple.
+
+        Tries exact match on (hypothesis, file, function) first.
+        Falls back to (file, function) only, since LLMs may
+        paraphrase the hypothesis slightly.
+        """
         try:
             with self._lock:
-                for rec in self._read_exploits(run_id):
+                records = self._read_exploits(run_id)
+                for rec in records:
                     if (
                         rec.hypothesis == hypothesis
                         and rec.file == file
                         and rec.function == function
                     ):
+                        return rec
+                # Fallback: match on file + function only
+                for rec in records:
+                    if rec.file == file and rec.function == function:
                         return rec
                 return None
         except Exception:

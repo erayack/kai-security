@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from kai.definitions.exploit.tools import make_graph_tools
 from kai.dependency.builder import LANG_CONFIGS, TreeSitterBuilder
 from kai.dependency.models import NodeKind
 
@@ -87,10 +88,7 @@ class TestSolidityIndexing:
         (tmp_path / "Vault.sol").write_text(SIMPLE_SOL)
         (tmp_path / "README.md").write_text("# readme")
         graph = TreeSitterBuilder(languages=["solidity"]).build(tmp_path)
-        files = [
-            graph.node(nid).name
-            for nid in graph.nodes(NodeKind.FILE)
-        ]
+        files = [graph.node(nid).name for nid in graph.nodes(NodeKind.FILE)]
         assert files == ["Vault.sol"]
 
     def test_extracts_contract(self, tmp_path: Path) -> None:
@@ -112,7 +110,8 @@ class TestSolidityIndexing:
         (tmp_path / "Vault.sol").write_text(SIMPLE_SOL)
         graph = TreeSitterBuilder(languages=["solidity"]).build(tmp_path)
         var_ids = [
-            nid for nid in graph.nodes(NodeKind.VARIABLE)
+            nid
+            for nid in graph.nodes(NodeKind.VARIABLE)
             if "totalShares" in graph.node(nid).name
         ]
         assert len(var_ids) == 1
@@ -135,10 +134,7 @@ class TestSolidityIndexing:
         (tmp_path / "Registry.sol").write_text(SOL_WITH_STRUCTS)
         graph = TreeSitterBuilder(languages=["solidity"]).build(tmp_path)
 
-        type_defs = {
-            graph.node(nid).name
-            for nid in graph.nodes(NodeKind.TYPE_DEF)
-        }
+        type_defs = {graph.node(nid).name for nid in graph.nodes(NodeKind.TYPE_DEF)}
         assert "Entry" in type_defs
         assert "Status" in type_defs
         assert "Registered" in type_defs
@@ -151,10 +147,7 @@ class TestSolidityIndexing:
         test_dir.mkdir()
         (test_dir / "Vault.t.sol").write_text(SIMPLE_SOL)
         graph = TreeSitterBuilder(languages=["solidity"]).build(tmp_path)
-        files = [
-            graph.node(nid).name
-            for nid in graph.nodes(NodeKind.FILE)
-        ]
+        files = [graph.node(nid).name for nid in graph.nodes(NodeKind.FILE)]
         assert "Vault.sol" in files
         assert "Vault.t.sol" not in files
 
@@ -264,10 +257,137 @@ class TestMultiLanguage:
         (tmp_path / "app.py").write_text("def hello():\n    pass\n")
 
         graph = TreeSitterBuilder().build(tmp_path)
-        files = sorted(
-            graph.node(nid).name for nid in graph.nodes(NodeKind.FILE)
-        )
+        files = sorted(graph.node(nid).name for nid in graph.nodes(NodeKind.FILE))
         assert "Vault.sol" in files
         assert "main.go" in files
         assert "main.rs" in files
         assert "app.py" in files
+
+
+# ── Parameter extraction ─────────────────────────────────────────
+
+PYTHON_TYPED = """\
+def parse_xml(raw_input: str, timeout: int = 30) -> dict:
+    pass
+
+class Handler:
+    def handle(self, request: bytes) -> None:
+        pass
+
+    def _private(self):
+        pass
+"""
+
+PYTHON_NO_PARAMS = """\
+def noop():
+    pass
+"""
+
+PYTHON_SPLAT = """\
+def variadic(*args, **kwargs):
+    pass
+"""
+
+
+class TestPythonParamExtraction:
+    def test_typed_params(self, tmp_path: Path) -> None:
+        (tmp_path / "app.py").write_text(PYTHON_TYPED)
+        graph = TreeSitterBuilder(languages=["python"]).build(tmp_path)
+        units = graph.find_units("parse_xml")
+        assert len(units) == 1
+        node = graph.node(units[0])
+        params = node.meta.get("params", [])
+        assert len(params) == 2
+        assert params[0] == {"name": "raw_input", "type": "str"}
+        assert params[1]["name"] == "timeout"
+        assert params[1]["type"] == "int"
+
+    def test_no_params(self, tmp_path: Path) -> None:
+        (tmp_path / "app.py").write_text(PYTHON_NO_PARAMS)
+        graph = TreeSitterBuilder(languages=["python"]).build(tmp_path)
+        units = graph.find_units("noop")
+        assert len(units) == 1
+        node = graph.node(units[0])
+        assert node.meta.get("params", []) == []
+
+    def test_self_param(self, tmp_path: Path) -> None:
+        (tmp_path / "app.py").write_text(PYTHON_TYPED)
+        graph = TreeSitterBuilder(languages=["python"]).build(tmp_path)
+        units = graph.find_units("handle")
+        assert len(units) == 1
+        params = graph.node(units[0]).meta.get("params", [])
+        assert params[0] == {"name": "self"}
+        assert params[1] == {"name": "request", "type": "bytes"}
+
+    def test_untyped_self(self, tmp_path: Path) -> None:
+        (tmp_path / "app.py").write_text(PYTHON_TYPED)
+        graph = TreeSitterBuilder(languages=["python"]).build(tmp_path)
+        units = graph.find_units("_private")
+        assert len(units) == 1
+        params = graph.node(units[0]).meta.get("params", [])
+        assert params == [{"name": "self"}]
+
+    def test_splat_params(self, tmp_path: Path) -> None:
+        (tmp_path / "app.py").write_text(PYTHON_SPLAT)
+        graph = TreeSitterBuilder(languages=["python"]).build(tmp_path)
+        units = graph.find_units("variadic")
+        assert len(units) == 1
+        params = graph.node(units[0]).meta.get("params", [])
+        names = [p["name"] for p in params]
+        assert "*args" in names
+        assert "**kwargs" in names
+
+
+class TestGoParamExtraction:
+    def test_typed_params(self, tmp_path: Path) -> None:
+        (tmp_path / "main.go").write_text(SIMPLE_GO)
+        graph = TreeSitterBuilder(languages=["go"]).build(tmp_path)
+        units = graph.find_units("NewServer")
+        assert len(units) == 1
+        params = graph.node(units[0]).meta.get("params", [])
+        assert len(params) == 2
+        assert params[0]["name"] == "host"
+        assert params[1]["name"] == "port"
+
+
+JS_FUNCS = """\
+function greet(name, age) {
+    console.log(name + age);
+}
+"""
+
+
+class TestJSParamExtraction:
+    def test_js_params(self, tmp_path: Path) -> None:
+        (tmp_path / "app.js").write_text(JS_FUNCS)
+        graph = TreeSitterBuilder(languages=["javascript"]).build(tmp_path)
+        units = graph.find_units("greet")
+        assert len(units) == 1
+        params = graph.node(units[0]).meta.get("params", [])
+        assert len(params) == 2
+        assert params[0] == {"name": "name"}
+        assert params[1] == {"name": "age"}
+
+
+# ── dep_signatures tool ──────────────────────────────────────────
+
+
+class TestDepSignatures:
+    def test_returns_correct_structure(self, tmp_path: Path) -> None:
+        (tmp_path / "app.py").write_text(PYTHON_TYPED)
+        graph = TreeSitterBuilder(languages=["python"]).build(tmp_path)
+        tools = make_graph_tools(graph)
+        sigs = tools["dep_signatures"]("app.py")
+        assert len(sigs) >= 3  # parse_xml, handle, _private
+        by_name = {s["name"]: s for s in sigs}
+        assert "parse_xml" in by_name
+        sig = by_name["parse_xml"]
+        assert "id" in sig
+        assert "span" in sig
+        assert sig["params"][0] == {"name": "raw_input", "type": "str"}
+
+    def test_missing_file_returns_empty(self, tmp_path: Path) -> None:
+        (tmp_path / "app.py").write_text(PYTHON_TYPED)
+        graph = TreeSitterBuilder(languages=["python"]).build(tmp_path)
+        tools = make_graph_tools(graph)
+        assert tools["dep_signatures"]("nonexistent.py") == []

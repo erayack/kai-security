@@ -180,14 +180,26 @@ class LocalREPL(NonIsolatedEnv):
         """Return the value of a variable as a final answer."""
         import json
 
+        from json_repair import repair_json
+
         # Handle FINAL_VAR(obj) where the value is passed directly
         if not isinstance(variable_name, str):
             value = variable_name
         else:
             variable_name = variable_name.strip().strip("\"'")
-            if variable_name not in self.locals:
-                return f"Error: Variable '{variable_name}' not found"
-            value = self.locals[variable_name]
+            if variable_name in self.locals:
+                value = self.locals[variable_name]
+            else:
+                # The model may have passed literal JSON instead
+                # of a variable name — try to repair and parse it.
+                trimmed = variable_name.strip()
+                if trimmed.startswith(("{", "[")):
+                    try:
+                        value = json.loads(repair_json(trimmed))
+                    except (json.JSONDecodeError, ValueError):
+                        return f"Error: Variable '{variable_name}' not found"
+                else:
+                    return f"Error: Variable '{variable_name}' not found"
 
         if isinstance(value, (dict, list)):
             return json.dumps(value)
