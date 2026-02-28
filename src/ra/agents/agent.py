@@ -183,6 +183,7 @@ class RecursiveAgent:
             on_iteration=self.config.on_iteration,
             on_extend=self.config.on_extend,
             max_iterations_limit=self.config.max_iterations_limit,
+            on_early_stop=self.config.on_early_stop,
         )
 
     def completion(self, data: str | dict[str, Any]) -> Any:

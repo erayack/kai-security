@@ -11,6 +11,7 @@ from ra.core.types import RLMIteration
 
 from kai.state.base import StateManager
 from kai.state.hooks import (
+    make_on_early_stop_hook,
     make_on_extend_hook,
     make_on_iteration_hook,
     make_rollout_on_iteration_hook,
@@ -129,6 +130,7 @@ def inject_state_manager(
         extras["max_iterations_limit"] = config.max_iterations + int(
             os.environ.get("KAI_MAX_EXTEND_ITERS", _DEFAULT_MAX_EXTEND_ITERS)
         )
+        extras["on_early_stop"] = make_on_early_stop_hook(state_manager, run_id)
 
     return replace(
         config,

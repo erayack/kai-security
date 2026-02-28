@@ -62,6 +62,7 @@ class RLM:
         on_iteration: Any | None = None,
         on_extend: Callable[[int], int | None] | None = None,
         max_iterations_limit: int | None = None,
+        on_early_stop: Callable[[int], str | None] | None = None,
     ):
         """
         Args:
@@ -83,6 +84,10 @@ class RLM:
                 extra iterations to grant (or ``None``/0 to stop).
             max_iterations_limit: Hard ceiling on total iterations including
                 extensions.  Defaults to ``max_iterations`` (no extension).
+            on_early_stop: Callback invoked when a final answer is detected.
+                Receives the current iteration count and returns a nudge
+                prompt string to inject (suppressing the final answer) or
+                ``None`` to accept the answer normally.
         """
         # Store config for spawning per-completion
         self.backend = backend
@@ -125,6 +130,7 @@ class RLM:
 
         self.on_iteration = on_iteration
         self.on_extend = on_extend
+        self.on_early_stop = on_early_stop
         self.max_iterations_limit = (
             max_iterations_limit if max_iterations_limit is not None else max_iterations
         )
@@ -328,6 +334,15 @@ class RLM:
                 )
                 iteration.final_answer = final_answer
 
+                # Suppress early termination when hook says to continue
+                nudge: str | None = None
+                if final_answer is not None and self.on_early_stop:
+                    nudge = self.on_early_stop(i + 1)
+                    if nudge is not None:
+                        final_answer = None
+                        iteration.final_answer = None
+                        self.verbose.print_nudge(i + 1)
+
                 # If logger is used, log the iteration.
                 if self.logger:
                     self.logger.log(iteration)
@@ -362,6 +377,10 @@ class RLM:
 
                 # Update message history with the new messages.
                 message_history.extend(new_messages)
+
+                # Inject nudge if early stop was suppressed
+                if nudge is not None:
+                    message_history.append({"role": "user", "content": nudge})
 
                 i += 1
 

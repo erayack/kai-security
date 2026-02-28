@@ -193,6 +193,12 @@ class StructuredPrinter:
                     execution_time=call.execution_time,
                 )
 
+    def print_nudge(self, iteration: int) -> None:
+        """Emit an early-stop suppression event."""
+        if not self.enabled:
+            return
+        self._emit("early_stop_suppressed", iteration=iteration)
+
     def print_extend(
         self,
         old_max: int,

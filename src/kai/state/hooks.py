@@ -16,6 +16,41 @@ from kai.state.models import StatusUpdate
 log = logging.getLogger(__name__)
 
 
+def make_on_early_stop_hook(
+    state_manager: StateManager,
+    run_id: str,
+) -> Callable[[int], str | None]:
+    """Suppress early termination when unverified candidates remain.
+
+    When the root agent tries to finalize but there are still exploit
+    candidates at ``status="candidate"``, returns a nudge prompt that
+    is injected into the conversation to redirect the agent back to
+    verification work.
+    """
+
+    def _on_early_stop(current_iteration: int) -> str | None:
+        pending = state_manager.get_exploits(run_id, status="candidate")
+        if not pending:
+            return None
+        bullets = "\n".join(
+            f"  - [{p.file}:{p.function}] {p.hypothesis[:120]}" for p in pending
+        )
+        log.info(
+            "on_early_stop: %d unverified candidate(s) at iteration %d, "
+            "injecting nudge",
+            len(pending),
+            current_iteration,
+        )
+        return (
+            f"Do not finalize yet. There are {len(pending)} exploit "
+            f"candidate(s) still pending verification:\n{bullets}\n\n"
+            f"Continue by verifying and fixing these candidates before "
+            f"producing your final answer."
+        )
+
+    return _on_early_stop
+
+
 def make_on_iteration_hook(
     state_manager: StateManager,
     run_id: str,

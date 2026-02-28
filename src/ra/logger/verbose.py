@@ -401,6 +401,22 @@ class VerbosePrinter:
                     execution_time=call.execution_time,
                 )
 
+    def print_nudge(self, iteration: int) -> None:
+        """Print a notice that early termination was suppressed."""
+        if not self.enabled:
+            return
+        label = self._label()
+        msg = Text()
+        msg.append(self._indent, style=STYLE_MUTED)
+        msg.append("⟳ ", style=STYLE_WARNING)
+        msg.append(f"{label}", style=STYLE_PRIMARY)
+        msg.append(
+            f" · iter {iteration} — early stop suppressed, "
+            f"unverified candidates remain",
+            style=STYLE_WARNING,
+        )
+        self._print(msg)
+
     def print_extend(
         self,
         old_max: int,
