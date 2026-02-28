@@ -42,7 +42,10 @@ def provision_workspace(recipe: WorkspaceRecipe) -> str:
         dst = os.path.join(ws, f)
         if os.path.exists(src):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(src, dst)
+            if os.path.isdir(src):
+                shutil.copytree(src, dst, symlinks=True, ignore_dangling_symlinks=True)
+            else:
+                shutil.copy2(src, dst)
 
     for cmd in recipe.post_copy_commands:
         subprocess.run(cmd, shell=True, cwd=ws, capture_output=True, timeout=300)
