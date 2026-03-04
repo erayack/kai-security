@@ -12,6 +12,7 @@ from typing import Any
 from kai.state.base import StateManager
 from kai.state.models import (
     ExploitRecord,
+    FixAttemptRecord,
     FixRecord,
     RunRecord,
     StatusUpdate,
@@ -32,6 +33,7 @@ class LocalStateManager(StateManager):
             status_updates.jsonl  # Append-only, one StatusUpdate per line
             exploits.json         # JSON array of ExploitRecord
             fixes.json            # JSON array of FixRecord
+            fix_attempts.json     # JSON array of FixAttemptRecord
 
     All reads go through disk — no in-memory cache.  This keeps the
     implementation simple and crash-resilient.  Thread-safe via a
@@ -83,6 +85,17 @@ class LocalStateManager(StateManager):
     def _write_fixes(self, run_id: str, records: list[FixRecord]) -> None:
         path = self._run_dir(run_id) / "fixes.json"
         self._write_json(path, [f.to_dict() for f in records])
+
+    def _read_fix_attempts(self, run_id: str) -> list[FixAttemptRecord]:
+        path = self._run_dir(run_id) / "fix_attempts.json"
+        data = self._read_json(path)
+        return [FixAttemptRecord.from_dict(d) for d in data] if data else []
+
+    def _write_fix_attempts(
+        self, run_id: str, records: list[FixAttemptRecord]
+    ) -> None:
+        path = self._run_dir(run_id) / "fix_attempts.json"
+        self._write_json(path, [a.to_dict() for a in records])
 
     # -- Run lifecycle --
 
@@ -285,6 +298,32 @@ class LocalStateManager(StateManager):
                 return self._read_fixes(run_id)
         except Exception:
             log.exception("get_fixes failed for %s", run_id)
+            return []
+
+    # -- Fix attempts --
+
+    def add_fix_attempt(self, record: FixAttemptRecord) -> None:
+        """Persist a new fix attempt record."""
+        try:
+            with self._lock:
+                records = self._read_fix_attempts(record.run_id)
+                records.append(record)
+                self._write_fix_attempts(record.run_id, records)
+        except Exception:
+            log.exception("add_fix_attempt failed for run %s", record.run_id)
+
+    def get_fix_attempts(
+        self,
+        run_id: str,
+        exploit_id: str,
+    ) -> list[FixAttemptRecord]:
+        """Return all fix attempts for a given exploit within a run."""
+        try:
+            with self._lock:
+                records = self._read_fix_attempts(run_id)
+                return [r for r in records if r.exploit_id == exploit_id]
+        except Exception:
+            log.exception("get_fix_attempts failed for %s", run_id)
             return []
 
     # -- Rollouts --

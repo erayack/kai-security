@@ -210,3 +210,44 @@ class FixRecord:
             test_results=data["test_results"],
             applied=data.get("applied", False),
         )
+
+
+@dataclass
+class FixAttemptRecord:
+    """Record of a single attempt to fix an exploit."""
+
+    run_id: str
+    exploit_id: str
+    attempt_num: int
+    timestamp: str
+    strategy: str  # one-line description of the defense mechanism tried
+    patch: str  # the diff
+    failure_reason: str  # why the PoC still passed (empty if succeeded)
+    succeeded: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-safe dict."""
+        return {
+            "run_id": self.run_id,
+            "exploit_id": self.exploit_id,
+            "attempt_num": self.attempt_num,
+            "timestamp": self.timestamp,
+            "strategy": self.strategy,
+            "patch": self.patch,
+            "failure_reason": self.failure_reason,
+            "succeeded": self.succeeded,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> FixAttemptRecord:
+        """Deserialize from a dict."""
+        return cls(
+            run_id=data["run_id"],
+            exploit_id=data["exploit_id"],
+            attempt_num=data["attempt_num"],
+            timestamp=data["timestamp"],
+            strategy=data["strategy"],
+            patch=data["patch"],
+            failure_reason=data["failure_reason"],
+            succeeded=data["succeeded"],
+        )
