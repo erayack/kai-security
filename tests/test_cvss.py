@@ -3,7 +3,6 @@
 import pytest
 
 from kai.utils.cvss import (
-    CVSSResult,
     compute_score,
     parse_vector,
     score_to_severity,
