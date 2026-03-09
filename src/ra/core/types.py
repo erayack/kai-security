@@ -220,7 +220,7 @@ class CodeBlock:
 
 @dataclass
 class RLMIteration:
-    prompt: str | dict[str, Any]
+    prompt: str | dict[str, Any] | list[dict[str, Any]]
     response: str
     code_blocks: list[CodeBlock]
     final_answer: str | None = None

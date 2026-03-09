@@ -108,7 +108,7 @@ class ExploitRecord:
     exploit_id: str
     timestamp: str
     source_agent: str  # "analyzer" | "verifier"
-    status: str  # "candidate" | "verified" | "verified_and_fixed"
+    status: str  # "candidate" | "verified" | "verified_and_fixed" | "failed"
     hypothesis: str
     file: str
     function: str

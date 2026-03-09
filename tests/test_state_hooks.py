@@ -26,7 +26,7 @@ def _repl_result(
     **kwargs: object,
 ) -> REPLResult:
     """Build a REPLResult with optional spawn records."""
-    defaults = {"stdout": "", "stderr": "", "locals": {}}
+    defaults: dict[str, object] = {"stdout": "", "stderr": "", "locals": {}}
     defaults.update(kwargs)
     return REPLResult(
         **defaults,  # type: ignore[arg-type]

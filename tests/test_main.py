@@ -80,7 +80,7 @@ class TestRunPipelineImport:
 
 
 class TestMainAgentCommand:
-    def test_main_reads_json_file(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    def test_main_reads_json_file(self, tmp_path) -> None:
         """Verify input file loading logic (without running an agent)."""
         data = {"repo_path": "/test"}
         f = tmp_path / "input.json"

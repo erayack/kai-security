@@ -8,7 +8,6 @@ from typing import Any, Callable
 
 from ra.agents.config import RecursiveAgentConfig
 from ra.core.types import SpawnRecord
-from ra.exceptions import SpawnError
 
 
 class _SpawnWrapper:
@@ -136,7 +135,7 @@ def _make_spawn_fn(
                 )
             )
             return result_str
-        except SpawnError as exc:
+        except Exception as exc:
             error_msg = f"[spawn_{config.name} error] {type(exc).__name__}: {exc}"
             records.append(
                 SpawnRecord(

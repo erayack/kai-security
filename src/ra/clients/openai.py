@@ -56,11 +56,11 @@ class OpenAIClient(BaseLM):
             base_url=base_url,
             default_headers=extra_headers,
         )
-        self.async_client = openai.AsyncOpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            default_headers=extra_headers,
-        )
+        self._async_client_kwargs: dict[str, Any] = {
+            "api_key": api_key,
+            "base_url": base_url,
+            "default_headers": extra_headers,
+        }
         self.model_name = model_name
 
         # Per-model usage tracking
@@ -121,11 +121,14 @@ class OpenAIClient(BaseLM):
         if self.client.base_url == DEFAULT_PRIME_INTELLECT_BASE_URL:
             extra_body["usage"] = {"include": True}
 
-        response = await self.async_client.chat.completions.create(
-            model=model,
-            messages=messages,  # type: ignore[arg-type]
-            extra_body=extra_body,
-        )
+        async with openai.AsyncOpenAI(
+            **self._async_client_kwargs,
+        ) as client:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=messages,  # type: ignore[arg-type]
+                extra_body=extra_body,
+            )
         self._track_cost(response, model)
         return response.choices[0].message.content
 
