@@ -345,7 +345,7 @@ def run_pipeline(
             except json.JSONDecodeError:
                 from json_repair import repair_json
 
-                repaired = repair_json(raw_response)
+                repaired = str(repair_json(raw_response))
                 if repaired and repaired.strip():
                     try:
                         recipe_data = json.loads(repaired)
