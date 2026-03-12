@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 from contextlib import contextmanager
@@ -316,12 +317,21 @@ class RLM:
 
                 self.verbose.print_waiting(i + 1)
 
-                iteration: RLMIteration = self._completion_turn(
-                    prompt=current_prompt,
-                    lm_handler=lm_handler,
-                    environment=environment,
-                    iteration_num=i + 1,
-                )
+                try:
+                    iteration: RLMIteration = self._completion_turn(
+                        prompt=current_prompt,
+                        lm_handler=lm_handler,
+                        environment=environment,
+                        iteration_num=i + 1,
+                    )
+                except Exception as exc:
+                    logging.getLogger(__name__).error(
+                        "LLM call failed on iteration %d: %s — "
+                        "falling through to default answer",
+                        i + 1,
+                        exc,
+                    )
+                    break
 
                 # Collect child usage from spawn calls
                 for cb in iteration.code_blocks:
@@ -428,7 +438,7 @@ class RLM:
 
     def _completion_turn(
         self,
-        prompt: str | dict[str, Any],
+        prompt: str | dict[str, Any] | list[dict[str, Any]],
         lm_handler: LMHandler,
         environment: BaseEnv,
         iteration_num: int = 0,
@@ -497,7 +507,30 @@ class RLM:
                 ),
             }
         ]
-        response = lm_handler.completion(current_prompt)
+        try:
+            response = lm_handler.completion(current_prompt)
+        except Exception as exc:
+            # LLM call failed (e.g. context window exceeded).
+            # Try to recover final_result from the environment.
+            fallback = None
+            if environment is not None:
+                try:
+                    fallback = find_final_answer(
+                        "FINAL_VAR(final_result)",
+                        environment=environment,
+                    )
+                except Exception:
+                    pass
+            response = fallback or f"Error: _default_answer failed: {exc}"
+
+        # Execute any REPL code blocks so variables are set before
+        # resolving FINAL_VAR references.
+        if environment is not None:
+            for code_block in find_code_blocks(response):
+                try:
+                    environment.execute_code(code_block)
+                except Exception:
+                    pass
 
         # Resolve FINAL_VAR against the environment if available.
         resolved = find_final_answer(response, environment=environment)

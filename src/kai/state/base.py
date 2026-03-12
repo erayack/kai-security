@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 
 from kai.state.models import (
     ExploitRecord,
+    FixAttemptRecord,
     FixRecord,
     RunRecord,
     StatusUpdate,
@@ -85,6 +86,20 @@ class StateManager(ABC):
     @abstractmethod
     def get_fixes(self, run_id: str) -> list[FixRecord]:
         """Return all fixes for a run."""
+
+    # -- Fix attempts --
+
+    @abstractmethod
+    def add_fix_attempt(self, record: FixAttemptRecord) -> None:
+        """Persist a new fix attempt record."""
+
+    @abstractmethod
+    def get_fix_attempts(
+        self,
+        run_id: str,
+        exploit_id: str,
+    ) -> list[FixAttemptRecord]:
+        """Return all fix attempts for a given exploit within a run."""
 
     # -- Rollouts --
 

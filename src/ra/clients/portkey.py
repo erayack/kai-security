@@ -22,7 +22,10 @@ class PortkeyClient(BaseLM):
     ):
         super().__init__(model_name=model_name, **kwargs)
         self.client = Portkey(api_key=api_key, base_url=base_url)
-        self.async_client = AsyncPortkey(api_key=api_key, base_url=base_url)
+        self._async_client_kwargs = {
+            "api_key": api_key,
+            "base_url": base_url,
+        }
         self.model_name = model_name
 
         # Per-model usage tracking
@@ -74,9 +77,12 @@ class PortkeyClient(BaseLM):
         if not model:
             raise ValueError("Model name is required for Portkey client.")
 
-        response = await self.async_client.chat.completions.create(
-            model=model, messages=messages
-        )
+        async with AsyncPortkey(
+            **self._async_client_kwargs,
+        ) as client:
+            response = await client.chat.completions.create(
+                model=model, messages=messages,
+            )
         self._track_cost(response, model)
         return response.choices[0].message.content
 

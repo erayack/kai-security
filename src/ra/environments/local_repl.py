@@ -195,7 +195,7 @@ class LocalREPL(NonIsolatedEnv):
                 trimmed = variable_name.strip()
                 if trimmed.startswith(("{", "[")):
                     try:
-                        value = json.loads(repair_json(trimmed))
+                        value = json.loads(str(repair_json(trimmed)))
                     except (json.JSONDecodeError, ValueError):
                         return f"Error: Variable '{variable_name}' not found"
                 else:

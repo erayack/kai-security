@@ -275,7 +275,7 @@ class LLMProxyHandler(BaseHTTPRequestHandler):
     depth: int = 1
     query_model: str | None = None
 
-    def log_message(self, *args):
+    def log_message(self, format: str, *args: Any) -> None:
         pass
 
     def do_POST(self):

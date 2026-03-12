@@ -39,6 +39,9 @@ class RecursiveAgentConfig:
     max_iterations_limit: int | None = None
     on_early_stop: Callable[[int], str | None] | None = None
     result_processor: Callable[[dict[str, Any], str], str] | None = None
+    spawn_wrappers: dict[str, Callable[..., Callable[..., str]]] = field(
+        default_factory=dict
+    )
 
     def validate(self) -> None:
         """Validate this config and all sub-agent configs recursively.

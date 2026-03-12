@@ -55,12 +55,12 @@ class AzureOpenAIClient(BaseLM):
             api_version=api_version,
             azure_deployment=azure_deployment,
         )
-        self.async_client = openai.AsyncAzureOpenAI(
-            api_key=api_key,
-            azure_endpoint=azure_endpoint,
-            api_version=api_version,
-            azure_deployment=azure_deployment,
-        )
+        self._async_client_kwargs: dict[str, Any] = {
+            "api_key": api_key,
+            "azure_endpoint": azure_endpoint,
+            "api_version": api_version,
+            "azure_deployment": azure_deployment,
+        }
         self.model_name = model_name
         self.azure_deployment = azure_deployment
 
@@ -113,10 +113,13 @@ class AzureOpenAIClient(BaseLM):
         if not model:
             raise ValueError("Model name is required for Azure OpenAI client.")
 
-        response = await self.async_client.chat.completions.create(
-            model=model,
-            messages=messages,  # type: ignore[arg-type]
-        )
+        async with openai.AsyncAzureOpenAI(
+            **self._async_client_kwargs,
+        ) as client:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=messages,  # type: ignore[arg-type]
+            )
         self._track_cost(response, model)
         return response.choices[0].message.content
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -46,7 +47,7 @@ class TestLocalREPLWorkspaceFactory:
             # Code execution should use the factory-provided dir
             repl.execute_code("import os; cwd = os.getcwd()")
             # Resolve both to handle macOS /var -> /private/var symlink
-            assert os.path.realpath(repl.locals.get("cwd")) == (
+            assert os.path.realpath(str(repl.locals.get("cwd"))) == (
                 os.path.realpath(custom_dir)
             )
             repl.cleanup()
@@ -116,7 +117,7 @@ class TestSplitLastExpr:
         code = "x = 1\nfoo(\n    x\n)"
         body, expr = LocalREPL._split_last_expr(code)
         assert body == "x = 1\n"
-        assert "foo(" in expr
+        assert expr is not None and "foo(" in expr
 
 
 # ── Auto-print in execute_code ───────────────────────────────────
@@ -124,7 +125,7 @@ class TestSplitLastExpr:
 
 class TestAutoprint:
     @pytest.fixture()
-    def repl(self) -> LocalREPL:
+    def repl(self) -> Generator[LocalREPL, None, None]:
         r = LocalREPL()
         yield r
         r.cleanup()

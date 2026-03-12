@@ -8,7 +8,50 @@ from typing import Any, Callable
 
 from ra.agents.config import RecursiveAgentConfig
 from ra.core.types import SpawnRecord
-from ra.exceptions import SpawnError
+
+
+class _SpawnWrapper:
+    """Proxy wrapper for a spawn function produced by a ``spawn_wrappers`` entry.
+
+    The REPL relies on three attributes being present on every spawn tool:
+
+    * ``_pending_completions`` – list drained by the REPL after each execution
+      to collect token-usage data from sub-agent calls.
+    * ``_spawn_records`` – list drained by the REPL after each execution to
+      collect deterministic spawn data.
+    * ``_cancel_event`` – set by the REPL for cooperative cancellation; the
+      inner ``_spawn`` closure reads it from *itself* via
+      ``getattr(_spawn, "_cancel_event", None)``.
+
+    Without this proxy the wrapped callable loses all three attributes: the
+    lists are invisible to the REPL (so usage data is dropped) and the cancel
+    event is never forwarded to the inner closure.
+    """
+
+    def __init__(self, wrapped: Callable[..., str], original: Callable[..., str]) -> None:
+        self._wrapped = wrapped
+        self._original = original
+
+    def __call__(self, **kwargs: Any) -> str:
+        return self._wrapped(**kwargs)
+
+    # --- attribute pass-through -------------------------------------------------
+
+    @property
+    def _pending_completions(self) -> list[Any]:
+        return self._original._pending_completions  # type: ignore[attr-defined]
+
+    @property
+    def _spawn_records(self) -> list[SpawnRecord]:
+        return self._original._spawn_records  # type: ignore[attr-defined]
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "_cancel_event":
+            # Forward to the inner _spawn so it can read from itself.
+            self._original._cancel_event = value  # type: ignore[attr-defined]
+        else:
+            super().__setattr__(name, value)
+
 
 log = logging.getLogger(__name__)
 
@@ -92,7 +135,7 @@ def _make_spawn_fn(
                 )
             )
             return result_str
-        except SpawnError as exc:
+        except Exception as exc:
             error_msg = f"[spawn_{config.name} error] {type(exc).__name__}: {exc}"
             records.append(
                 SpawnRecord(
@@ -145,12 +188,18 @@ class RecursiveAgent:
         """Merge direct tools with spawn functions for sub-agents."""
         tools: dict[str, Any] = dict(self.config.tools)
         for sub in self.config.agents:
-            tools[f"spawn_{sub.name}"] = _make_spawn_fn(
+            spawn_name = f"spawn_{sub.name}"
+            spawn_fn = _make_spawn_fn(
                 sub,
                 self.depth,
                 self.max_depth,
                 log_file=self.config.log_file,
             )
+            wrapper = self.config.spawn_wrappers.get(spawn_name)
+            if wrapper is not None:
+                original_spawn_fn = spawn_fn
+                spawn_fn = _SpawnWrapper(wrapper(original_spawn_fn), original_spawn_fn)
+            tools[spawn_name] = spawn_fn
         return tools
 
     def _build_rlm(self) -> Any:

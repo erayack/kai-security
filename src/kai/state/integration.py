@@ -116,6 +116,8 @@ def inject_state_manager(
 
     extras: dict[str, Any] = {}
     if _depth == 0:
+        from kai.definitions.exploit.spawn_hooks import make_fixer_spawn_wrapper
+
         iters_per_candidate = int(
             os.environ.get(
                 "KAI_EXTEND_ITERS_PER_CANDIDATE",
@@ -131,6 +133,11 @@ def inject_state_manager(
             os.environ.get("KAI_MAX_EXTEND_ITERS", _DEFAULT_MAX_EXTEND_ITERS)
         )
         extras["on_early_stop"] = make_on_early_stop_hook(state_manager, run_id)
+        spawn_wrappers = dict(config.spawn_wrappers)
+        spawn_wrappers["spawn_fixer"] = lambda original_fn: make_fixer_spawn_wrapper(
+            original_fn, state_manager, run_id
+        )
+        extras["spawn_wrappers"] = spawn_wrappers
 
     return replace(
         config,

@@ -21,7 +21,7 @@ class AnthropicClient(BaseLM):
     ):
         super().__init__(model_name=model_name, **kwargs)
         self.client = anthropic.Anthropic(api_key=api_key)
-        self.async_client = anthropic.AsyncAnthropic(api_key=api_key)
+        self._async_client_kwargs = {"api_key": api_key}
         self.model_name = model_name
         self.max_tokens = max_tokens
 
@@ -65,7 +65,10 @@ class AnthropicClient(BaseLM):
         if system:
             kwargs["system"] = system
 
-        response = await self.async_client.messages.create(**kwargs)
+        async with anthropic.AsyncAnthropic(
+            **self._async_client_kwargs,
+        ) as client:
+            response = await client.messages.create(**kwargs)
         self._track_cost(response, model)
         return response.content[0].text
 

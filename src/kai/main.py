@@ -274,6 +274,8 @@ def run_pipeline(
     no_state: bool = False,
     save_rollouts: bool = False,
     rollout_agents: set[str] | None = None,
+    state_manager: StateManager | None = None,
+    run_id: str | None = None,
 ) -> RLMChatCompletion:
     """Run the full setup → exploit pipeline.
 
@@ -287,10 +289,10 @@ def run_pipeline(
     repo_path = str(Path(repo_path).resolve())
     master_dir = tempfile.mkdtemp(prefix="kai_master_")
 
-    # State tracking
-    sm: StateManager | None = None
-    rid: str | None = None
-    if not no_state:
+    # State tracking — use caller-provided manager or create one
+    sm = state_manager
+    rid = run_id
+    if sm is None and not no_state:
         try:
             sm = LocalStateManager(state_dir=state_dir)
             rid = generate_id()
@@ -312,27 +314,55 @@ def run_pipeline(
 
     succeeded = False
     try:
-        # --- Step 1: run setup agent ---
-        setup_cfg = replace(
-            setup_config, verbose=verbose, log_structured=log_structured
-        )
-        setup_agent = RecursiveAgent(setup_cfg)
-        setup_result = setup_agent.completion(
-            {"repo_path": repo_path, "master_dir": master_dir}
-        )
-        raw_response = (
-            setup_result.response
-            if hasattr(setup_result, "response")
-            else str(setup_result)
-        )
+        # --- Step 1: run setup agent (with one retry) ---
+        recipe_data = None
+        max_setup_attempts = 2
+        for attempt in range(1, max_setup_attempts + 1):
+            setup_cfg = replace(
+                setup_config, verbose=verbose, log_structured=log_structured
+            )
+            setup_agent = RecursiveAgent(setup_cfg)
+            setup_result = setup_agent.completion(
+                {"repo_path": repo_path, "master_dir": master_dir}
+            )
+            raw_response = (
+                setup_result.response
+                if hasattr(setup_result, "response")
+                else str(setup_result)
+            )
 
-        # --- Step 2: deserialize recipe ---
-        try:
-            recipe_data = json.loads(raw_response)
-        except json.JSONDecodeError:
-            from json_repair import repair_json
+            # --- Step 2: deserialize recipe ---
+            if not raw_response or not raw_response.strip():
+                log.warning(
+                    "Setup agent returned empty response (attempt %d/%d)",
+                    attempt,
+                    max_setup_attempts,
+                )
+                continue
+            try:
+                recipe_data = json.loads(raw_response)
+                break
+            except json.JSONDecodeError:
+                from json_repair import repair_json
 
-            recipe_data = json.loads(repair_json(raw_response))
+                repaired = str(repair_json(raw_response))
+                if repaired and repaired.strip():
+                    try:
+                        recipe_data = json.loads(repaired)
+                        break
+                    except json.JSONDecodeError:
+                        pass
+                log.warning(
+                    "Setup agent response not valid JSON (attempt %d/%d)",
+                    attempt,
+                    max_setup_attempts,
+                )
+
+        if recipe_data is None:
+            raise RuntimeError(
+                "Setup agent failed to produce valid JSON after "
+                f"{max_setup_attempts} attempts"
+            )
         recipe = WorkspaceRecipe.from_dict(recipe_data)
 
         # --- Step 3: iterative exploit loop ---
@@ -661,64 +691,122 @@ def main(argv: list[str] | None = None) -> None:
         max_rounds = args.max_rounds
         state_dir = args.state_dir
         no_state = args.no_state
-        if args.recipe:
-            with open(args.recipe) as f:
-                recipe = WorkspaceRecipe.from_dict(json.load(f))
-            sm: StateManager | None = None
-            rid: str | None = None
-            if not no_state:
-                try:
-                    sm = LocalStateManager(state_dir=state_dir)
-                    rid = generate_id()
-                    sm.create_run(
-                        RunRecord(
-                            run_id=rid,
-                            repo_path=args.recipe,
-                            started_at=datetime.now(timezone.utc).isoformat(),
-                            status="running",
-                            root_model=exploit_config.backend_kwargs.get(
-                                "model_name", "unknown"
-                            ),
+        sm: StateManager | None = None
+        rid: str | None = None
+        try:
+            if args.recipe:
+                with open(args.recipe) as f:
+                    recipe = WorkspaceRecipe.from_dict(json.load(f))
+                if not no_state:
+                    try:
+                        sm = LocalStateManager(state_dir=state_dir)
+                        rid = generate_id()
+                        sm.create_run(
+                            RunRecord(
+                                run_id=rid,
+                                repo_path=args.recipe,
+                                started_at=datetime.now(timezone.utc).isoformat(),
+                                status="running",
+                                root_model=exploit_config.backend_kwargs.get(
+                                    "model_name", "unknown"
+                                ),
+                            )
                         )
-                    )
-                except Exception:
-                    log.exception("Failed to initialize state manager")
-                    sm = None
-                    rid = None
-            result = _run_exploit_loop(
-                recipe,
-                verbose=args.verbose,
-                log_file=log_file,
-                log_structured=structured,
-                instructions=instructions,
-                max_rounds=max_rounds,
-                state_manager=sm,
-                run_id=rid,
-                save_rollouts=save_rollouts,
-                rollout_agents=rollout_agents,
-            )
-            if sm is not None and rid is not None:
-                sm.update_run(
-                    rid,
-                    status="completed",
-                    finished_at=datetime.now(timezone.utc).isoformat(),
+                    except Exception:
+                        log.exception("Failed to initialize state manager")
+                        sm = None
+                        rid = None
+                result = _run_exploit_loop(
+                    recipe,
+                    verbose=args.verbose,
+                    log_file=log_file,
+                    log_structured=structured,
+                    instructions=instructions,
+                    max_rounds=max_rounds,
+                    state_manager=sm,
+                    run_id=rid,
+                    save_rollouts=save_rollouts,
+                    rollout_agents=rollout_agents,
                 )
-        else:
-            result = run_pipeline(
-                args.repo_path,
-                verbose=args.verbose,
-                log_file=log_file,
-                log_structured=structured,
-                instructions=instructions,
-                max_rounds=max_rounds,
-                state_dir=state_dir,
-                no_state=no_state,
-                save_rollouts=save_rollouts,
-                rollout_agents=rollout_agents,
+                if sm is not None and rid is not None:
+                    sm.update_run(
+                        rid,
+                        status="completed",
+                        finished_at=datetime.now(timezone.utc).isoformat(),
+                    )
+            else:
+                if not no_state:
+                    try:
+                        sm = LocalStateManager(state_dir=state_dir)
+                        rid = generate_id()
+                        sm.create_run(
+                            RunRecord(
+                                run_id=rid,
+                                repo_path=args.repo_path,
+                                started_at=datetime.now(timezone.utc).isoformat(),
+                                status="running",
+                                root_model=exploit_config.backend_kwargs.get(
+                                    "model_name", "unknown"
+                                ),
+                            )
+                        )
+                    except Exception:
+                        log.exception("Failed to initialize state manager")
+                        sm = None
+                        rid = None
+                result = run_pipeline(
+                    args.repo_path,
+                    verbose=args.verbose,
+                    log_file=log_file,
+                    log_structured=structured,
+                    instructions=instructions,
+                    max_rounds=max_rounds,
+                    state_dir=state_dir,
+                    no_state=no_state,
+                    save_rollouts=save_rollouts,
+                    rollout_agents=rollout_agents,
+                    state_manager=sm,
+                    run_id=rid,
+                )
+            print(result.response)
+            dest = _save_result(result, args.output)
+            print(f"Result saved to {dest}", file=sys.stderr)
+        except Exception as exc:
+            log.error("Pipeline crashed: %s — saving partial results", exc)
+            # Build a minimal result so the harness can grade
+            # whatever the agent found before crashing.
+            partial = RLMChatCompletion(
+                root_model="unknown",
+                prompt="",
+                response="[]",
+                usage_summary=UsageSummary(model_usage_summaries={}),
+                execution_time=0,
             )
-        print(result.response)
-        dest = _save_result(result, args.output)
-        print(f"Result saved to {dest}", file=sys.stderr)
+            # Try to recover exploits from state manager
+            if sm is not None and rid is not None:
+                try:
+                    exploits = sm.get_exploits(rid)
+                    if exploits:
+                        partial = RLMChatCompletion(
+                            root_model="unknown",
+                            prompt="",
+                            response=json.dumps([e.to_dict() for e in exploits]),
+                            usage_summary=UsageSummary(model_usage_summaries={}),
+                            execution_time=0,
+                        )
+                        log.info(
+                            "Recovered %d exploits from state",
+                            len(exploits),
+                        )
+                except Exception:
+                    log.exception("Failed to recover exploits from state")
+            if args.output:
+                try:
+                    _save_result(partial, args.output)
+                    log.info("Partial results saved to %s", args.output)
+                except Exception:
+                    log.exception("Failed to save partial results")
+            raise
         return
 
     if args.command == "agent":

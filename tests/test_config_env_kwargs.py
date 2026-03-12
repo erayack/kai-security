@@ -5,7 +5,7 @@ from __future__ import annotations
 from ra.agents.config import RecursiveAgentConfig
 
 
-def _simple_config(**overrides) -> RecursiveAgentConfig:  # type: ignore[no-untyped-def]
+def _simple_config(**overrides) -> RecursiveAgentConfig:
     defaults = {
         "name": "test",
         "system_prompt": "test prompt",
