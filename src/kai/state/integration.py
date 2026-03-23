@@ -44,6 +44,7 @@ def inject_state_manager(
     *,
     save_rollouts: bool = False,
     rollout_agents: set[str] | None = None,
+    recipe: Any | None = None,
     _depth: int = 0,
 ) -> RecursiveAgentConfig:
     """Return a copy of *config* with state-tracking hooks attached.
@@ -60,6 +61,7 @@ def inject_state_manager(
             that persist per-agent iteration histories as JSONL.
         rollout_agents: If given, only record rollouts for agents whose
             names appear in this set.  ``None`` means record all.
+        recipe: Optional workspace recipe for PoC pre-checks.
     """
     status_hook = make_on_iteration_hook(
         state_manager,
@@ -96,6 +98,7 @@ def inject_state_manager(
             result_processors=result_processors,
             save_rollouts=save_rollouts,
             rollout_agents=rollout_agents,
+            recipe=recipe,
             _depth=_depth + 1,
         )
         processor_fn = processors.get(child.name)
@@ -134,8 +137,9 @@ def inject_state_manager(
         )
         extras["on_early_stop"] = make_on_early_stop_hook(state_manager, run_id)
         spawn_wrappers = dict(config.spawn_wrappers)
+        _recipe = recipe
         spawn_wrappers["spawn_fixer"] = lambda original_fn: make_fixer_spawn_wrapper(
-            original_fn, state_manager, run_id
+            original_fn, state_manager, run_id, recipe=_recipe
         )
         extras["spawn_wrappers"] = spawn_wrappers
 

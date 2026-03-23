@@ -102,12 +102,12 @@ class TestOnIterationHook:
         """Without processors wired, hook only saves status updates."""
         mgr = _make_manager()
         hook = make_on_iteration_hook(mgr, "r1", "exploit")
-        candidates = json.dumps(
-            [{"hypothesis": "h", "file": "f", "function": "fn"}]
-        )
+        candidates = json.dumps([{"hypothesis": "h", "file": "f", "function": "fn"}])
         records = [
             SpawnRecord(
-                agent_name="analyzer", kwargs={}, result=candidates,
+                agent_name="analyzer",
+                kwargs={},
+                result=candidates,
             )
         ]
         iteration = RLMIteration(
@@ -130,20 +130,22 @@ class TestAnalyzerProcessor:
 
     def test_enriches_result_with_exploit_ids(self) -> None:
         mgr = _make_manager()
-        raw = json.dumps([
-            {
-                "hypothesis": "reentrancy in withdraw",
-                "file": "Vault.sol",
-                "function": "withdraw",
-                "exploit_sketch": "call before update",
-            },
-            {
-                "hypothesis": "overflow in deposit",
-                "file": "Vault.sol",
-                "function": "deposit",
-                "exploit_sketch": "large value",
-            },
-        ])
+        raw = json.dumps(
+            [
+                {
+                    "hypothesis": "reentrancy in withdraw",
+                    "file": "Vault.sol",
+                    "function": "withdraw",
+                    "exploit_sketch": "call before update",
+                },
+                {
+                    "hypothesis": "overflow in deposit",
+                    "file": "Vault.sol",
+                    "function": "deposit",
+                    "exploit_sketch": "large value",
+                },
+            ]
+        )
         enriched = process_analyzer_result(mgr, "r1", {}, raw)
         candidates = json.loads(enriched)
         assert len(candidates) == 2
@@ -176,6 +178,42 @@ class TestAnalyzerProcessor:
         assert "exploit_id" in candidates[1]
         assert len(mgr.get_exploits("r1")) == 1
 
+    def test_persists_precondition_fields(self) -> None:
+        mgr = _make_manager()
+        raw = json.dumps(
+            [
+                {
+                    "hypothesis": "reentrancy",
+                    "file": "Vault.sol",
+                    "function": "withdraw",
+                    "exploit_sketch": "call before update",
+                    "attacker_role": "anyone",
+                    "required_privileges": "none",
+                    "category": "active_exploit",
+                    "trusted_component_abused": "none (permissionless)",
+                },
+            ]
+        )
+        process_analyzer_result(mgr, "r1", {}, raw)
+        exploits = mgr.get_exploits("r1")
+        assert len(exploits) == 1
+        e = exploits[0]
+        assert e.attacker_role == "anyone"
+        assert e.required_privileges == "none"
+        assert e.category == "active_exploit"
+        assert e.trusted_component_abused == "none (permissionless)"
+
+    def test_precondition_fields_default_empty(self) -> None:
+        """Candidates without precondition fields get empty defaults."""
+        mgr = _make_manager()
+        raw = json.dumps(
+            [{"hypothesis": "h", "file": "f", "function": "fn"}]
+        )
+        process_analyzer_result(mgr, "r1", {}, raw)
+        e = mgr.get_exploits("r1")[0]
+        assert e.attacker_role == ""
+        assert e.category == ""
+
 
 class TestVerifierProcessor:
     """Test process_verifier_result with ID-based and fallback matching."""
@@ -194,13 +232,18 @@ class TestVerifierProcessor:
                 function="withdraw",
             )
         )
-        raw = json.dumps({
-            "confirmed": True,
-            "poc_code": "attack()",
-            "test_output": "EXPLOITED",
-        })
+        raw = json.dumps(
+            {
+                "confirmed": True,
+                "poc_code": "attack()",
+                "test_output": "EXPLOITED",
+            }
+        )
         result = process_verifier_result(
-            mgr, "r1", {"exploit_id": "e1"}, raw,
+            mgr,
+            "r1",
+            {"exploit_id": "e1"},
+            raw,
         )
         assert result == raw
         exploits = mgr.get_exploits("r1")
@@ -222,28 +265,78 @@ class TestVerifierProcessor:
                 function="withdraw",
             )
         )
-        raw = json.dumps({
-            "hypothesis": "reentrancy",
-            "file": "Vault.sol",
-            "function": "withdraw",
-            "confirmed": True,
-            "poc_code": "attack()",
-            "test_output": "EXPLOITED",
-        })
+        raw = json.dumps(
+            {
+                "hypothesis": "reentrancy",
+                "file": "Vault.sol",
+                "function": "withdraw",
+                "confirmed": True,
+                "poc_code": "attack()",
+                "test_output": "EXPLOITED",
+            }
+        )
         # No exploit_id in kwargs — falls back to string match
         result = process_verifier_result(mgr, "r1", {}, raw)
         assert result == raw
         exploits = mgr.get_exploits("r1")
         assert exploits[0].status == "verified"
 
+    def test_rejected_when_not_confirmed(self) -> None:
+        """confirmed=False should set status to 'rejected'."""
+        mgr = _make_manager()
+        mgr.add_exploit(
+            ExploitRecord(
+                run_id="r1",
+                exploit_id="e1",
+                timestamp="t",
+                source_agent="analyzer",
+                status="candidate",
+                hypothesis="maybe vuln",
+                file="Token.sol",
+                function="transfer",
+            )
+        )
+        raw = json.dumps(
+            {
+                "confirmed": False,
+                "poc_code": "test()",
+                "test_output": "NOT EXPLOITABLE",
+            }
+        )
+        process_verifier_result(mgr, "r1", {"exploit_id": "e1"}, raw)
+        exploits = mgr.get_exploits("r1")
+        assert exploits[0].status == "rejected"
+        assert exploits[0].confirmed is False
+
+    def test_rejected_default_when_confirmed_missing(self) -> None:
+        """Missing 'confirmed' key defaults to False → rejected."""
+        mgr = _make_manager()
+        mgr.add_exploit(
+            ExploitRecord(
+                run_id="r1",
+                exploit_id="e1",
+                timestamp="t",
+                source_agent="analyzer",
+                status="candidate",
+                hypothesis="h",
+                file="f",
+                function="fn",
+            )
+        )
+        raw = json.dumps({"poc_code": "x", "test_output": "y"})
+        process_verifier_result(mgr, "r1", {"exploit_id": "e1"}, raw)
+        assert mgr.get_exploits("r1")[0].status == "rejected"
+
     def test_no_matching_exploit_returns_raw(self) -> None:
         mgr = _make_manager()
-        raw = json.dumps({
-            "hypothesis": "nonexistent",
-            "file": "Ghost.sol",
-            "function": "vanish",
-            "confirmed": True,
-        })
+        raw = json.dumps(
+            {
+                "hypothesis": "nonexistent",
+                "file": "Ghost.sol",
+                "function": "vanish",
+                "confirmed": True,
+            }
+        )
         result = process_verifier_result(mgr, "r1", {}, raw)
         assert result == raw
         assert mgr.get_exploits("r1") == []
@@ -267,22 +360,28 @@ class TestFixerProcessor:
                 confirmed=True,
             )
         )
-        raw = json.dumps({
-            "severity": "critical",
-            "patch": "--- a/Vault.sol\n+++ b/Vault.sol",
-            "test_results": "ALL PASS",
-        })
+        raw = json.dumps(
+            {
+                "cvss_vector": "AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                "patch": "--- a/Vault.sol\n+++ b/Vault.sol",
+                "test_results": "ALL PASS",
+                "fix_succeeded": True,
+            }
+        )
         result = process_fixer_result(
-            mgr, "r1", {"exploit_id": "e1"}, raw,
+            mgr,
+            "r1",
+            {"exploit_id": "e1"},
+            raw,
         )
         assert result == raw
         exploits = mgr.get_exploits("r1")
         assert exploits[0].status == "verified_and_fixed"
-        assert exploits[0].severity == "critical"
+        assert exploits[0].severity == "Critical"
         fixes = mgr.get_fixes("r1")
         assert len(fixes) == 1
         assert fixes[0].exploit_id == "e1"
-        assert fixes[0].severity == "critical"
+        assert fixes[0].severity == "Critical"
 
     def test_fallback_string_match(self) -> None:
         mgr = _make_manager()
@@ -299,14 +398,17 @@ class TestFixerProcessor:
                 confirmed=True,
             )
         )
-        raw = json.dumps({
-            "hypothesis": "reentrancy",
-            "file": "Vault.sol",
-            "function": "withdraw",
-            "severity": "critical",
-            "patch": "...",
-            "test_results": "ALL PASS",
-        })
+        raw = json.dumps(
+            {
+                "hypothesis": "reentrancy",
+                "file": "Vault.sol",
+                "function": "withdraw",
+                "cvss_vector": "AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                "patch": "...",
+                "test_results": "ALL PASS",
+                "fix_succeeded": True,
+            }
+        )
         result = process_fixer_result(mgr, "r1", {}, raw)
         assert result == raw
         exploits = mgr.get_exploits("r1")
@@ -317,11 +419,13 @@ class TestFixerProcessor:
 
     def test_no_matching_exploit_returns_raw(self) -> None:
         mgr = _make_manager()
-        raw = json.dumps({
-            "hypothesis": "nonexistent",
-            "file": "Ghost.sol",
-            "function": "vanish",
-        })
+        raw = json.dumps(
+            {
+                "hypothesis": "nonexistent",
+                "file": "Ghost.sol",
+                "function": "vanish",
+            }
+        )
         result = process_fixer_result(mgr, "r1", {}, raw)
         assert result == raw
         assert mgr.get_fixes("r1") == []

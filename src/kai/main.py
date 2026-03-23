@@ -17,10 +17,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from kai import generate_id
 from kai.definitions import exploit_config, exploit_result_processors, setup_config
@@ -28,7 +29,7 @@ from kai.logging_config import configure_logging
 from kai.definitions.exploit.tools import make_graph_tools
 from kai.dependency import TreeSitterBuilder
 from kai.state import LocalStateManager, StateManager, inject_state_manager
-from kai.state.models import RunRecord
+from kai.state.models import RunRecord, ThreatContext
 from kai.workspace.integration import inject_workspace
 from kai.workspace.recipe import WorkspaceRecipe
 from ra.agents import RecursiveAgent, RecursiveAgentConfig
@@ -48,6 +49,19 @@ def _parse_input(raw: str) -> str | dict[str, Any]:
         return json.loads(raw)
     except (json.JSONDecodeError, TypeError):
         return raw
+
+
+def _load_threat_context(path: str) -> ThreatContext:
+    """Load a threat context from a YAML or JSON file."""
+    p = Path(path)
+    raw = p.read_text()
+    if p.suffix in (".yaml", ".yml"):
+        import yaml
+
+        data = yaml.safe_load(raw)
+    else:
+        data = json.loads(raw)
+    return ThreatContext.from_dict(data)
 
 
 def _save_result(
@@ -204,6 +218,8 @@ def run_exploit(
     run_id: str | None = None,
     save_rollouts: bool = False,
     rollout_agents: set[str] | None = None,
+    threat_context: ThreatContext | None = None,
+    skip_fixer: bool = False,
 ) -> RLMChatCompletion:
     """Run the exploit agent with a pre-built workspace recipe.
 
@@ -248,6 +264,53 @@ def run_exploit(
             result_processors=exploit_result_processors,
             save_rollouts=save_rollouts,
             rollout_agents=rollout_agents,
+            recipe=recipe,
+        )
+
+    # Auto-inject threat_context into all sub-agent spawn calls so
+    # the root LLM doesn't have to forward it manually.  Applied
+    # after inject_state_manager so we can compose with its wrappers.
+    if threat_context is not None:
+        from kai.definitions.exploit.spawn_hooks import (
+            make_threat_context_spawn_wrapper,
+        )
+
+        tc_factory = make_threat_context_spawn_wrapper(
+            threat_context.to_dict(),
+        )
+        wrappers = dict(injected_config.spawn_wrappers)
+        for child in injected_config.agents:
+            name = f"spawn_{child.name}"
+            existing = wrappers.get(name)
+            if existing is not None:
+                _prev = existing
+
+                def _chained(
+                    orig: Callable[..., str],
+                    *,
+                    _p: Any = _prev,
+                    _tc: Any = tc_factory,
+                ) -> Callable[..., str]:
+                    return _tc(_p(orig))
+
+                wrappers[name] = _chained
+            else:
+                wrappers[name] = tc_factory
+        injected_config = replace(
+            injected_config,
+            spawn_wrappers=wrappers,
+        )
+
+    # Skip fixer: install a no-op wrapper that short-circuits all
+    # fixer spawns.  Applied last so it overrides any prior wrapper.
+    if skip_fixer:
+        from kai.definitions.exploit.spawn_hooks import make_skip_fixer_wrapper
+
+        wrappers = dict(injected_config.spawn_wrappers)
+        wrappers["spawn_fixer"] = make_skip_fixer_wrapper
+        injected_config = replace(
+            injected_config,
+            spawn_wrappers=wrappers,
         )
 
     context: dict[str, Any] = {"master_path": recipe.master_path}
@@ -257,6 +320,8 @@ def run_exploit(
         context["prior_findings"] = prior_findings
     if pending_candidates:
         context["pending_candidates"] = pending_candidates
+    if threat_context is not None:
+        context["threat_context"] = threat_context.to_dict()
 
     exploit_agent = RecursiveAgent(injected_config)
     return exploit_agent.completion(context)
@@ -276,6 +341,8 @@ def run_pipeline(
     rollout_agents: set[str] | None = None,
     state_manager: StateManager | None = None,
     run_id: str | None = None,
+    threat_context: ThreatContext | None = None,
+    skip_fixer: bool = False,
 ) -> RLMChatCompletion:
     """Run the full setup → exploit pipeline.
 
@@ -377,6 +444,8 @@ def run_pipeline(
             run_id=rid,
             save_rollouts=save_rollouts,
             rollout_agents=rollout_agents,
+            threat_context=threat_context,
+            skip_fixer=skip_fixer,
         )
         succeeded = True
 
@@ -412,6 +481,72 @@ def run_pipeline(
             )
 
 
+def _run_chain_assembler(
+    recipe: WorkspaceRecipe,
+    *,
+    state_manager: StateManager,
+    run_id: str,
+    threat_context: ThreatContext | None = None,
+    verbose: bool = False,
+    log_structured: bool = False,
+    save_rollouts: bool = False,
+    rollout_agents: set[str] | None = None,
+) -> str | None:
+    """Run the chain assembler agent. Returns raw result or None."""
+    from kai.definitions.exploit.config import chain_assembler_config
+    from kai.definitions.exploit.parsers import process_chain_result
+
+    verified = state_manager.get_exploits(
+        run_id, status="verified"
+    ) + state_manager.get_exploits(run_id, status="verified_and_fixed")
+    if not verified:
+        return None
+
+    candidates = state_manager.get_exploits(run_id, status="candidate")
+    failed = state_manager.get_exploits(run_id, status="failed")
+    existing_chains = state_manager.get_chains(run_id)
+
+    context: dict[str, Any] = {
+        "master_path": recipe.master_path,
+        "verified_exploits": [e.to_dict() for e in verified],
+        "candidates": [e.to_dict() for e in candidates],
+        "failed": [e.to_dict() for e in failed],
+        "existing_chains": [c.to_dict() for c in existing_chains],
+    }
+    if threat_context is not None:
+        context["threat_context"] = threat_context.to_dict()
+
+    # Build graph tools and inject
+    graph = TreeSitterBuilder().build(recipe.master_path)
+    graph_tools = make_graph_tools(graph)
+
+    cfg = inject_workspace(
+        chain_assembler_config,
+        recipe,
+        verbose=verbose,
+        log_structured=log_structured or None,
+    )
+    cfg = replace(cfg, tools={**cfg.tools, **graph_tools})
+
+    # Attach state hooks + rollout recording
+    cfg = inject_state_manager(
+        cfg,
+        state_manager,
+        run_id,
+        save_rollouts=save_rollouts,
+        rollout_agents=rollout_agents,
+    )
+
+    try:
+        agent = RecursiveAgent(cfg)
+        result = agent.completion(context)
+        process_chain_result(state_manager, run_id, result.response)
+        return result.response
+    except Exception:
+        log.exception("Chain assembler failed for run %s", run_id)
+        return None
+
+
 def _run_exploit_loop(
     recipe: WorkspaceRecipe,
     *,
@@ -424,6 +559,8 @@ def _run_exploit_loop(
     run_id: str | None = None,
     save_rollouts: bool = False,
     rollout_agents: set[str] | None = None,
+    threat_context: ThreatContext | None = None,
+    skip_fixer: bool = False,
 ) -> RLMChatCompletion:
     """Run up to *max_rounds* of exploit → fix → re-audit."""
     all_findings: list[dict[str, Any]] = []
@@ -432,6 +569,7 @@ def _run_exploit_loop(
     last_result: RLMChatCompletion | None = None
     merged_usage = UsageSummary(model_usage_summaries={})
     total_time = 0.0
+    chain_thread: threading.Thread | None = None
 
     for round_num in range(1, max_rounds + 1):
         # Per-round log file
@@ -455,6 +593,8 @@ def _run_exploit_loop(
             run_id=run_id,
             save_rollouts=save_rollouts,
             rollout_agents=rollout_agents,
+            threat_context=threat_context,
+            skip_fixer=skip_fixer,
         )
         last_result = result
         merged_usage = merged_usage.merge(result.usage_summary)
@@ -473,6 +613,31 @@ def _run_exploit_loop(
             break
 
         all_findings.extend(new_findings)
+
+        # Launch chain assembler if verified exploits exist
+        if (
+            state_manager is not None
+            and run_id is not None
+            and (chain_thread is None or not chain_thread.is_alive())
+        ):
+            verified = state_manager.get_exploits(run_id, status="verified")
+            verified += state_manager.get_exploits(run_id, status="verified_and_fixed")
+            if verified:
+                chain_thread = threading.Thread(
+                    target=_run_chain_assembler,
+                    kwargs={
+                        "recipe": recipe,
+                        "state_manager": state_manager,
+                        "run_id": run_id,
+                        "threat_context": threat_context,
+                        "verbose": verbose,
+                        "log_structured": log_structured,
+                        "save_rollouts": save_rollouts,
+                        "rollout_agents": rollout_agents,
+                    },
+                    daemon=True,
+                )
+                chain_thread.start()
 
         # Apply fixes and continue (unless last round).
         # Only successfully-applied findings go into prior context
@@ -508,6 +673,10 @@ def _run_exploit_loop(
                             item["poc_code"] = e.poc_code
                         pending.append(item)
             pending_for_next = pending or None
+
+    # Wait for chain assembler to finish
+    if chain_thread is not None and chain_thread.is_alive():
+        chain_thread.join(timeout=300)
 
     # Return merged result when multi-round, or original for single
     if last_result is None:
@@ -590,6 +759,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Save per-agent rollout histories as JSONL.",
     )
+    agent_parser.add_argument(
+        "--threat-context",
+        default=None,
+        help="Path to YAML/JSON threat model file.",
+    )
 
     # --- pipeline mode ---
     pipe_parser = sub.add_parser("pipeline", help="Run setup → exploit pipeline.")
@@ -653,6 +827,17 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Save per-agent rollout histories as JSONL.",
     )
+    pipe_parser.add_argument(
+        "--threat-context",
+        default=None,
+        help="Path to YAML/JSON threat model file.",
+    )
+    pipe_parser.add_argument(
+        "--skip-fixer",
+        action="store_true",
+        default=False,
+        help="Skip fixer agent — only analyze and verify.",
+    )
 
     return parser
 
@@ -691,6 +876,9 @@ def main(argv: list[str] | None = None) -> None:
         max_rounds = args.max_rounds
         state_dir = args.state_dir
         no_state = args.no_state
+        tc: ThreatContext | None = None
+        if args.threat_context:
+            tc = _load_threat_context(args.threat_context)
         sm: StateManager | None = None
         rid: str | None = None
         try:
@@ -727,6 +915,8 @@ def main(argv: list[str] | None = None) -> None:
                     run_id=rid,
                     save_rollouts=save_rollouts,
                     rollout_agents=rollout_agents,
+                    threat_context=tc,
+                    skip_fixer=args.skip_fixer,
                 )
                 if sm is not None and rid is not None:
                     sm.update_run(
@@ -767,6 +957,8 @@ def main(argv: list[str] | None = None) -> None:
                     rollout_agents=rollout_agents,
                     state_manager=sm,
                     run_id=rid,
+                    threat_context=tc,
+                    skip_fixer=args.skip_fixer,
                 )
             print(result.response)
             dest = _save_result(result, args.output)
