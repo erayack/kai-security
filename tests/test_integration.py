@@ -60,9 +60,7 @@ class TestNeedsWorkspace:
         assert _needs_workspace(_web_config("x")) is False
 
     def test_no_tools(self) -> None:
-        cfg = RecursiveAgentConfig(
-            name="empty", system_prompt="hi", max_iterations=1
-        )
+        cfg = RecursiveAgentConfig(name="empty", system_prompt="hi", max_iterations=1)
         assert _needs_workspace(cfg) is False
 
 
