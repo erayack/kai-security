@@ -71,7 +71,7 @@ LM provider implementations behind a common `BaseLM` interface.
 | `azure_openai.py` | Azure OpenAI deployments |
 | `gemini.py` | Google Gemini (google-genai SDK) |
 | `portkey.py` | Portkey unified gateway |
-| `litellm.py` | LiteLLM (100+ providers) |
+
 
 All clients track per-model token usage. A `get_client(backend, **kwargs)` factory routes backend types to the appropriate class.
 
