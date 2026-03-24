@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 from kai.state.models import (
+    ChainRecord,
     ExploitRecord,
     FixAttemptRecord,
     FixRecord,
@@ -131,6 +132,24 @@ class StateManager(ABC):
         result: dict[str, object],
     ) -> None:
         """Append a final-result entry to an agent's rollout file."""
+
+    # -- Chains --
+
+    @abstractmethod
+    def add_chain(self, chain: ChainRecord) -> None:
+        """Persist a new chain record."""
+
+    @abstractmethod
+    def get_chains(
+        self,
+        run_id: str,
+        status: str | None = None,
+    ) -> list[ChainRecord]:
+        """Return chains for a run, optionally filtered by status."""
+
+    @abstractmethod
+    def update_chain(self, run_id: str, chain_id: str, **fields: object) -> None:
+        """Update fields on an existing chain record."""
 
     # -- Summarization --
 

@@ -322,6 +322,8 @@ def run_exploit(
         context["pending_candidates"] = pending_candidates
     if threat_context is not None:
         context["threat_context"] = threat_context.to_dict()
+    if skip_fixer:
+        context["skip_fixer"] = True
 
     exploit_agent = RecursiveAgent(injected_config)
     return exploit_agent.completion(context)
