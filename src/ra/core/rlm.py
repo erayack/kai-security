@@ -232,7 +232,7 @@ class RLM:
             environment: BaseEnv = get_environment(self.environment_type, env_kwargs)
 
             if self.persistent:
-                self._persistent_env = environment  # type: ignore[assignment]
+                self._persistent_env = environment  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         try:
             yield lm_handler, environment
@@ -448,7 +448,7 @@ class RLM:
         and code execution + tool execution.
         """
         iter_start = time.perf_counter()
-        response = lm_handler.completion(prompt)  # type: ignore[arg-type]
+        response = lm_handler.completion(prompt)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         llm_time = time.perf_counter() - iter_start
 
         # Print LLM response immediately
@@ -560,7 +560,7 @@ class RLM:
         client: BaseLM = get_client(self.backend, self.backend_kwargs or {})
         if client.model_name is None:
             raise LMError("Fallback client has no model_name set")
-        response = client.completion(message)  # type: ignore[arg-type]
+        response = client.completion(message)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         return response, client.get_usage_summary(), client.model_name
 
     def _validate_persistent_environment_support(self) -> None:

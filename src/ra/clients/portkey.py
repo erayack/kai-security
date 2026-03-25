@@ -1,8 +1,8 @@
 from collections import defaultdict
 from typing import Any
 
-from portkey_ai import AsyncPortkey, Portkey  # type: ignore[import-not-found]
-from portkey_ai.api_resources.types.chat_complete_type import ChatCompletions  # type: ignore[import-not-found]
+from portkey_ai import AsyncPortkey, Portkey  # type: ignore[import-not-found]  # ty: ignore[unresolved-import]
+from portkey_ai.api_resources.types.chat_complete_type import ChatCompletions  # type: ignore[import-not-found]  # ty: ignore[unresolved-import]
 
 from ra.clients.base_lm import BaseLM
 from ra.core.types import ModelUsageSummary, UsageSummary

@@ -7,9 +7,12 @@ import logging
 import os
 import threading
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from kai.state.base import StateManager
+
+if TYPE_CHECKING:
+    from ra.core.types import ClientBackend
 from kai.state.models import (
     ChainRecord,
     ExploitRecord,
@@ -44,11 +47,11 @@ class LocalStateManager(StateManager):
     def __init__(
         self,
         state_dir: str = "output/state",
-        summary_backend: str = "openrouter",
+        summary_backend: ClientBackend = "openrouter",
         summary_model: str | None = None,
     ) -> None:
         self._state_dir = Path(state_dir).resolve()
-        self._summary_backend = summary_backend
+        self._summary_backend: ClientBackend = summary_backend
         self._summary_model = summary_model or os.environ.get(
             "KAI_SUMMARY_MODEL", _DEFAULT_SUMMARY_MODEL
         )
@@ -515,7 +518,7 @@ class LocalStateManager(StateManager):
             from ra.clients import get_client
 
             client = get_client(
-                self._summary_backend,  # type: ignore[arg-type]
+                self._summary_backend,
                 {"model_name": self._summary_model},
             )
             return client.completion(prompt)

@@ -308,7 +308,7 @@ class QueryMetadata:
             elif isinstance(prompt[0], dict):
                 if "content" in prompt[0]:
                     self.context_lengths = [
-                        len(str(chunk.get("content", "")))  # type: ignore[union-attr]
+                        len(str(chunk.get("content", "")))  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
                         for chunk in prompt
                     ]
                 else:

@@ -90,7 +90,7 @@ class AzureOpenAIClient(BaseLM):
 
         response = self.client.chat.completions.create(
             model=model,
-            messages=messages,  # type: ignore[arg-type]
+            messages=messages,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         )
         self._track_cost(response, model)
         return response.choices[0].message.content
@@ -118,7 +118,7 @@ class AzureOpenAIClient(BaseLM):
         ) as client:
             response = await client.chat.completions.create(
                 model=model,
-                messages=messages,  # type: ignore[arg-type]
+                messages=messages,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
             )
         self._track_cost(response, model)
         return response.choices[0].message.content
