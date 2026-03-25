@@ -3,8 +3,8 @@ from collections import defaultdict
 from typing import Any
 
 from dotenv import load_dotenv
-from google import genai  # type: ignore[import-not-found]
-from google.genai import types  # type: ignore[import-not-found]
+from google import genai  # type: ignore[import-not-found]  # ty: ignore[unresolved-import]
+from google.genai import types  # type: ignore[import-not-found]  # ty: ignore[unresolved-import]
 
 from ra.clients.base_lm import BaseLM
 from ra.core.types import ModelUsageSummary, UsageSummary

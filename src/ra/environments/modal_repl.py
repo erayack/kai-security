@@ -4,7 +4,7 @@ import textwrap
 import threading
 import time
 
-import modal  # type: ignore[import-not-found]
+import modal  # type: ignore[import-not-found]  # ty: ignore[unresolved-import]
 import requests
 
 from ra.core.comms_utils import LMRequest, send_lm_request, send_lm_request_batched

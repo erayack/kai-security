@@ -41,16 +41,16 @@ class _SpawnWrapper:
 
     @property
     def _pending_completions(self) -> list[Any]:
-        return self._original._pending_completions  # type: ignore[attr-defined]
+        return self._original._pending_completions  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
 
     @property
     def _spawn_records(self) -> list[SpawnRecord]:
-        return self._original._spawn_records  # type: ignore[attr-defined]
+        return self._original._spawn_records  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
 
     def __setattr__(self, name: str, value: Any) -> None:
         if name == "_cancel_event":
             # Forward to the inner _spawn so it can read from itself.
-            self._original._cancel_event = value  # type: ignore[attr-defined]
+            self._original._cancel_event = value  # type: ignore[attr-defined]  # ty: ignore[invalid-assignment]
         else:
             super().__setattr__(name, value)
 
@@ -155,8 +155,8 @@ def _make_spawn_fn(
         f"Runs an agentic loop (up to {config.max_iterations} "
         f"iterations) and returns the final answer string."
     )
-    _spawn._pending_completions = pending  # type: ignore[attr-defined]
-    _spawn._spawn_records = records  # type: ignore[attr-defined]
+    _spawn._pending_completions = pending  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+    _spawn._spawn_records = records  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
     return _spawn
 
 
