@@ -7,6 +7,82 @@ from typing import Any
 
 
 @dataclass
+class ThreatContext:
+    """User-provided threat model for the target codebase."""
+
+    deployment_type: str  # "cli-tool" | "web-app" | "smart-contract" | ...
+    environment: str = ""  # "local" | "server" | "on-chain" | "cloud"
+    access_roles: list[dict[str, Any]] = field(default_factory=list)
+    boundaries: list[str] = field(default_factory=list)
+    known_constraints: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-safe dict."""
+        return {
+            "deployment_type": self.deployment_type,
+            "environment": self.environment,
+            "access_roles": self.access_roles,
+            "boundaries": self.boundaries,
+            "known_constraints": self.known_constraints,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ThreatContext:
+        """Deserialize from a dict."""
+        return cls(
+            deployment_type=data["deployment_type"],
+            environment=data.get("environment", ""),
+            access_roles=data.get("access_roles", []),
+            boundaries=data.get("boundaries", []),
+            known_constraints=data.get("known_constraints", []),
+        )
+
+
+@dataclass
+class ChainRecord:
+    """Record of a multi-step exploit chain."""
+
+    run_id: str
+    chain_id: str
+    timestamp: str
+    status: str  # "proposed" | "verified" | "rejected"
+    description: str
+    steps: list[dict[str, Any]] = field(default_factory=list)
+    anchor_exploit_ids: list[str] = field(default_factory=list)
+    composite_cvss_vector: str | None = None
+    composite_cvss_score: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-safe dict."""
+        return {
+            "run_id": self.run_id,
+            "chain_id": self.chain_id,
+            "timestamp": self.timestamp,
+            "status": self.status,
+            "description": self.description,
+            "steps": self.steps,
+            "anchor_exploit_ids": self.anchor_exploit_ids,
+            "composite_cvss_vector": self.composite_cvss_vector,
+            "composite_cvss_score": self.composite_cvss_score,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ChainRecord:
+        """Deserialize from a dict."""
+        return cls(
+            run_id=data["run_id"],
+            chain_id=data["chain_id"],
+            timestamp=data["timestamp"],
+            status=data.get("status", "proposed"),
+            description=data.get("description", ""),
+            steps=data.get("steps", []),
+            anchor_exploit_ids=data.get("anchor_exploit_ids", []),
+            composite_cvss_vector=data.get("composite_cvss_vector"),
+            composite_cvss_score=data.get("composite_cvss_score"),
+        )
+
+
+@dataclass
 class RunRecord:
     """Record of a single pipeline run."""
 
@@ -108,17 +184,26 @@ class ExploitRecord:
     exploit_id: str
     timestamp: str
     source_agent: str  # "analyzer" | "verifier"
-    status: str  # "candidate" | "verified" | "verified_and_fixed" | "failed"
+    # "candidate" | "verified" | "rejected" | "verified_and_fixed" | "failed"
+    status: str
     hypothesis: str
     file: str
     function: str
     exploit_sketch: str = ""
+    attacker_role: str = ""
+    required_privileges: str = ""
+    category: str = ""  # active_exploit | trust_assumption_violation | ...
+    trusted_component_abused: str = ""
     confirmed: bool | None = None
     poc_code: str | None = None
     test_output: str | None = None
     severity: str | None = None
     patch: str | None = None
     test_results: str | None = None
+    cvss_vector: str | None = None
+    cvss_score: float | None = None
+    cvss_justification: dict[str, str] | None = None
+    chain_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict."""
@@ -132,12 +217,20 @@ class ExploitRecord:
             "file": self.file,
             "function": self.function,
             "exploit_sketch": self.exploit_sketch,
+            "attacker_role": self.attacker_role,
+            "required_privileges": self.required_privileges,
+            "category": self.category,
+            "trusted_component_abused": self.trusted_component_abused,
             "confirmed": self.confirmed,
             "poc_code": self.poc_code,
             "test_output": self.test_output,
             "severity": self.severity,
             "patch": self.patch,
             "test_results": self.test_results,
+            "cvss_vector": self.cvss_vector,
+            "cvss_score": self.cvss_score,
+            "cvss_justification": self.cvss_justification,
+            "chain_id": self.chain_id,
         }
 
     @classmethod
@@ -153,12 +246,20 @@ class ExploitRecord:
             file=data["file"],
             function=data["function"],
             exploit_sketch=data.get("exploit_sketch", ""),
+            attacker_role=data.get("attacker_role", ""),
+            required_privileges=data.get("required_privileges", ""),
+            category=data.get("category", ""),
+            trusted_component_abused=data.get("trusted_component_abused", ""),
             confirmed=data.get("confirmed"),
             poc_code=data.get("poc_code"),
             test_output=data.get("test_output"),
             severity=data.get("severity"),
             patch=data.get("patch"),
             test_results=data.get("test_results"),
+            cvss_vector=data.get("cvss_vector"),
+            cvss_score=data.get("cvss_score"),
+            cvss_justification=data.get("cvss_justification"),
+            chain_id=data.get("chain_id"),
         )
 
 
@@ -177,6 +278,8 @@ class FixRecord:
     patch: str
     test_results: str
     applied: bool = False
+    cvss_vector: str = ""
+    cvss_score: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict."""
@@ -192,6 +295,8 @@ class FixRecord:
             "patch": self.patch,
             "test_results": self.test_results,
             "applied": self.applied,
+            "cvss_vector": self.cvss_vector,
+            "cvss_score": self.cvss_score,
         }
 
     @classmethod
@@ -205,10 +310,12 @@ class FixRecord:
             hypothesis=data["hypothesis"],
             file=data["file"],
             function=data["function"],
-            severity=data["severity"],
+            severity=data.get("severity", ""),
             patch=data["patch"],
             test_results=data["test_results"],
             applied=data.get("applied", False),
+            cvss_vector=data.get("cvss_vector", ""),
+            cvss_score=data.get("cvss_score"),
         )
 
 

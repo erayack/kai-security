@@ -66,9 +66,7 @@ class TestFinalNestedParens:
         assert find_final_answer(text) == "addPairToJSMap()"
 
     def test_multiple_parens_in_json(self) -> None:
-        payload = json.dumps(
-            {"a": "fn()", "b": "g(h())", "c": "plain"}
-        )
+        payload = json.dumps({"a": "fn()", "b": "g(h())", "c": "plain"})
         text = f"FINAL({payload})"
         result = find_final_answer(text)
         assert result is not None

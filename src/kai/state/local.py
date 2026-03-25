@@ -11,6 +11,7 @@ from typing import Any
 
 from kai.state.base import StateManager
 from kai.state.models import (
+    ChainRecord,
     ExploitRecord,
     FixAttemptRecord,
     FixRecord,
@@ -91,9 +92,7 @@ class LocalStateManager(StateManager):
         data = self._read_json(path)
         return [FixAttemptRecord.from_dict(d) for d in data] if data else []
 
-    def _write_fix_attempts(
-        self, run_id: str, records: list[FixAttemptRecord]
-    ) -> None:
+    def _write_fix_attempts(self, run_id: str, records: list[FixAttemptRecord]) -> None:
         path = self._run_dir(run_id) / "fix_attempts.json"
         self._write_json(path, [a.to_dict() for a in records])
 
@@ -325,6 +324,66 @@ class LocalStateManager(StateManager):
         except Exception:
             log.exception("get_fix_attempts failed for %s", run_id)
             return []
+
+    # -- Chains --
+
+    def _read_chains(self, run_id: str) -> list[ChainRecord]:
+        path = self._run_dir(run_id) / "chains.json"
+        data = self._read_json(path)
+        return [ChainRecord.from_dict(d) for d in data] if data else []
+
+    def _write_chains(self, run_id: str, records: list[ChainRecord]) -> None:
+        path = self._run_dir(run_id) / "chains.json"
+        self._write_json(path, [c.to_dict() for c in records])
+
+    def add_chain(self, chain: ChainRecord) -> None:
+        """Persist a new chain record."""
+        try:
+            with self._lock:
+                records = self._read_chains(chain.run_id)
+                records.append(chain)
+                self._write_chains(chain.run_id, records)
+        except Exception:
+            log.exception("add_chain failed for run %s", chain.run_id)
+
+    def get_chains(
+        self,
+        run_id: str,
+        status: str | None = None,
+    ) -> list[ChainRecord]:
+        """Return chains for a run, optionally filtered by status."""
+        try:
+            with self._lock:
+                records = self._read_chains(run_id)
+                if status is not None:
+                    return [r for r in records if r.status == status]
+                return list(records)
+        except Exception:
+            log.exception("get_chains failed for %s", run_id)
+            return []
+
+    def update_chain(self, run_id: str, chain_id: str, **fields: object) -> None:
+        """Update fields on an existing chain record."""
+        try:
+            with self._lock:
+                records = self._read_chains(run_id)
+                for rec in records:
+                    if rec.chain_id == chain_id:
+                        for k, v in fields.items():
+                            setattr(rec, k, v)
+                        self._write_chains(run_id, records)
+                        return
+                log.warning(
+                    "update_chain: chain %s not found in run %s",
+                    chain_id,
+                    run_id,
+                )
+        except Exception:
+            log.exception(
+                "update_chain failed for %s in run %s",
+                chain_id,
+                run_id,
+            )
 
     # -- Rollouts --
 

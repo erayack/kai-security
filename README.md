@@ -106,6 +106,71 @@ Pass free-text guidance to steer the exploit agent:
 uv run python -m kai.main pipeline --recipe recipe.json --instructions "Focus on economic invariants and fee arithmetic"
 ```
 
+### Threat context
+
+A threat context file tells Kai **who** can interact with the target, **what** trust boundaries exist, and **what** operational constraints apply. This dramatically improves finding quality — without it, the agent may flag admin-only operations as exploits or report economically infeasible attacks as critical.
+
+```bash
+uv run python -m kai.main pipeline --repo-path /path/to/target --threat-context threat_context.yaml
+```
+
+The file is YAML or JSON with these fields:
+
+```yaml
+# Required — what kind of project is this?
+deployment_type: smart-contract  # smart-contract | web-app | cli-tool | library | ...
+environment: on-chain            # on-chain | server | local | cloud | ...
+
+# Who can interact with the system and how trusted are they?
+access_roles:
+  - name: anyone
+    trust: none          # none | low | medium | high
+    description: "Permissionless caller — any EOA or contract"
+  - name: admin
+    trust: high
+    description: "Multisig owner with upgrade authority"
+
+# Where are the trust boundaries?
+boundaries:
+  - "User input → contract storage (validation boundary)"
+  - "Cross-chain message relay (L1 ↔ L2)"
+  - "Proxy upgrade boundary (owner-only)"
+
+# Operational constraints the agent should respect
+known_constraints:
+  - "Max realistic single-tx value: 10000 ETH (total supply ~120M)"
+  - "Deployment-only functions: initialize, setup"
+  - "Rate limiters cap per-period volume to 1000 tokens"
+  - "Upgradeable proxies — owner can pause within 1 hour"
+```
+
+#### Field reference
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `deployment_type` | string | Yes | Project kind (`smart-contract`, `web-app`, `cli-tool`, `library`, etc.) |
+| `environment` | string | No | Runtime environment (`on-chain`, `server`, `local`, `cloud`) |
+| `access_roles` | list | No | Actors that interact with the system. Each has `name`, `trust` level (`none`/`low`/`medium`/`high`), and `description` |
+| `boundaries` | list | No | Trust boundaries where privilege transitions occur |
+| `known_constraints` | list | No | Operational limits, lifecycle constraints, economic bounds |
+
+#### How it affects analysis
+
+- **access_roles**: The verifier checks whether an exploit requires a high-trust actor. If so, it downgrades the finding from `active_exploit` to `trust_assumption_violation` — a real issue, but not exploitable by an unprivileged attacker.
+- **boundaries**: Guides the analyzer toward the most security-critical code paths.
+- **known_constraints**: The verifier checks PoC preconditions against these. For example, if a constraint says "max realistic single-tx value: 10000 ETH" and a PoC requires 79M ETH, the finding is reclassified as `theoretical_bounds`. Functions listed as deployment-only are reclassified as `deployment_hazard`.
+
+#### Finding categories
+
+| Category | Meaning | Gets fix? |
+|---|---|---|
+| `active_exploit` | Exploitable by an unprivileged attacker at runtime | Yes |
+| `trust_assumption_violation` | Requires a trusted actor to misbehave | No (verify-only) |
+| `deployment_hazard` | Only exploitable during initial deployment | No (verify-only) |
+| `theoretical_bounds` | Economically or physically infeasible | No (verify-only) |
+| `admin_misconfiguration` | Requires admin to misconfigure the system | No (verify-only) |
+| `upgrade_hygiene` | Related to upgrade/migration safety | No (verify-only) |
+
 ### Skip setup (use a saved recipe)
 
 If you already have a workspace recipe from a previous setup run:

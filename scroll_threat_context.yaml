@@ -1,0 +1,38 @@
+deployment_type: smart-contract
+environment: on-chain
+
+access_roles:
+  - name: anyone
+    trust: none
+    description: "Permissionless caller — any EOA or contract on L1/L2"
+  - name: sequencer
+    trust: medium
+    description: "Scroll sequencer submitting batches to ScrollChain"
+  - name: prover
+    trust: medium
+    description: "ZK prover submitting proofs for batch finalization"
+  - name: owner
+    trust: high
+    description: "Proxy admin / ScrollOwner multisig"
+  - name: messenger
+    trust: high
+    description: "Cross-layer messenger contracts (L1ScrollMessenger, L2ScrollMessenger)"
+
+boundaries:
+  - "L1 to L2 message relay (deposit path)"
+  - "L2 to L1 withdrawal proof verification"
+  - "Gateway ↔ Messenger trust boundary (gateways trust messenger for cross-layer calls)"
+  - "Rollup verifier ↔ ScrollChain (proof acceptance gates finalization)"
+  - "Rate limiter enforcement on ETH/token gateways"
+  - "Proxy upgrade boundary (owner-only)"
+
+known_constraints:
+  - "Upgradeable proxies — owner can pause/upgrade within 1 hour"
+  - "ETH and token rate limiters cap per-period bridge volume"
+  - "L1 message queue enforces gas limits and sender aliasing"
+  - "Batch codec versions (V0, V1, V3) must be backward compatible"
+  - "Withdrawal proofs verified against finalized state roots"
+  - "USDC gateway has special burn/mint flow via CCTP"
+  - "Lido gateway has dedicated wstETH wrapping logic"
+  - "Max realistic single-tx value: 10000 ETH (total ETH supply ~120M)"
+  - "Deployment-only functions: importGenesisBatch, initialize"

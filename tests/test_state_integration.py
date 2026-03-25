@@ -26,7 +26,10 @@ def _make_config(
 
 
 def _dummy_processor(
-    sm: object, run_id: str, kwargs: dict[str, Any], raw: str,
+    sm: object,
+    run_id: str,
+    kwargs: dict[str, Any],
+    raw: str,
 ) -> str:
     return raw
 
@@ -63,7 +66,9 @@ class TestInjectStateManager:
         child = _make_config(name="analyzer")
         config = _make_config(name="root", agents=[child])
         injected = inject_state_manager(
-            config, mgr, "run-1",
+            config,
+            mgr,
+            "run-1",
             result_processors={"analyzer": _dummy_processor},
         )
         assert injected.agents[0].result_processor is not None
@@ -74,7 +79,9 @@ class TestInjectStateManager:
         child = _make_config(name="verifier")
         config = _make_config(name="root", agents=[child])
         injected = inject_state_manager(
-            config, mgr, "run-1",
+            config,
+            mgr,
+            "run-1",
             result_processors={"analyzer": _dummy_processor},
         )
         assert injected.agents[0].result_processor is None
@@ -85,8 +92,10 @@ class TestInjectStateManager:
         calls: list[tuple[str, str]] = []
 
         def tracking_processor(
-            sm: object, run_id: str,
-            kwargs: dict[str, Any], raw: str,
+            sm: object,
+            run_id: str,
+            kwargs: dict[str, Any],
+            raw: str,
         ) -> str:
             calls.append((run_id, raw))
             return f"enriched:{raw}"
@@ -94,7 +103,9 @@ class TestInjectStateManager:
         child = _make_config(name="analyzer")
         config = _make_config(name="root", agents=[child])
         injected = inject_state_manager(
-            config, mgr, "run-1",
+            config,
+            mgr,
+            "run-1",
             result_processors={"analyzer": tracking_processor},
         )
         bound = injected.agents[0].result_processor
@@ -102,3 +113,38 @@ class TestInjectStateManager:
         result = bound({}, "test_data")
         assert result == "enriched:test_data"
         assert calls == [("run-1", "test_data")]
+
+    def test_fixer_spawn_wrapper_installed(self) -> None:
+        """inject_state_manager installs spawn_fixer wrapper at depth 0."""
+        mgr = LocalStateManager(state_dir=tempfile.mkdtemp())
+        fixer = _make_config(name="fixer")
+        config = _make_config(name="root", agents=[fixer])
+        injected = inject_state_manager(config, mgr, "run-1")
+        assert "spawn_fixer" in injected.spawn_wrappers
+
+    def test_recipe_passed_through_wrapper(self) -> None:
+        """When recipe is provided, the spawn_fixer wrapper is installed."""
+        from kai.workspace.recipe import WorkspaceRecipe
+
+        mgr = LocalStateManager(state_dir=tempfile.mkdtemp())
+        fixer = _make_config(name="fixer")
+        config = _make_config(name="root", agents=[fixer])
+        recipe = WorkspaceRecipe(master_path="/tmp/test")
+
+        injected = inject_state_manager(
+            config, mgr, "run-1", recipe=recipe
+        )
+        # spawn_fixer wrapper should be installed
+        assert "spawn_fixer" in injected.spawn_wrappers
+        # The wrapper factory should be callable
+        factory = injected.spawn_wrappers["spawn_fixer"]
+        assert callable(factory)
+
+    def test_recipe_none_still_installs_wrapper(self) -> None:
+        """Without recipe, spawn_fixer wrapper still installed."""
+        mgr = LocalStateManager(state_dir=tempfile.mkdtemp())
+        fixer = _make_config(name="fixer")
+        config = _make_config(name="root", agents=[fixer])
+
+        injected = inject_state_manager(config, mgr, "run-1")
+        assert "spawn_fixer" in injected.spawn_wrappers

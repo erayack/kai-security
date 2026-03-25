@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 
-from kai.main import _build_parser, _parse_input
+from kai.main import _build_parser, _load_threat_context, _parse_input
+from kai.state.models import ThreatContext
 
 
 class TestParseInput:
@@ -77,6 +78,50 @@ class TestRunPipelineImport:
         from kai.main import run_pipeline
 
         assert callable(run_pipeline)
+
+
+class TestThreatContextFlag:
+    def test_pipeline_flag_parsed(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(
+            ["pipeline", "--repo-path", "/tmp/r", "--threat-context", "tc.json"]
+        )
+        assert args.threat_context == "tc.json"
+
+    def test_agent_flag_parsed(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(
+            ["agent", "setup", "--input", "{}", "--threat-context", "tc.yaml"]
+        )
+        assert args.threat_context == "tc.yaml"
+
+    def test_flag_default_none(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(["pipeline", "--repo-path", "/tmp/r"])
+        assert args.threat_context is None
+
+    def test_load_json(self, tmp_path) -> None:
+        data = {"deployment_type": "web-app", "environment": "server"}
+        f = tmp_path / "tc.json"
+        f.write_text(json.dumps(data))
+        tc = _load_threat_context(str(f))
+        assert isinstance(tc, ThreatContext)
+        assert tc.deployment_type == "web-app"
+        assert tc.environment == "server"
+
+    def test_load_yaml(self, tmp_path) -> None:
+        f = tmp_path / "tc.yaml"
+        f.write_text("deployment_type: cli-tool\nenvironment: local\n")
+        tc = _load_threat_context(str(f))
+        assert tc.deployment_type == "cli-tool"
+        assert tc.environment == "local"
+
+    def test_load_minimal(self, tmp_path) -> None:
+        f = tmp_path / "tc.json"
+        f.write_text('{"deployment_type": "library"}')
+        tc = _load_threat_context(str(f))
+        assert tc.deployment_type == "library"
+        assert tc.access_roles == []
 
 
 class TestMainAgentCommand:

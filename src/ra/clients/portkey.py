@@ -81,7 +81,8 @@ class PortkeyClient(BaseLM):
             **self._async_client_kwargs,
         ) as client:
             response = await client.chat.completions.create(
-                model=model, messages=messages,
+                model=model,
+                messages=messages,
             )
         self._track_cost(response, model)
         return response.choices[0].message.content

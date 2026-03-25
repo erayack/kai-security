@@ -28,7 +28,9 @@ class _SpawnWrapper:
     event is never forwarded to the inner closure.
     """
 
-    def __init__(self, wrapped: Callable[..., str], original: Callable[..., str]) -> None:
+    def __init__(
+        self, wrapped: Callable[..., str], original: Callable[..., str]
+    ) -> None:
         self._wrapped = wrapped
         self._original = original
 
