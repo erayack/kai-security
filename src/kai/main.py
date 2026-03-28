@@ -37,6 +37,11 @@ from ra.core.types import RLMChatCompletion, UsageSummary
 
 log = logging.getLogger(__name__)
 
+# Resolved once at import time so _save_result always writes relative to
+# the original working directory — even when LocalREPL._temp_cwd() has
+# moved the process CWD into a temp workspace.
+_STARTUP_CWD = Path.cwd()
+
 AGENTS: dict[str, RecursiveAgentConfig] = {
     "setup": setup_config,
     "exploit": exploit_config,
@@ -74,7 +79,7 @@ def _save_result(
     Returns the path that was written.
     """
     if output_path is None:
-        out_dir = Path("output")
+        out_dir = _STARTUP_CWD / "output"
         out_dir.mkdir(exist_ok=True)
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         dest = out_dir / f"run_{ts}.json"
@@ -432,6 +437,14 @@ def run_pipeline(
                 "Setup agent failed to produce valid JSON after "
                 f"{max_setup_attempts} attempts"
             )
+        # The setup agent occasionally wraps the recipe in a list.
+        if isinstance(recipe_data, list):
+            if len(recipe_data) == 1 and isinstance(recipe_data[0], dict):
+                recipe_data = recipe_data[0]
+            else:
+                raise RuntimeError(
+                    "Setup agent returned a JSON list instead of a recipe dict"
+                )
         recipe = WorkspaceRecipe.from_dict(recipe_data)
 
         # --- Step 3: iterative exploit loop ---
@@ -573,112 +586,115 @@ def _run_exploit_loop(
     total_time = 0.0
     chain_thread: threading.Thread | None = None
 
-    for round_num in range(1, max_rounds + 1):
-        # Per-round log file
-        if log_file and max_rounds > 1:
-            stem = Path(log_file).stem
-            suffix = Path(log_file).suffix
-            parent = Path(log_file).parent
-            round_log = str(parent / f"{stem}_round{round_num}{suffix}")
-        else:
-            round_log = log_file
+    try:
+        for round_num in range(1, max_rounds + 1):
+            # Per-round log file
+            if log_file and max_rounds > 1:
+                stem = Path(log_file).stem
+                suffix = Path(log_file).suffix
+                parent = Path(log_file).parent
+                round_log = str(parent / f"{stem}_round{round_num}{suffix}")
+            else:
+                round_log = log_file
 
-        result = run_exploit(
-            recipe,
-            verbose=verbose,
-            log_file=round_log,
-            log_structured=log_structured,
-            instructions=instructions,
-            prior_findings=fixed_findings or None,
-            pending_candidates=pending_for_next,
-            state_manager=state_manager,
-            run_id=run_id,
-            save_rollouts=save_rollouts,
-            rollout_agents=rollout_agents,
-            threat_context=threat_context,
-            skip_fixer=skip_fixer,
-        )
-        last_result = result
-        merged_usage = merged_usage.merge(result.usage_summary)
-        total_time += result.execution_time
+            result = run_exploit(
+                recipe,
+                verbose=verbose,
+                log_file=round_log,
+                log_structured=log_structured,
+                instructions=instructions,
+                prior_findings=fixed_findings or None,
+                pending_candidates=pending_for_next,
+                state_manager=state_manager,
+                run_id=run_id,
+                save_rollouts=save_rollouts,
+                rollout_agents=rollout_agents,
+                threat_context=threat_context,
+                skip_fixer=skip_fixer,
+            )
+            last_result = result
+            merged_usage = merged_usage.merge(result.usage_summary)
+            total_time += result.execution_time
 
-        # Save intermediate so no work is lost
-        _save_result(result, None)
+            # Save intermediate so no work is lost
+            _save_result(result, None)
 
-        # Parse new findings
-        try:
-            new_findings = json.loads(result.response)
-        except (json.JSONDecodeError, TypeError):
-            break
+            # Parse new findings
+            try:
+                new_findings = json.loads(result.response)
+            except (json.JSONDecodeError, TypeError):
+                break
 
-        if not isinstance(new_findings, list) or not new_findings:
-            break
+            if not isinstance(new_findings, list) or not new_findings:
+                break
 
-        all_findings.extend(new_findings)
+            all_findings.extend(new_findings)
 
-        # Launch chain assembler if verified exploits exist
-        if (
-            state_manager is not None
-            and run_id is not None
-            and (chain_thread is None or not chain_thread.is_alive())
-        ):
-            verified = state_manager.get_exploits(run_id, status="verified")
-            verified += state_manager.get_exploits(run_id, status="verified_and_fixed")
-            if verified:
-                chain_thread = threading.Thread(
-                    target=_run_chain_assembler,
-                    kwargs={
-                        "recipe": recipe,
-                        "state_manager": state_manager,
-                        "run_id": run_id,
-                        "threat_context": threat_context,
-                        "verbose": verbose,
-                        "log_structured": log_structured,
-                        "save_rollouts": save_rollouts,
-                        "rollout_agents": rollout_agents,
-                    },
-                    daemon=True,
+            # Launch chain assembler if verified exploits exist
+            if (
+                state_manager is not None
+                and run_id is not None
+                and (chain_thread is None or not chain_thread.is_alive())
+            ):
+                verified = state_manager.get_exploits(run_id, status="verified")
+                verified += state_manager.get_exploits(
+                    run_id, status="verified_and_fixed"
                 )
-                chain_thread.start()
-
-        # Apply fixes and continue (unless last round).
-        # Only successfully-applied findings go into prior context
-        # so the next round doesn't skip unfixed bugs.
-        if round_num < max_rounds:
-            fixed = _apply_fixes(recipe.master_path, new_findings, round_num)
-            fixed_findings.extend(fixed)
-
-            # Collect leftover work for the next round: candidates
-            # never verified and confirmed exploits never fixed.
-            # Both need re-verification because _apply_fixes may
-            # have changed the codebase.
-            pending: list[dict[str, Any]] = []
-            if state_manager is not None and run_id is not None:
-                for e in state_manager.get_exploits(run_id, status="candidate"):
-                    pending.append(
-                        {
-                            "hypothesis": e.hypothesis,
-                            "file": e.file,
-                            "function": e.function,
-                            "exploit_sketch": e.exploit_sketch,
-                        }
+                if verified:
+                    chain_thread = threading.Thread(
+                        target=_run_chain_assembler,
+                        kwargs={
+                            "recipe": recipe,
+                            "state_manager": state_manager,
+                            "run_id": run_id,
+                            "threat_context": threat_context,
+                            "verbose": verbose,
+                            "log_structured": log_structured,
+                            "save_rollouts": save_rollouts,
+                            "rollout_agents": rollout_agents,
+                        },
                     )
-                for e in state_manager.get_exploits(run_id, status="verified"):
-                    if e.confirmed:
-                        item: dict[str, Any] = {
-                            "hypothesis": e.hypothesis,
-                            "file": e.file,
-                            "function": e.function,
-                            "exploit_sketch": e.exploit_sketch,
-                        }
-                        if e.poc_code:
-                            item["poc_code"] = e.poc_code
-                        pending.append(item)
-            pending_for_next = pending or None
+                    chain_thread.start()
 
-    # Wait for chain assembler to finish
-    if chain_thread is not None and chain_thread.is_alive():
-        chain_thread.join(timeout=300)
+            # Apply fixes and continue (unless last round).
+            # Only successfully-applied findings go into prior context
+            # so the next round doesn't skip unfixed bugs.
+            if round_num < max_rounds:
+                fixed = _apply_fixes(recipe.master_path, new_findings, round_num)
+                fixed_findings.extend(fixed)
+
+                # Collect leftover work for the next round: candidates
+                # never verified and confirmed exploits never fixed.
+                # Both need re-verification because _apply_fixes may
+                # have changed the codebase.
+                pending: list[dict[str, Any]] = []
+                if state_manager is not None and run_id is not None:
+                    for e in state_manager.get_exploits(run_id, status="candidate"):
+                        pending.append(
+                            {
+                                "hypothesis": e.hypothesis,
+                                "file": e.file,
+                                "function": e.function,
+                                "exploit_sketch": e.exploit_sketch,
+                            }
+                        )
+                    for e in state_manager.get_exploits(run_id, status="verified"):
+                        if e.confirmed:
+                            item: dict[str, Any] = {
+                                "hypothesis": e.hypothesis,
+                                "file": e.file,
+                                "function": e.function,
+                                "exploit_sketch": e.exploit_sketch,
+                            }
+                            if e.poc_code:
+                                item["poc_code"] = e.poc_code
+                            pending.append(item)
+                pending_for_next = pending or None
+    finally:
+        # Always wait for the chain assembler — it writes to the
+        # state directory and needs master_dir alive.
+        if chain_thread is not None and chain_thread.is_alive():
+            chain_thread.join(timeout=300)
 
     # Return merged result when multi-round, or original for single
     if last_result is None:
