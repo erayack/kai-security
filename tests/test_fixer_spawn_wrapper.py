@@ -1,4 +1,4 @@
-"""Tests for make_fixer_spawn_wrapper and _run_poc_precheck."""
+"""Tests for spawn wrapper factories and _run_poc_precheck."""
 
 from __future__ import annotations
 
@@ -9,7 +9,9 @@ from unittest.mock import MagicMock, patch
 
 from kai.definitions.exploit.spawn_hooks import (
     _run_poc_precheck,
+    make_critic_spawn_wrapper,
     make_fixer_spawn_wrapper,
+    make_verifier_spawn_wrapper,
 )
 from kai.workspace.recipe import WorkspaceRecipe
 
@@ -30,9 +32,22 @@ def _echo_spawn(**kwargs: object) -> str:
     return json.dumps(kwargs, default=str)
 
 
-def _make_state_manager() -> MagicMock:
+def _make_exploit_record(
+    exploit_id: str = "e1",
+    status: str = "verified",
+) -> MagicMock:
+    rec = MagicMock()
+    rec.exploit_id = exploit_id
+    rec.status = status
+    return rec
+
+
+def _make_state_manager(
+    status: str = "verified",
+) -> MagicMock:
     sm = MagicMock()
     sm.get_fix_attempts.return_value = []
+    sm.get_exploits.return_value = [_make_exploit_record("e1", status)]
     return sm
 
 
@@ -139,9 +154,7 @@ class TestMakeFixerSpawnWrapper:
     def test_no_prior_attempts_skips_injection(self) -> None:
         sm = _make_state_manager()
         wrapped = make_fixer_spawn_wrapper(_echo_spawn, sm, "r1")
-        result = json.loads(
-            wrapped(exploit_id="e1", hypothesis="h", poc_code="poc")
-        )
+        result = json.loads(wrapped(exploit_id="e1", hypothesis="h", poc_code="poc"))
         assert "prior_fix_attempts" not in result
 
     def test_precheck_skips_fixer_when_patched(self) -> None:
@@ -158,9 +171,7 @@ class TestMakeFixerSpawnWrapper:
             spawn_called.append(True)
             return "{}"
 
-        wrapped = make_fixer_spawn_wrapper(
-            tracking_spawn, sm, "r1", recipe=recipe
-        )
+        wrapped = make_fixer_spawn_wrapper(tracking_spawn, sm, "r1", recipe=recipe)
         raw = wrapped(
             exploit_id="e1",
             hypothesis="test vuln",
@@ -183,9 +194,7 @@ class TestMakeFixerSpawnWrapper:
 
         poc = "import sys; sys.exit(0)"  # exploit still triggers
 
-        wrapped = make_fixer_spawn_wrapper(
-            _echo_spawn, sm, "r1", recipe=recipe
-        )
+        wrapped = make_fixer_spawn_wrapper(_echo_spawn, sm, "r1", recipe=recipe)
         raw = wrapped(
             exploit_id="e1",
             hypothesis="h",
@@ -219,9 +228,79 @@ class TestMakeFixerSpawnWrapper:
         sm = _make_state_manager()
         master = tempfile.mkdtemp()
         recipe = _make_recipe(master)
-        wrapped = make_fixer_spawn_wrapper(
-            _echo_spawn, sm, "r1", recipe=recipe
-        )
+        wrapped = make_fixer_spawn_wrapper(_echo_spawn, sm, "r1", recipe=recipe)
         raw = wrapped(exploit_id="e1", hypothesis="h")
         result = json.loads(raw)
         assert result["hypothesis"] == "h"
+
+    def test_status_guard_skips_already_fixed(self) -> None:
+        """Fixer is skipped when exploit is already fixed."""
+        sm = _make_state_manager(status="verified_and_fixed")
+        spawn_called: list[bool] = []
+
+        def tracking_spawn(**kwargs: object) -> str:
+            spawn_called.append(True)
+            return "{}"
+
+        wrapped = make_fixer_spawn_wrapper(tracking_spawn, sm, "r1")
+        raw = wrapped(exploit_id="e1", hypothesis="h", poc_code="poc")
+        assert "Skipped" in raw
+        assert spawn_called == []
+
+
+# ── Status guard tests ──────────────────────────────────────────
+
+
+class TestVerifierStatusGuard:
+    """Verifier should only spawn for 'candidate' exploits."""
+
+    def test_proceeds_for_candidate(self) -> None:
+        sm = _make_state_manager(status="candidate")
+        wrapped = make_verifier_spawn_wrapper(_echo_spawn, sm, "r1")
+        raw = wrapped(exploit_id="e1", hypothesis="h")
+        result = json.loads(raw)
+        assert result["hypothesis"] == "h"
+
+    def test_skips_already_verified(self) -> None:
+        sm = _make_state_manager(status="verified")
+        spawn_called: list[bool] = []
+
+        def tracking(**kwargs: object) -> str:
+            spawn_called.append(True)
+            return "{}"
+
+        wrapped = make_verifier_spawn_wrapper(tracking, sm, "r1")
+        raw = wrapped(exploit_id="e1", hypothesis="h")
+        assert "Skipped" in raw
+        assert "verifier" in raw
+        assert spawn_called == []
+
+    def test_skips_already_rejected(self) -> None:
+        sm = _make_state_manager(status="rejected")
+        wrapped = make_verifier_spawn_wrapper(_echo_spawn, sm, "r1")
+        raw = wrapped(exploit_id="e1", hypothesis="h")
+        assert "Skipped" in raw
+
+
+class TestCriticStatusGuard:
+    """Critic should only spawn for 'verified' exploits."""
+
+    def test_proceeds_for_verified(self) -> None:
+        sm = _make_state_manager(status="verified")
+        wrapped = make_critic_spawn_wrapper(_echo_spawn, sm, "r1")
+        raw = wrapped(exploit_id="e1", hypothesis="h")
+        result = json.loads(raw)
+        assert result["hypothesis"] == "h"
+
+    def test_skips_candidate(self) -> None:
+        sm = _make_state_manager(status="candidate")
+        wrapped = make_critic_spawn_wrapper(_echo_spawn, sm, "r1")
+        raw = wrapped(exploit_id="e1", hypothesis="h")
+        assert "Skipped" in raw
+        assert "critic" in raw
+
+    def test_skips_already_fixed(self) -> None:
+        sm = _make_state_manager(status="verified_and_fixed")
+        wrapped = make_critic_spawn_wrapper(_echo_spawn, sm, "r1")
+        raw = wrapped(exploit_id="e1", hypothesis="h")
+        assert "Skipped" in raw

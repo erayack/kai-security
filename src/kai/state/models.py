@@ -194,6 +194,7 @@ class ExploitRecord:
     required_privileges: str = ""
     category: str = ""  # active_exploit | trust_assumption_violation | ...
     trusted_component_abused: str = ""
+    affected_files: list[str] = field(default_factory=list)
     confirmed: bool | None = None
     poc_code: str | None = None
     test_output: str | None = None
@@ -227,6 +228,7 @@ class ExploitRecord:
             "required_privileges": self.required_privileges,
             "category": self.category,
             "trusted_component_abused": self.trusted_component_abused,
+            "affected_files": self.affected_files,
             "confirmed": self.confirmed,
             "poc_code": self.poc_code,
             "test_output": self.test_output,
@@ -261,6 +263,7 @@ class ExploitRecord:
             required_privileges=data.get("required_privileges", ""),
             category=data.get("category", ""),
             trusted_component_abused=data.get("trusted_component_abused", ""),
+            affected_files=data.get("affected_files", []),
             confirmed=data.get("confirmed"),
             poc_code=data.get("poc_code"),
             test_output=data.get("test_output"),

@@ -176,5 +176,7 @@ class TestPrompts:
             "spawn_verifier",
             "spawn_researcher",
             "spawn_fixer",
+            "spawn_critic",
+            "exploits",
         ]:
             assert name in ROOT_PROMPT

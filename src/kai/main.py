@@ -543,13 +543,16 @@ def _run_chain_assembler(
     )
     cfg = replace(cfg, tools={**cfg.tools, **graph_tools})
 
-    # Attach state hooks + rollout recording
+    # Attach state hooks + rollout recording.
+    # _depth=1 so the chain assembler gets iteration tracking but NOT
+    # root-level extras (ExploitsProxy, spawn_wrappers, on_extend).
     cfg = inject_state_manager(
         cfg,
         state_manager,
         run_id,
         save_rollouts=save_rollouts,
         rollout_agents=rollout_agents,
+        _depth=1,
     )
 
     try:
