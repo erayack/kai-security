@@ -134,7 +134,10 @@ class LocalREPL(NonIsolatedEnv):
         super().__init__(persistent=persistent, depth=depth, **kwargs)
 
         self.lm_handler_address = lm_handler_address
-        self.original_cwd = os.getcwd()
+        try:
+            self.original_cwd = os.getcwd()
+        except (FileNotFoundError, OSError):
+            self.original_cwd = tempfile.gettempdir()
         if factory is not None:
             self.temp_dir = factory()
         else:
@@ -376,13 +379,20 @@ class LocalREPL(NonIsolatedEnv):
 
     @contextmanager
     def _temp_cwd(self):
-        """Temporarily change to temp directory for execution."""
-        old_cwd = os.getcwd()
+        """Temporarily change to temp directory for execution.
+
+        Uses ``self.original_cwd`` (captured at init) instead of
+        ``os.getcwd()`` so the restore is immune to other threads
+        deleting the process CWD via cleanup.
+        """
         try:
             os.chdir(self.temp_dir)
             yield
         finally:
-            os.chdir(old_cwd)
+            try:
+                os.chdir(self.original_cwd)
+            except (FileNotFoundError, OSError):
+                pass  # original_cwd was deleted; stay in temp_dir
 
     @staticmethod
     def _split_last_expr(code: str) -> tuple[str, str | None]:
