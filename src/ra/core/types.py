@@ -165,6 +165,13 @@ class REPLResult:
     execution_time: float | None
     llm_calls: list["RLMChatCompletion"]
     spawn_records: list["SpawnRecord"]
+    # Structured delta fields
+    added_vars: tuple[str, ...]
+    changed_vars: tuple[str, ...]
+    removed_vars: tuple[str, ...]
+    out_value: str | None
+    exception_name: str | None
+    has_error: bool
 
     def __init__(
         self,
@@ -174,6 +181,13 @@ class REPLResult:
         execution_time: float | None = None,
         rlm_calls: list["RLMChatCompletion"] | None = None,
         spawn_records: list["SpawnRecord"] | None = None,
+        *,
+        added_vars: tuple[str, ...] = (),
+        changed_vars: tuple[str, ...] = (),
+        removed_vars: tuple[str, ...] = (),
+        out_value: str | None = None,
+        exception_name: str | None = None,
+        has_error: bool = False,
     ):
         self.stdout = stdout
         self.stderr = stderr
@@ -181,6 +195,12 @@ class REPLResult:
         self.execution_time = execution_time
         self.rlm_calls = rlm_calls or []
         self.spawn_records = spawn_records or []
+        self.added_vars = added_vars
+        self.changed_vars = changed_vars
+        self.removed_vars = removed_vars
+        self.out_value = out_value
+        self.exception_name = exception_name
+        self.has_error = has_error
 
     def __str__(self):
         return (
@@ -205,6 +225,12 @@ class REPLResult:
                 }
                 for r in self.spawn_records
             ],
+            "added_vars": list(self.added_vars),
+            "changed_vars": list(self.changed_vars),
+            "removed_vars": list(self.removed_vars),
+            "out_value": self.out_value,
+            "exception_name": self.exception_name,
+            "has_error": self.has_error,
         }
 
 

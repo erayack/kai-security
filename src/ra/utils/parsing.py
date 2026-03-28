@@ -126,19 +126,16 @@ def format_iteration(
     return messages
 
 
-################
-# TODO: Remove and refactor these soon
-################
-
-
 def format_execution_result(result: REPLResult) -> str:
-    """
-    Format the execution result as a string for display.
+    """Format the execution result as a string for display.
 
-    Args:
-        result: The REPLResult object to format.
+    Uses structured delta fields when available (added_vars,
+    changed_vars, removed_vars, out_value, exception_name) to give
+    the model a precise view of what changed.  Falls back to the
+    legacy flat variable list for results from non-local REPLs that
+    don't populate deltas.
     """
-    result_parts = []
+    result_parts: list[str] = []
 
     if result.stdout:
         result_parts.append(f"\n{result.stdout}")
@@ -146,20 +143,35 @@ def format_execution_result(result: REPLResult) -> str:
     if result.stderr:
         result_parts.append(f"\n{result.stderr}")
 
-    # Show some key variables (excluding internal ones)
-    important_vars = {}
-    for key, value in result.locals.items():
-        if not key.startswith("_") and key not in [
-            "__builtins__",
-            "__name__",
-            "__doc__",
-        ]:
-            # Only show simple types or short representations
-            if isinstance(value, (str, int, float, bool, list, dict, tuple)):
-                important_vars[key] = ""
+    # Structured deltas (from LocalREPL)
+    has_deltas = result.added_vars or result.changed_vars or result.removed_vars
 
-    if important_vars:
-        result_parts.append(f"REPL variables: {list(important_vars.keys())}\n")
+    if has_deltas:
+        delta_lines: list[str] = []
+        if result.added_vars:
+            delta_lines.append(f"  + {', '.join(result.added_vars)}")
+        if result.changed_vars:
+            delta_lines.append(f"  ~ {', '.join(result.changed_vars)}")
+        if result.removed_vars:
+            delta_lines.append(f"  - {', '.join(result.removed_vars)}")
+        result_parts.append("Variable changes:\n" + "\n".join(delta_lines))
+    elif not result.has_error:
+        # Legacy fallback: flat variable list
+        important_vars = [
+            key
+            for key, value in result.locals.items()
+            if not key.startswith("_")
+            and key not in ("__builtins__", "__name__", "__doc__")
+            and isinstance(value, (str, int, float, bool, list, dict, tuple))
+        ]
+        if important_vars:
+            result_parts.append(f"REPL variables: {important_vars}\n")
+
+    if result.out_value is not None:
+        result_parts.append(f"Last expression: {result.out_value}")
+
+    if result.exception_name:
+        result_parts.append(f"Exception: {result.exception_name}")
 
     return "\n\n".join(result_parts) if result_parts else "No output"
 
