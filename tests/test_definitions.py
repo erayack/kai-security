@@ -73,6 +73,7 @@ class TestExploitConfig:
         assert names == [
             "analyzer",
             "verifier",
+            "critic",
             "researcher",
             "fixer",
         ]
@@ -112,7 +113,7 @@ class TestExploitConfig:
     def test_researcher_tools(self) -> None:
         from kai.definitions import exploit_config
 
-        researcher = exploit_config.agents[2]
+        researcher = exploit_config.agents[3]
         assert set(researcher.tools.keys()) == {
             "search_web",
             "read_url",
@@ -121,7 +122,7 @@ class TestExploitConfig:
     def test_fixer_tools(self) -> None:
         from kai.definitions import exploit_config
 
-        fixer = exploit_config.agents[3]
+        fixer = exploit_config.agents[4]
         assert set(fixer.tools.keys()) == {
             "read_file",
             "update_file",

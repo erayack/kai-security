@@ -204,6 +204,12 @@ class ExploitRecord:
     cvss_score: float | None = None
     cvss_justification: dict[str, str] | None = None
     chain_id: str | None = None
+    # Critic enrichment fields
+    adversarial_viability: str | None = None
+    profit_model: str | None = None
+    off_chain_mitigations: str | None = None
+    platform_validity: str | None = None
+    critic_summary: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict."""
@@ -231,6 +237,11 @@ class ExploitRecord:
             "cvss_score": self.cvss_score,
             "cvss_justification": self.cvss_justification,
             "chain_id": self.chain_id,
+            "adversarial_viability": self.adversarial_viability,
+            "profit_model": self.profit_model,
+            "off_chain_mitigations": self.off_chain_mitigations,
+            "platform_validity": self.platform_validity,
+            "critic_summary": self.critic_summary,
         }
 
     @classmethod
@@ -260,6 +271,11 @@ class ExploitRecord:
             cvss_score=data.get("cvss_score"),
             cvss_justification=data.get("cvss_justification"),
             chain_id=data.get("chain_id"),
+            adversarial_viability=data.get("adversarial_viability"),
+            profit_model=data.get("profit_model"),
+            off_chain_mitigations=data.get("off_chain_mitigations"),
+            platform_validity=data.get("platform_validity"),
+            critic_summary=data.get("critic_summary"),
         )
 
 

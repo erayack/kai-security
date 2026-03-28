@@ -40,6 +40,7 @@ Each agent's model can be overridden via environment variables. Set these in `.e
 | `KAI_ANALYZER_MODEL` | `minimax/minimax-m2.5` | Vulnerability analysis |
 | `KAI_VERIFIER_MODEL` | `openai/gpt-5.2` | PoC verification |
 | `KAI_FIXER_MODEL` | `openai/gpt-5.2` | Patch generation |
+| `KAI_CRITIC_MODEL` | `anthropic/claude-opus-4.5` | Adversarial viability assessment |
 | `KAI_RESEARCHER_MODEL` | `minimax/minimax-m2.5` | Web research |
 | `KAI_SETUP_MODEL` | `minimax/minimax-m2.5` | Project setup |
 
@@ -60,6 +61,7 @@ Each agent's iteration limit can be tuned independently:
 | `KAI_ANALYZER_ITERS` | `30` | Vulnerability analysis |
 | `KAI_VERIFIER_ITERS` | `30` | PoC verification |
 | `KAI_FIXER_ITERS` | `25` | Patch generation |
+| `KAI_CRITIC_ITERS` | `10` | Adversarial viability assessment |
 | `KAI_RESEARCHER_ITERS` | `15` | Web research |
 | `KAI_SETUP_ITERS` | `30` | Project setup |
 
