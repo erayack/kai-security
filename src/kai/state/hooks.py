@@ -30,19 +30,23 @@ def make_on_early_stop_hook(
 
     def _on_early_stop(current_iteration: int) -> str | None:
         pending = state_manager.get_exploits(run_id, status="candidate")
-        if not pending:
+        # Only block finalization for actionable active exploits;
+        # non-active categories (trust_assumption_violation, etc.)
+        # should not hold up the pipeline.
+        actionable = [p for p in pending if p.category == "active_exploit"]
+        if not actionable:
             return None
         bullets = "\n".join(
-            f"  - [{p.file}:{p.function}] {p.hypothesis[:120]}" for p in pending
+            f"  - [{p.file}:{p.function}] {p.hypothesis[:120]}" for p in actionable
         )
         log.info(
-            "on_early_stop: %d unverified candidate(s) at iteration %d, "
+            "on_early_stop: %d actionable candidate(s) at iteration %d, "
             "injecting nudge",
-            len(pending),
+            len(actionable),
             current_iteration,
         )
         return (
-            f"Do not finalize yet. There are {len(pending)} exploit "
+            f"Do not finalize yet. There are {len(actionable)} exploit "
             f"candidate(s) still pending verification:\n{bullets}\n\n"
             f"Continue by verifying and fixing these candidates before "
             f"producing your final answer."
