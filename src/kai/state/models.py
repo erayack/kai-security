@@ -15,6 +15,7 @@ class ThreatContext:
     access_roles: list[dict[str, Any]] = field(default_factory=list)
     boundaries: list[str] = field(default_factory=list)
     known_constraints: list[str] = field(default_factory=list)
+    design_specs: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict."""
@@ -24,6 +25,7 @@ class ThreatContext:
             "access_roles": self.access_roles,
             "boundaries": self.boundaries,
             "known_constraints": self.known_constraints,
+            "design_specs": self.design_specs,
         }
 
     @classmethod
@@ -35,6 +37,7 @@ class ThreatContext:
             access_roles=data.get("access_roles", []),
             boundaries=data.get("boundaries", []),
             known_constraints=data.get("known_constraints", []),
+            design_specs=data.get("design_specs", []),
         )
 
 

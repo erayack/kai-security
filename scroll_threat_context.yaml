@@ -5,18 +5,39 @@ access_roles:
   - name: anyone
     trust: none
     description: "Permissionless caller — any EOA or contract on L1/L2"
+    designed_authority:
+      - "Deposit ETH/tokens via L1 gateways"
+      - "Initiate L2→L1 withdrawals via L2 gateways"
+      - "Relay finalized L2→L1 messages after proof window"
   - name: sequencer
     trust: medium
     description: "Scroll sequencer submitting batches to ScrollChain"
+    designed_authority:
+      - "Sign fast withdrawal claims in FastWithdrawVault (sole authorization mechanism)"
+      - "Commit batches to ScrollChain via commitBatches()"
+      - "Order L2 transactions within batches"
   - name: prover
     trust: medium
     description: "ZK prover submitting proofs for batch finalization"
+    designed_authority:
+      - "Submit validity proofs via finalizeBatchWithProof()"
+      - "Trigger state root finalization on ScrollChain"
   - name: owner
     trust: high
     description: "Proxy admin / ScrollOwner multisig"
+    designed_authority:
+      - "Register/replace ERC20 gateways via setERC20Gateway — registered gateways are trusted to faithfully relay sender identity"
+      - "Upgrade proxy implementations"
+      - "Pause contracts"
+      - "Grant/revoke roles (sequencer, prover)"
+      - "Update rate limiter parameters"
   - name: messenger
     trust: high
     description: "Cross-layer messenger contracts (L1ScrollMessenger, L2ScrollMessenger)"
+    designed_authority:
+      - "Relay cross-layer messages with sender aliasing"
+      - "Enforce gas limits on relayed messages"
+      - "Drop messages that fail execution (no automatic retry)"
 
 boundaries:
   - "L1 to L2 message relay (deposit path)"
@@ -36,3 +57,11 @@ known_constraints:
   - "Lido gateway has dedicated wstETH wrapping logic"
   - "Max realistic single-tx value: 10000 ETH (total ETH supply ~120M)"
   - "Deployment-only functions: importGenesisBatch, initialize"
+
+design_specs:
+  - "FastWithdrawVault.claimFastWithdraw: sequencer signature is the sole authorization — no on-chain L2 state verification by design (that's what makes it 'fast')"
+  - "L1GatewayRouter.requestERC20: only callable by registered gateways (gatewayInContext); gateways are owner-registered trusted code"
+  - "L1GatewayRouter.setERC20Gateway: owner-only; registered gateways have full authority over token transfers for their mapped tokens"
+  - "ScrollChain.commitBatch: sequencer-only; batch ordering is trusted to the sequencer by design"
+  - "L1ScrollMessenger.relayMessageWithProof: permissionless relay of finalized L2→L1 messages; caller identity is irrelevant (message was already committed on L2)"
+  - "EnforcedTxGateway.sendTransaction: allows EOAs to force-include L2 transactions via L1 when sequencer is censoring — permissionless by design"
