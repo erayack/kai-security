@@ -119,6 +119,7 @@ def inject_state_manager(
 
     extras: dict[str, Any] = {}
     if _depth == 0:
+        from kai.definitions.exploit.config import poc_auditor_config
         from kai.definitions.exploit.proxy import ExploitsProxy
         from kai.definitions.exploit.spawn_hooks import (
             make_critic_spawn_wrapper,
@@ -148,7 +149,10 @@ def inject_state_manager(
         _recipe = recipe
         spawn_wrappers["spawn_verifier"] = (
             lambda original_fn: make_verifier_spawn_wrapper(
-                original_fn, state_manager, run_id
+                original_fn,
+                state_manager,
+                run_id,
+                auditor_config=poc_auditor_config,
             )
         )
         spawn_wrappers["spawn_critic"] = lambda original_fn: make_critic_spawn_wrapper(
