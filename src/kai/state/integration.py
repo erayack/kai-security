@@ -122,13 +122,39 @@ def inject_state_manager(
         from kai.definitions.exploit.config import poc_auditor_config
         from kai.definitions.exploit.proxy import ExploitsProxy
         from kai.definitions.exploit.spawn_hooks import (
+            make_analyzer_spawn_wrapper,
             make_critic_spawn_wrapper,
             make_fixer_spawn_wrapper,
             make_verifier_spawn_wrapper,
         )
 
         exploits_proxy = ExploitsProxy(state_manager, run_id)
-        extras["tools"] = {**config.tools, "exploits": exploits_proxy}
+
+        # Mutable ref populated when the wrapper factory runs
+        # inside RecursiveAgent._build_tools().
+        _analyzer_wrapped: list[Any] = []
+
+        def _analyzer_factory(original_fn: Any) -> Any:
+            w = make_analyzer_spawn_wrapper(original_fn)
+            _analyzer_wrapped.append(w)
+            return w
+
+        def spawn_analyzers(specs: list[dict[str, Any]]) -> list[str]:
+            """Run multiple analyzer passes concurrently.
+
+            Each element of *specs* is a kwargs dict for
+            ``spawn_analyzer`` (files, focus, exclude, …).
+            Returns results in the same order as *specs*.
+            """
+            if not _analyzer_wrapped:
+                return ["spawn_analyzers: not initialized"] * len(specs)
+            return _analyzer_wrapped[0]._batch(specs)
+
+        extras["tools"] = {
+            **config.tools,
+            "exploits": exploits_proxy,
+            "spawn_analyzers": spawn_analyzers,
+        }
 
         iters_per_candidate = int(
             os.environ.get(
@@ -147,6 +173,7 @@ def inject_state_manager(
         extras["on_early_stop"] = make_on_early_stop_hook(state_manager, run_id)
         spawn_wrappers = dict(config.spawn_wrappers)
         _recipe = recipe
+        spawn_wrappers["spawn_analyzer"] = _analyzer_factory
         spawn_wrappers["spawn_verifier"] = (
             lambda original_fn: make_verifier_spawn_wrapper(
                 original_fn,
