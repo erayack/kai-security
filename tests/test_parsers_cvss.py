@@ -1,14 +1,18 @@
-"""Tests for CVSS integration in fixer and verifier result processors."""
+"""Tests for CVSS integration and dedup in result processors."""
 
 from __future__ import annotations
 
 import json
+import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from kai.definitions.exploit.parsers import (
+    process_analyzer_result,
     process_fixer_result,
     process_verifier_result,
 )
+from kai.state.local import LocalStateManager
 
 
 def _make_state_manager() -> MagicMock:
@@ -352,3 +356,82 @@ class TestVerifierCategoryReassessment:
         kw = sm.update_exploit.call_args[1]
         # No category key should be set since verifier returned empty
         assert "category" not in kw
+
+
+class TestAnalyzerDedup:
+    """Tests for (file, function) dedup in process_analyzer_result."""
+
+    def test_first_candidate_persisted(self) -> None:
+        """First finding for a (file, function) is always persisted."""
+        with tempfile.TemporaryDirectory() as td:
+            sm = LocalStateManager(state_dir=td)
+            raw = json.dumps(
+                [
+                    {
+                        "hypothesis": "reentrancy",
+                        "file": "Vault.sol",
+                        "function": "withdraw",
+                        "exploit_sketch": "sketch",
+                    }
+                ]
+            )
+            result = process_analyzer_result(sm, "run1", {}, raw)
+            parsed = json.loads(result)
+            assert parsed[0].get("exploit_id") is not None
+            assert parsed[0].get("_deduplicated") is not True
+            assert len(sm.get_exploits("run1")) == 1
+
+    def test_duplicate_file_function_skipped(self) -> None:
+        """Second finding for same (file, function) is dropped."""
+        with tempfile.TemporaryDirectory() as td:
+            sm = LocalStateManager(state_dir=td)
+            # First batch
+            raw1 = json.dumps(
+                [
+                    {
+                        "hypothesis": "reentrancy in withdraw",
+                        "file": "Vault.sol",
+                        "function": "withdraw",
+                    }
+                ]
+            )
+            process_analyzer_result(sm, "run1", {}, raw1)
+            assert len(sm.get_exploits("run1")) == 1
+
+            # Second batch — same file+function, different hypothesis
+            raw2 = json.dumps(
+                [
+                    {
+                        "hypothesis": "state manipulation in withdraw",
+                        "file": "Vault.sol",
+                        "function": "withdraw",
+                    }
+                ]
+            )
+            result = process_analyzer_result(sm, "run1", {}, raw2)
+            parsed = json.loads(result)
+            assert parsed[0].get("_deduplicated") is True
+            assert parsed[0].get("exploit_id") is None
+            # Still only 1 record in state
+            assert len(sm.get_exploits("run1")) == 1
+
+    def test_different_functions_both_persisted(self) -> None:
+        """Findings for different functions are both kept."""
+        with tempfile.TemporaryDirectory() as td:
+            sm = LocalStateManager(state_dir=td)
+            raw = json.dumps(
+                [
+                    {
+                        "hypothesis": "h1",
+                        "file": "Vault.sol",
+                        "function": "withdraw",
+                    },
+                    {
+                        "hypothesis": "h2",
+                        "file": "Vault.sol",
+                        "function": "deposit",
+                    },
+                ]
+            )
+            process_analyzer_result(sm, "run1", {}, raw)
+            assert len(sm.get_exploits("run1")) == 2

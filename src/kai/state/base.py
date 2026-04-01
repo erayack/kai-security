@@ -53,8 +53,14 @@ class StateManager(ABC):
     # -- Exploits --
 
     @abstractmethod
-    def add_exploit(self, exploit: ExploitRecord) -> None:
-        """Persist a new exploit record."""
+    def add_exploit(self, exploit: ExploitRecord) -> bool:
+        """Persist a new exploit record if no active duplicate exists.
+
+        Deduplicates on ``(file, function)`` — if a non-deduplicated
+        record already exists for the same pair, the insert is skipped.
+        Returns ``True`` if inserted, ``False`` if a duplicate was
+        found.
+        """
 
     @abstractmethod
     def update_exploit(self, run_id: str, exploit_id: str, **fields: object) -> None:

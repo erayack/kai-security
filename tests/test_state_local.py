@@ -245,6 +245,133 @@ class TestExploits:
         assert data[0]["exploit_id"] == "e1"
 
 
+class TestAddExploitDedup:
+    """Tests for (file, function) dedup built into add_exploit."""
+
+    def test_first_insert_succeeds(self, tmp_path: Path) -> None:
+        mgr = _make_manager(str(tmp_path))
+        exploit = ExploitRecord(
+            run_id="r1",
+            exploit_id="e1",
+            timestamp="t",
+            source_agent="analyzer",
+            status="candidate",
+            hypothesis="reentrancy",
+            file="Vault.sol",
+            function="withdraw",
+        )
+        assert mgr.add_exploit(exploit) is True
+        assert len(mgr.get_exploits("r1")) == 1
+
+    def test_duplicate_file_function_rejected(self, tmp_path: Path) -> None:
+        mgr = _make_manager(str(tmp_path))
+        mgr.add_exploit(
+            ExploitRecord(
+                run_id="r1",
+                exploit_id="e1",
+                timestamp="t",
+                source_agent="analyzer",
+                status="candidate",
+                hypothesis="reentrancy via withdraw",
+                file="Vault.sol",
+                function="withdraw",
+            )
+        )
+        dup = ExploitRecord(
+            run_id="r1",
+            exploit_id="e2",
+            timestamp="t",
+            source_agent="analyzer",
+            status="candidate",
+            hypothesis="different hypothesis same function",
+            file="Vault.sol",
+            function="withdraw",
+        )
+        assert mgr.add_exploit(dup) is False
+        assert len(mgr.get_exploits("r1")) == 1
+
+    def test_different_function_allowed(self, tmp_path: Path) -> None:
+        mgr = _make_manager(str(tmp_path))
+        mgr.add_exploit(
+            ExploitRecord(
+                run_id="r1",
+                exploit_id="e1",
+                timestamp="t",
+                source_agent="analyzer",
+                status="candidate",
+                hypothesis="h1",
+                file="Vault.sol",
+                function="withdraw",
+            )
+        )
+        other = ExploitRecord(
+            run_id="r1",
+            exploit_id="e2",
+            timestamp="t",
+            source_agent="analyzer",
+            status="candidate",
+            hypothesis="h2",
+            file="Vault.sol",
+            function="deposit",
+        )
+        assert mgr.add_exploit(other) is True
+        assert len(mgr.get_exploits("r1")) == 2
+
+    def test_deduplicated_status_ignored(self, tmp_path: Path) -> None:
+        """Records with status='deduplicated' don't block new inserts."""
+        mgr = _make_manager(str(tmp_path))
+        mgr.add_exploit(
+            ExploitRecord(
+                run_id="r1",
+                exploit_id="e1",
+                timestamp="t",
+                source_agent="analyzer",
+                status="deduplicated",
+                hypothesis="h1",
+                file="Vault.sol",
+                function="withdraw",
+            )
+        )
+        new = ExploitRecord(
+            run_id="r1",
+            exploit_id="e2",
+            timestamp="t",
+            source_agent="analyzer",
+            status="candidate",
+            hypothesis="h2",
+            file="Vault.sol",
+            function="withdraw",
+        )
+        assert mgr.add_exploit(new) is True
+
+    def test_empty_function_skips_dedup(self, tmp_path: Path) -> None:
+        """Records with empty function don't trigger dedup."""
+        mgr = _make_manager(str(tmp_path))
+        mgr.add_exploit(
+            ExploitRecord(
+                run_id="r1",
+                exploit_id="e1",
+                timestamp="t",
+                source_agent="analyzer",
+                status="candidate",
+                hypothesis="h1",
+                file="Vault.sol",
+                function="",
+            )
+        )
+        new = ExploitRecord(
+            run_id="r1",
+            exploit_id="e2",
+            timestamp="t",
+            source_agent="analyzer",
+            status="candidate",
+            hypothesis="h2",
+            file="Vault.sol",
+            function="",
+        )
+        assert mgr.add_exploit(new) is True
+
+
 class TestFixes:
     def test_add_and_get(self, tmp_path: Path) -> None:
         mgr = _make_manager(str(tmp_path))

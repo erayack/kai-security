@@ -211,7 +211,7 @@ class ExploitRecord:
     # Critic enrichment fields
     adversarial_viability: str | None = None
     profit_model: str | None = None
-    off_chain_mitigations: str | None = None
+    external_mitigations: str | None = None
     platform_validity: str | None = None
     critic_summary: str | None = None
 
@@ -244,7 +244,7 @@ class ExploitRecord:
             "chain_id": self.chain_id,
             "adversarial_viability": self.adversarial_viability,
             "profit_model": self.profit_model,
-            "off_chain_mitigations": self.off_chain_mitigations,
+            "external_mitigations": self.external_mitigations,
             "platform_validity": self.platform_validity,
             "critic_summary": self.critic_summary,
         }
@@ -279,7 +279,9 @@ class ExploitRecord:
             chain_id=data.get("chain_id"),
             adversarial_viability=data.get("adversarial_viability"),
             profit_model=data.get("profit_model"),
-            off_chain_mitigations=data.get("off_chain_mitigations"),
+            external_mitigations=data.get(
+                "external_mitigations", data.get("off_chain_mitigations")
+            ),
             platform_validity=data.get("platform_validity"),
             critic_summary=data.get("critic_summary"),
         )

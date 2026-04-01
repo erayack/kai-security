@@ -28,11 +28,11 @@ class TestCriticResultProcessor:
                     "Attacker drains victim staked ETH via "
                     "manipulated share calculation"
                 ),
-                "off_chain_mitigations": "None identified",
+                "external_mitigations": "None identified",
                 "platform_validity": "Valid under Sherlock rules",
                 "critic_summary": (
                     "Rational adversary profits at victim expense. "
-                    "No off-chain safety net closes the attack path."
+                    "No external safety net closes the attack path."
                 ),
             }
         )
@@ -44,7 +44,7 @@ class TestCriticResultProcessor:
         kw = call_args[1]
         assert kw["adversarial_viability"] == "exploitable"
         assert "manipulated share" in kw["profit_model"]
-        assert kw["off_chain_mitigations"] == "None identified"
+        assert kw["external_mitigations"] == "None identified"
         assert kw["platform_validity"] == "Valid under Sherlock rules"
         assert "Rational adversary" in kw["critic_summary"]
 
@@ -59,7 +59,7 @@ class TestCriticResultProcessor:
                     "Attacker can only damage their own deposit "
                     "by passing invalid target address"
                 ),
-                "off_chain_mitigations": (
+                "external_mitigations": (
                     "Sequencer validates target addresses before inclusion"
                 ),
                 "platform_validity": (
@@ -88,7 +88,7 @@ class TestCriticResultProcessor:
                 "exploit_id": "e3",
                 "adversarial_viability": "griefing",
                 "profit_model": "Attacker spends gas to block others",
-                "off_chain_mitigations": "",
+                "external_mitigations": "",
                 "platform_validity": "no platform rules provided",
                 "critic_summary": "Pure griefing with no profit motive.",
             }
@@ -106,14 +106,14 @@ class TestCriticResultProcessor:
         assert "severity" not in kw
 
     def test_critic_empty_threat_context(self) -> None:
-        """Works without threat context — off_chain_mitigations is empty."""
+        """Works without threat context — external_mitigations is empty."""
         sm = _make_state_manager()
         raw = json.dumps(
             {
                 "exploit_id": "e4",
                 "adversarial_viability": "exploitable",
                 "profit_model": "Attacker extracts funds",
-                "off_chain_mitigations": "",
+                "external_mitigations": "",
                 "platform_validity": "no platform rules provided",
                 "critic_summary": "Exploitable with no mitigations.",
             }
@@ -122,7 +122,7 @@ class TestCriticResultProcessor:
 
         sm.update_exploit.assert_called_once()
         kw = sm.update_exploit.call_args[1]
-        assert kw["off_chain_mitigations"] == ""
+        assert kw["external_mitigations"] == ""
         assert kw["platform_validity"] == "no platform rules provided"
 
     def test_critic_exploit_id_from_kwargs(self) -> None:
@@ -132,7 +132,7 @@ class TestCriticResultProcessor:
             {
                 "adversarial_viability": "no_profit",
                 "profit_model": "No extractable value",
-                "off_chain_mitigations": "",
+                "external_mitigations": "",
                 "platform_validity": "",
                 "critic_summary": "No profit motive.",
             }
@@ -159,7 +159,7 @@ class TestCriticResultProcessor:
             {
                 "adversarial_viability": "exploitable",
                 "profit_model": "test",
-                "off_chain_mitigations": "",
+                "external_mitigations": "",
                 "platform_validity": "",
                 "critic_summary": "test",
             }
@@ -184,7 +184,7 @@ class TestExploitRecordCriticFields:
         )
         assert record.adversarial_viability is None
         assert record.profit_model is None
-        assert record.off_chain_mitigations is None
+        assert record.external_mitigations is None
         assert record.platform_validity is None
         assert record.critic_summary is None
 
@@ -200,14 +200,14 @@ class TestExploitRecordCriticFields:
             function="fn",
             adversarial_viability="exploitable",
             profit_model="Attacker drains funds",
-            off_chain_mitigations="None",
+            external_mitigations="None",
             platform_validity="Valid",
             critic_summary="Exploitable finding.",
         )
         d = record.to_dict()
         assert d["adversarial_viability"] == "exploitable"
         assert d["profit_model"] == "Attacker drains funds"
-        assert d["off_chain_mitigations"] == "None"
+        assert d["external_mitigations"] == "None"
         assert d["platform_validity"] == "Valid"
         assert d["critic_summary"] == "Exploitable finding."
 
@@ -223,7 +223,7 @@ class TestExploitRecordCriticFields:
             function="fn",
             adversarial_viability="self_harm",
             profit_model="Attacker harms self",
-            off_chain_mitigations="Sequencer blocks",
+            external_mitigations="Sequencer blocks",
             platform_validity="Invalid per Sherlock",
             critic_summary="Self-harm finding.",
         )
@@ -231,7 +231,7 @@ class TestExploitRecordCriticFields:
         restored = ExploitRecord.from_dict(d)
         assert restored.adversarial_viability == "self_harm"
         assert restored.profit_model == "Attacker harms self"
-        assert restored.off_chain_mitigations == "Sequencer blocks"
+        assert restored.external_mitigations == "Sequencer blocks"
         assert restored.platform_validity == "Invalid per Sherlock"
         assert restored.critic_summary == "Self-harm finding."
 
@@ -250,6 +250,6 @@ class TestExploitRecordCriticFields:
         record = ExploitRecord.from_dict(data)
         assert record.adversarial_viability is None
         assert record.profit_model is None
-        assert record.off_chain_mitigations is None
+        assert record.external_mitigations is None
         assert record.platform_validity is None
         assert record.critic_summary is None
