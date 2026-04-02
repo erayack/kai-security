@@ -73,19 +73,42 @@ class TestProcessChainResult:
         records = process_chain_result(sm, "run1", "not json at all")
         assert records == []
 
+    def test_single_exploit_chain_skipped(self) -> None:
+        sm = _make_state_manager()
+        raw = json.dumps(
+            [
+                {
+                    "description": "single exploit chain",
+                    "steps": [
+                        {"exploit_id": "e1", "role": "anchor", "description": "s1"},
+                    ],
+                    "anchor_exploit_ids": ["e1"],
+                }
+            ]
+        )
+        records = process_chain_result(sm, "run1", raw)
+        assert len(records) == 0
+        sm.add_chain.assert_not_called()
+
     def test_multiple_chains(self) -> None:
         sm = _make_state_manager()
         raw = json.dumps(
             [
                 {
                     "description": "chain 1",
-                    "steps": [],
+                    "steps": [
+                        {"exploit_id": "e1", "role": "anchor", "description": "s1"},
+                        {"exploit_id": "e2", "role": "amplifier", "description": "s2"},
+                    ],
                     "anchor_exploit_ids": ["e1"],
                 },
                 {
                     "description": "chain 2",
-                    "steps": [],
-                    "anchor_exploit_ids": ["e2"],
+                    "steps": [
+                        {"exploit_id": "e3", "role": "anchor", "description": "s3"},
+                        {"exploit_id": "e4", "role": "amplifier", "description": "s4"},
+                    ],
+                    "anchor_exploit_ids": ["e3"],
                 },
             ]
         )
@@ -99,7 +122,10 @@ class TestProcessChainResult:
             [
                 {
                     "description": "chain with bad cvss",
-                    "steps": [],
+                    "steps": [
+                        {"exploit_id": "e1", "role": "anchor", "description": "s1"},
+                        {"exploit_id": "e2", "role": "amplifier", "description": "s2"},
+                    ],
                     "anchor_exploit_ids": ["e1"],
                     "composite_cvss_vector": "INVALID",
                 }

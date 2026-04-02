@@ -226,7 +226,7 @@ class LocalStateManager(StateManager):
                 return True
         except Exception:
             log.exception("add_exploit failed for run %s", exploit.run_id)
-            return False
+            raise
 
     def update_exploit(self, run_id: str, exploit_id: str, **fields: object) -> None:
         """Update fields on an existing exploit record."""

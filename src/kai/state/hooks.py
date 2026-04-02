@@ -30,7 +30,9 @@ def make_on_early_stop_hook(
     """
 
     def _on_early_stop(current_iteration: int) -> str | None:
-        pending = state_manager.get_exploits(run_id, status="candidate")
+        candidates = state_manager.get_exploits(run_id, status="candidate")
+        failed = state_manager.get_exploits(run_id, status="failed")
+        pending = candidates + failed
         # Only block finalization for actionable active exploits;
         # non-active categories (trust_assumption_violation, etc.)
         # should not hold up the pipeline.
