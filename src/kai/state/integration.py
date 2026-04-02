@@ -125,6 +125,7 @@ def inject_state_manager(
             make_analyzer_spawn_wrapper,
             make_critic_spawn_wrapper,
             make_fixer_spawn_wrapper,
+            make_researcher_batch,
             make_verifier_spawn_wrapper,
         )
 
@@ -150,10 +151,31 @@ def inject_state_manager(
                 return ["spawn_analyzers: not initialized"] * len(specs)
             return _analyzer_wrapped[0]._batch(specs)
 
+        # Researcher batch — capture original spawn for concurrent use
+        _researcher_original: list[Any] = []
+        _spawn_researchers_fn: list[Any] = []
+
+        def _researcher_factory(original_fn: Any) -> Any:
+            _researcher_original.append(original_fn)
+            _spawn_researchers_fn.append(make_researcher_batch(original_fn))
+            return original_fn  # no wrapping needed
+
+        def spawn_researchers(queries: list[str]) -> list[str]:
+            """Run multiple researcher queries concurrently.
+
+            Each element of *queries* is a query string for
+            ``spawn_researcher``.
+            Returns results in the same order as *queries*.
+            """
+            if not _spawn_researchers_fn:
+                return ["spawn_researchers: not initialized"] * len(queries)
+            return _spawn_researchers_fn[0](queries)
+
         extras["tools"] = {
             **config.tools,
             "exploits": exploits_proxy,
             "spawn_analyzers": spawn_analyzers,
+            "spawn_researchers": spawn_researchers,
         }
 
         iters_per_candidate = int(
@@ -174,6 +196,7 @@ def inject_state_manager(
         spawn_wrappers = dict(config.spawn_wrappers)
         _recipe = recipe
         spawn_wrappers["spawn_analyzer"] = _analyzer_factory
+        spawn_wrappers["spawn_researcher"] = _researcher_factory
         spawn_wrappers["spawn_verifier"] = (
             lambda original_fn: make_verifier_spawn_wrapper(
                 original_fn,
