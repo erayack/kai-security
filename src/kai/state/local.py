@@ -201,26 +201,14 @@ class LocalStateManager(StateManager):
     # -- Exploits --
 
     def add_exploit(self, exploit: ExploitRecord) -> bool:
-        """Persist a new exploit record if no active duplicate exists.
+        """Persist a new exploit record.
 
-        Deduplicates on ``(file, function)`` under a single lock —
-        if a non-deduplicated record already exists for the same
-        pair, the insert is skipped.  Returns ``True`` if inserted,
-        ``False`` if a duplicate was found.
+        Always inserts — deduplication is the root agent's
+        responsibility.  Returns ``True`` on success.
         """
-        dominated = {"deduplicated"}
         try:
             with self._lock:
                 records = self._read_exploits(exploit.run_id)
-                if exploit.file and exploit.function:
-                    for rec in records:
-                        if rec.status in dominated:
-                            continue
-                        if (
-                            rec.file == exploit.file
-                            and rec.function == exploit.function
-                        ):
-                            return False
                 records.append(exploit)
                 self._write_exploits(exploit.run_id, records)
                 return True

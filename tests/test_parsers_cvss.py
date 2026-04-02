@@ -357,11 +357,11 @@ class TestVerifierCategoryReassessment:
         assert "category" not in kw
 
 
-class TestAnalyzerDedup:
-    """Tests for (file, function) dedup in process_analyzer_result."""
+class TestAnalyzerPersistence:
+    """All analyzer candidates are persisted — no auto-dedup."""
 
     def test_first_candidate_persisted(self) -> None:
-        """First finding for a (file, function) is always persisted."""
+        """First finding is always persisted."""
         with tempfile.TemporaryDirectory() as td:
             sm = LocalStateManager(state_dir=td)
             raw = json.dumps(
@@ -377,14 +377,12 @@ class TestAnalyzerDedup:
             result = process_analyzer_result(sm, "run1", {}, raw)
             parsed = json.loads(result)
             assert parsed[0].get("exploit_id") is not None
-            assert parsed[0].get("_deduplicated") is not True
             assert len(sm.get_exploits("run1")) == 1
 
-    def test_duplicate_file_function_skipped(self) -> None:
-        """Second finding for same (file, function) is dropped."""
+    def test_same_file_function_both_persisted(self) -> None:
+        """Multiple bugs in the same function are all kept."""
         with tempfile.TemporaryDirectory() as td:
             sm = LocalStateManager(state_dir=td)
-            # First batch
             raw1 = json.dumps(
                 [
                     {
@@ -409,10 +407,8 @@ class TestAnalyzerDedup:
             )
             result = process_analyzer_result(sm, "run1", {}, raw2)
             parsed = json.loads(result)
-            assert parsed[0].get("_deduplicated") is True
-            assert parsed[0].get("exploit_id") is None
-            # Still only 1 record in state
-            assert len(sm.get_exploits("run1")) == 1
+            assert parsed[0].get("exploit_id") is not None
+            assert len(sm.get_exploits("run1")) == 2
 
     def test_different_functions_both_persisted(self) -> None:
         """Findings for different functions are both kept."""

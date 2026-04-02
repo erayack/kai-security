@@ -54,12 +54,10 @@ class StateManager(ABC):
 
     @abstractmethod
     def add_exploit(self, exploit: ExploitRecord) -> bool:
-        """Persist a new exploit record if no active duplicate exists.
+        """Persist a new exploit record.
 
-        Deduplicates on ``(file, function)`` — if a non-deduplicated
-        record already exists for the same pair, the insert is skipped.
-        Returns ``True`` if inserted, ``False`` if a duplicate was
-        found.
+        Always inserts — deduplication is the root agent's
+        responsibility.  Returns ``True`` on success.
         """
 
     @abstractmethod
