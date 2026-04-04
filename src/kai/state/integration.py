@@ -130,52 +130,62 @@ def inject_state_manager(
         )
 
         exploits_proxy = ExploitsProxy(state_manager, run_id)
+        spawn_wrappers = dict(config.spawn_wrappers)
 
-        # Mutable ref populated when the wrapper factory runs
-        # inside RecursiveAgent._build_tools().
-        _analyzer_wrapped: list[Any] = []
+        child_names = {a.name for a in config.agents}
+        batch_tools: dict[str, Any] = {}
 
-        def _analyzer_factory(original_fn: Any) -> Any:
-            w = make_analyzer_spawn_wrapper(original_fn)
-            _analyzer_wrapped.append(w)
-            return w
+        # Analyzer batch — only when analyzer is a sub-agent
+        if "analyzer" in child_names:
+            _analyzer_wrapped: list[Any] = []
 
-        def spawn_analyzers(specs: list[dict[str, Any]]) -> list[str]:
-            """Run multiple analyzer passes concurrently.
+            def _analyzer_factory(original_fn: Any) -> Any:
+                w = make_analyzer_spawn_wrapper(original_fn)
+                _analyzer_wrapped.append(w)
+                return w
 
-            Each element of *specs* is a kwargs dict for
-            ``spawn_analyzer`` (files, focus, exclude, …).
-            Returns results in the same order as *specs*.
-            """
-            if not _analyzer_wrapped:
-                return ["spawn_analyzers: not initialized"] * len(specs)
-            return _analyzer_wrapped[0]._batch(specs)
+            def spawn_analyzers(specs: list[dict[str, Any]]) -> list[str]:
+                """Run multiple analyzer passes concurrently.
 
-        # Researcher batch — capture original spawn for concurrent use
-        _researcher_original: list[Any] = []
-        _spawn_researchers_fn: list[Any] = []
+                Each element of *specs* is a kwargs dict for
+                ``spawn_analyzer`` (files, focus, exclude, …).
+                Returns results in the same order as *specs*.
+                """
+                if not _analyzer_wrapped:
+                    return ["spawn_analyzers: not initialized"] * len(specs)
+                return _analyzer_wrapped[0]._batch(specs)
 
-        def _researcher_factory(original_fn: Any) -> Any:
-            _researcher_original.append(original_fn)
-            _spawn_researchers_fn.append(make_researcher_batch(original_fn))
-            return original_fn  # no wrapping needed
+            batch_tools["spawn_analyzers"] = spawn_analyzers
+            spawn_wrappers["spawn_analyzer"] = _analyzer_factory
 
-        def spawn_researchers(queries: list[str]) -> list[str]:
-            """Run multiple researcher queries concurrently.
+        # Researcher batch — only when researcher is a sub-agent
+        if "researcher" in child_names:
+            _researcher_original: list[Any] = []
+            _spawn_researchers_fn: list[Any] = []
 
-            Each element of *queries* is a query string for
-            ``spawn_researcher``.
-            Returns results in the same order as *queries*.
-            """
-            if not _spawn_researchers_fn:
-                return ["spawn_researchers: not initialized"] * len(queries)
-            return _spawn_researchers_fn[0](queries)
+            def _researcher_factory(original_fn: Any) -> Any:
+                _researcher_original.append(original_fn)
+                _spawn_researchers_fn.append(make_researcher_batch(original_fn))
+                return original_fn  # no wrapping needed
+
+            def spawn_researchers(queries: list[str]) -> list[str]:
+                """Run multiple researcher queries concurrently.
+
+                Each element of *queries* is a query string for
+                ``spawn_researcher``.
+                Returns results in the same order as *queries*.
+                """
+                if not _spawn_researchers_fn:
+                    return ["spawn_researchers: not initialized"] * len(queries)
+                return _spawn_researchers_fn[0](queries)
+
+            batch_tools["spawn_researchers"] = spawn_researchers
+            spawn_wrappers["spawn_researcher"] = _researcher_factory
 
         extras["tools"] = {
             **config.tools,
             "exploits": exploits_proxy,
-            "spawn_analyzers": spawn_analyzers,
-            "spawn_researchers": spawn_researchers,
+            **batch_tools,
         }
 
         iters_per_candidate = int(
@@ -193,10 +203,7 @@ def inject_state_manager(
             os.environ.get("KAI_MAX_EXTEND_ITERS", _DEFAULT_MAX_EXTEND_ITERS)
         )
         extras["on_early_stop"] = make_on_early_stop_hook(state_manager, run_id)
-        spawn_wrappers = dict(config.spawn_wrappers)
         _recipe = recipe
-        spawn_wrappers["spawn_analyzer"] = _analyzer_factory
-        spawn_wrappers["spawn_researcher"] = _researcher_factory
         spawn_wrappers["spawn_verifier"] = (
             lambda original_fn: make_verifier_spawn_wrapper(
                 original_fn,

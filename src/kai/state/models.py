@@ -100,6 +100,9 @@ class RunRecord:
     execution_time: float | None = None
     total_exploits: int = 0
     total_fixes: int = 0
+    parent_run_id: str | None = None
+    prerequisite_diff: str | None = None  # cumulative diff of applied fixes
+    prerequisite_branch: str | None = None  # branch name for iterative runs
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict."""
@@ -115,6 +118,9 @@ class RunRecord:
             "execution_time": self.execution_time,
             "total_exploits": self.total_exploits,
             "total_fixes": self.total_fixes,
+            "parent_run_id": self.parent_run_id,
+            "prerequisite_diff": self.prerequisite_diff,
+            "prerequisite_branch": self.prerequisite_branch,
         }
 
     @classmethod
@@ -132,6 +138,9 @@ class RunRecord:
             execution_time=data.get("execution_time"),
             total_exploits=data.get("total_exploits", 0),
             total_fixes=data.get("total_fixes", 0),
+            parent_run_id=data.get("parent_run_id"),
+            prerequisite_diff=data.get("prerequisite_diff"),
+            prerequisite_branch=data.get("prerequisite_branch"),
         )
 
 
@@ -214,6 +223,10 @@ class ExploitRecord:
     external_mitigations: str | None = None
     platform_validity: str | None = None
     critic_summary: str | None = None
+    # Rejection classification (set when confirmed=False)
+    rejection_reason: str | None = None
+    # Branch ref for iterative re-verification (e.g. "patched-84a12c2d")
+    prerequisite: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict."""
@@ -247,6 +260,8 @@ class ExploitRecord:
             "external_mitigations": self.external_mitigations,
             "platform_validity": self.platform_validity,
             "critic_summary": self.critic_summary,
+            "rejection_reason": self.rejection_reason,
+            "prerequisite": self.prerequisite,
         }
 
     @classmethod
@@ -284,6 +299,8 @@ class ExploitRecord:
             ),
             platform_validity=data.get("platform_validity"),
             critic_summary=data.get("critic_summary"),
+            rejection_reason=data.get("rejection_reason"),
+            prerequisite=data.get("prerequisite"),
         )
 
 
