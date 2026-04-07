@@ -130,6 +130,7 @@ class LocalREPL(NonIsolatedEnv):
         **kwargs,
     ):
         factory = kwargs.pop("workspace_factory", None)
+        self._skip_cleanup: bool = kwargs.pop("skip_cleanup", False)
         self._query_model: str | None = kwargs.pop("query_model", None)
         super().__init__(persistent=persistent, depth=depth, **kwargs)
 
@@ -634,10 +635,11 @@ class LocalREPL(NonIsolatedEnv):
 
     def cleanup(self):
         """Clean up temp directory and reset state."""
-        try:
-            shutil.rmtree(self.temp_dir)
-        except Exception:
-            pass
+        if not self._skip_cleanup:
+            try:
+                shutil.rmtree(self.temp_dir)
+            except Exception:
+                pass
         self.globals.clear()
         self.locals.clear()
 

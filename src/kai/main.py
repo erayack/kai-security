@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -26,7 +27,7 @@ from kai import generate_id
 from kai.definitions import (
     exploit_config,
     exploit_result_processors,
-    iterative_exploit_config,
+    patch_assembler_config,
     setup_config,
 )
 from kai.logging_config import configure_logging
@@ -126,6 +127,13 @@ def _collect_iterative_candidates(
     return [e for e in rejected if e.rejection_reason in _ITERATIVE_REASONS]
 
 
+def _get(obj: Any, key: str, default: Any = None) -> Any:
+    """Read *key* from a dict or an object attribute."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
 def _seed_iterative_exploits(
     state_manager: StateManager,
     iterative_run_id: str,
@@ -133,6 +141,9 @@ def _seed_iterative_exploits(
     prerequisite: str,
 ) -> list[dict[str, Any]]:
     """Create new candidate records for the iterative run.
+
+    *parent_candidates* may be ``ExploitRecord`` objects (from a live
+    run) or plain dicts (deserialized from a follow-up recipe).
 
     Returns a list of pending_candidates dicts for root context.
     """
@@ -148,51 +159,140 @@ def _seed_iterative_exploits(
             timestamp=now,
             source_agent="iterative_seed",
             status="candidate",
-            hypothesis=parent.hypothesis,
-            file=parent.file,
-            function=parent.function,
-            exploit_sketch=parent.exploit_sketch,
-            attacker_role=parent.attacker_role,
-            required_privileges=parent.required_privileges,
-            category=parent.category,
-            trusted_component_abused=parent.trusted_component_abused,
-            affected_files=parent.affected_files,
+            hypothesis=_get(parent, "hypothesis", ""),
+            file=_get(parent, "file", ""),
+            function=_get(parent, "function", ""),
+            exploit_sketch=_get(parent, "exploit_sketch", ""),
+            attacker_role=_get(parent, "attacker_role", ""),
+            required_privileges=_get(parent, "required_privileges", ""),
+            category=_get(parent, "category", ""),
+            trusted_component_abused=_get(parent, "trusted_component_abused", ""),
+            affected_files=_get(parent, "affected_files", []),
             prerequisite=prerequisite,
         )
         state_manager.add_exploit(rec)
         pending.append(
             {
                 "exploit_id": new_id,
-                "hypothesis": parent.hypothesis,
-                "file": parent.file,
-                "function": parent.function,
-                "exploit_sketch": parent.exploit_sketch,
+                "hypothesis": _get(parent, "hypothesis", ""),
+                "file": _get(parent, "file", ""),
+                "function": _get(parent, "function", ""),
+                "exploit_sketch": _get(parent, "exploit_sketch", ""),
             }
         )
     return pending
 
 
-def _maybe_launch_iterative(
+def _run_patch_assembler(
+    recipe: WorkspaceRecipe,
+    *,
+    state_manager: StateManager,
+    run_id: str,
+    patches: list[dict[str, Any]],
+    branch_name: str,
+    verbose: bool = False,
+    log_structured: bool = False,
+    save_rollouts: bool = False,
+    rollout_agents: set[str] | None = None,
+) -> str | None:
+    """Run the patch assembler agent. Returns the diff or None on failure.
+
+    The agent applies *patches* to a new branch, resolves conflicts,
+    and verifies the build.  After completion the host captures
+    ``git diff <before> HEAD`` and persists it as
+    ``RunRecord.prerequisite_diff``.
+    """
+    master = recipe.master_path
+
+    # Record HEAD before the agent mutates the worktree.
+    head_before = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"],
+        cwd=master,
+        text=True,
+    ).strip()
+
+    # Build hints from the recipe (if available).
+    build_hints: dict[str, str] = {}
+    build_cmd = getattr(recipe, "build_cmd", None)
+    test_cmd = getattr(recipe, "test_cmd", None)
+    if build_cmd:
+        build_hints["build_cmd"] = build_cmd
+    if test_cmd:
+        build_hints["test_cmd"] = test_cmd
+
+    context: dict[str, Any] = {
+        "master_path": master,
+        "patches": patches,
+        "branch_name": branch_name,
+    }
+    if build_hints:
+        context["build_hints"] = build_hints
+
+    cfg = replace(
+        patch_assembler_config,
+        verbose=verbose,
+        log_structured=log_structured,
+        environment_kwargs={
+            **patch_assembler_config.environment_kwargs,
+            "workspace_factory": lambda: master,
+            "skip_cleanup": True,
+        },
+    )
+
+    # Iteration tracking only (no ExploitsProxy / spawn wrappers).
+    cfg = inject_state_manager(
+        cfg,
+        state_manager,
+        run_id,
+        save_rollouts=save_rollouts,
+        rollout_agents=rollout_agents,
+        _depth=1,
+    )
+
+    try:
+        agent = RecursiveAgent(cfg)
+        agent.completion(context)
+
+        # Capture cumulative diff and persist it.
+        diff = subprocess.check_output(
+            ["git", "diff", head_before, "HEAD"],
+            cwd=master,
+            text=True,
+        )
+        state_manager.update_run(run_id, prerequisite_diff=diff)
+        return diff
+    except Exception:
+        log.exception("Patch assembler failed for run %s", run_id)
+        # Attempt to restore the original branch.
+        try:
+            subprocess.check_call(
+                ["git", "checkout", "-"],
+                cwd=master,
+                timeout=30,
+            )
+        except Exception:
+            log.warning("Could not restore original branch in %s", master)
+        return None
+
+
+def _maybe_run_patch_assembler(
     recipe: WorkspaceRecipe,
     state_manager: StateManager,
     run_id: str,
     *,
     verbose: bool = False,
-    log_file: str = "",
     log_structured: bool = False,
     save_rollouts: bool = False,
     rollout_agents: set[str] | None = None,
-    threat_context: ThreatContext | None = None,
-    skip_fixer: bool = False,
-    parent_iterations: int = 0,
-) -> RLMChatCompletion | None:
-    """Launch an iterative re-verification run if conditions are met.
+) -> str | None:
+    """Assemble patches and save a follow-up recipe for the user.
 
-    Patches are no longer applied here — the iterative agent's
-    dedicated prompt instructs it to apply patches, resolve conflicts,
-    and verify the build using its own REPL + shell access.
+    Guards: blocked candidates + fixes with patches must exist.
+    On success, saves a recipe at ``output/recipe_patched_{id}.json``
+    and returns its path.  The user can launch the follow-up with
+    ``--recipe``.
 
-    Returns the iterative run result, or ``None`` if not triggered.
+    Returns the saved recipe path, or ``None`` if not triggered.
     """
     candidates = _collect_iterative_candidates(state_manager, run_id)
     if not candidates:
@@ -208,77 +308,54 @@ def _maybe_launch_iterative(
 
     branch_name = f"patched-{run_id[:12]}"
 
-    # Budget: half the parent's iterations, minimum 10
-    budget = max(10, int(parent_iterations * 0.5))
-
     log.info(
-        "Iterative: %d candidates, %d patches, budget=%d iterations",
+        "Patch assembler: %d candidates, %d patches",
         len(candidates),
         len(fix_dicts),
-        budget,
     )
 
-    # Create a new run record
-    iterative_run_id = generate_id()
-    iterative_run = RunRecord(
-        run_id=iterative_run_id,
-        repo_path=recipe.master_path,
-        started_at=datetime.now(timezone.utc).isoformat(),
-        status="running",
-        root_model=iterative_exploit_config.backend_kwargs.get("model_name", "unknown"),
-        parent_run_id=run_id,
+    diff = _run_patch_assembler(
+        recipe,
+        state_manager=state_manager,
+        run_id=run_id,
+        patches=fix_dicts,
+        branch_name=branch_name,
+        verbose=verbose,
+        log_structured=log_structured,
+        save_rollouts=save_rollouts,
+        rollout_agents=rollout_agents,
+    )
+    if diff is None:
+        return None
+
+    # Build pending_candidates for the follow-up recipe
+    pending = [
+        {
+            "exploit_id": c.exploit_id,
+            "hypothesis": c.hypothesis,
+            "file": c.file,
+            "function": c.function,
+            "exploit_sketch": c.exploit_sketch,
+        }
+        for c in candidates
+    ]
+
+    # Save follow-up recipe
+    followup = replace(
+        recipe,
         prerequisite_branch=branch_name,
+        pending_candidates=pending,
     )
-    state_manager.create_run(iterative_run)
-
-    # Seed candidates
-    pending = _seed_iterative_exploits(
-        state_manager,
-        iterative_run_id,
-        candidates,
-        branch_name,
-    )
+    out_dir = _STARTUP_CWD / "output"
+    out_dir.mkdir(exist_ok=True)
+    dest = out_dir / f"recipe_patched_{run_id[:12]}.json"
+    dest.write_text(json.dumps(followup.to_dict(), indent=2))
 
     log.info(
-        "Iterative: launching run %s with %d candidates",
-        iterative_run_id,
-        len(pending),
+        "Follow-up recipe saved to %s — run with --recipe to continue",
+        dest,
     )
-
-    try:
-        result = run_exploit(
-            recipe,
-            verbose=verbose,
-            log_file=log_file,
-            log_structured=log_structured,
-            pending_candidates=pending,
-            fixes=fix_dicts,
-            prerequisite_branch=branch_name,
-            state_manager=state_manager,
-            run_id=iterative_run_id,
-            save_rollouts=save_rollouts,
-            rollout_agents=rollout_agents,
-            threat_context=threat_context,
-            skip_fixer=skip_fixer,
-            config=iterative_exploit_config,
-            max_iterations=budget,
-        )
-        state_manager.update_run(
-            iterative_run_id,
-            status="completed",
-            finished_at=datetime.now(timezone.utc).isoformat(),
-            execution_time=result.execution_time,
-            usage_summary=result.usage_summary.to_dict(),
-        )
-        return result
-    except Exception:
-        log.exception("Iterative run %s failed", iterative_run_id)
-        state_manager.update_run(
-            iterative_run_id,
-            status="failed",
-            finished_at=datetime.now(timezone.utc).isoformat(),
-        )
-        return None
+    return str(dest)
 
 
 def run_exploit(
@@ -289,8 +366,6 @@ def run_exploit(
     log_structured: bool = False,
     instructions: str = "",
     pending_candidates: list[dict[str, Any]] | None = None,
-    fixes: list[dict[str, Any]] | None = None,
-    prerequisite_branch: str | None = None,
     state_manager: StateManager | None = None,
     run_id: str | None = None,
     save_rollouts: bool = False,
@@ -311,8 +386,7 @@ def run_exploit(
     run_id:
         Run identifier (required when *state_manager* is given).
     config:
-        Override the default ``exploit_config``. Used by the iterative
-        runner to supply ``iterative_exploit_config``.
+        Override the default ``exploit_config``.
     max_iterations:
         Override the config's ``max_iterations`` budget.
 
@@ -322,6 +396,34 @@ def run_exploit(
 
     if log_file:
         log_file = str(Path(log_file).resolve())
+
+    # Checkout prerequisite branch if the recipe carries one
+    if recipe.prerequisite_branch is not None:
+        log.info(
+            "Checking out prerequisite branch %s in %s",
+            recipe.prerequisite_branch,
+            recipe.master_path,
+        )
+        subprocess.check_call(
+            ["git", "checkout", recipe.prerequisite_branch],
+            cwd=recipe.master_path,
+            timeout=60,
+        )
+
+    # Seed pending candidates from recipe when not passed explicitly
+    if pending_candidates is None and recipe.pending_candidates is not None:
+        pending_candidates = recipe.pending_candidates
+    if (
+        pending_candidates is not None
+        and state_manager is not None
+        and run_id is not None
+    ):
+        _seed_iterative_exploits(
+            state_manager,
+            run_id,
+            pending_candidates,
+            recipe.prerequisite_branch or "",
+        )
 
     # Build dependency graph and bind as root tools
     graph = TreeSitterBuilder().build(recipe.master_path)
@@ -398,33 +500,11 @@ def run_exploit(
             spawn_wrappers=wrappers,
         )
 
-    # Inject save_prerequisite_diff tool for iterative runs so the
-    # agent can persist the cumulative diff after applying patches.
-    if prerequisite_branch and state_manager is not None and run_id is not None:
-        _sm, _rid = state_manager, run_id
-
-        def save_prerequisite_diff(diff: str) -> str:
-            """Persist the cumulative patch diff to the run record."""
-            _sm.update_run(_rid, prerequisite_diff=diff)
-            return "saved"
-
-        injected_config = replace(
-            injected_config,
-            tools={
-                **injected_config.tools,
-                "save_prerequisite_diff": save_prerequisite_diff,
-            },
-        )
-
     context: dict[str, Any] = {"master_path": recipe.master_path}
     if instructions:
         context["instructions"] = instructions
     if pending_candidates:
         context["pending_candidates"] = pending_candidates
-    if fixes:
-        context["fixes"] = fixes
-    if prerequisite_branch:
-        context["prerequisite_branch"] = prerequisite_branch
     if threat_context is not None:
         context["threat_context"] = threat_context.to_dict()
     if skip_fixer:
@@ -735,47 +815,19 @@ def _run_exploit_loop(
         if chain_thread is not None and chain_thread.is_alive():
             chain_thread.join(timeout=300)
 
-    # --- Iterative re-verification ---
+    # --- Patch assembly + follow-up recipe ---
     if not no_iterative and state_manager is not None and run_id is not None:
-        parent_iters = getattr(exploit_config, "max_iterations", 30)
-        iterative_result = _maybe_launch_iterative(
+        recipe_path = _maybe_run_patch_assembler(
             recipe,
             state_manager,
             run_id,
             verbose=verbose,
-            log_file=log_file,
             log_structured=log_structured,
             save_rollouts=save_rollouts,
             rollout_agents=rollout_agents,
-            threat_context=threat_context,
-            skip_fixer=skip_fixer,
-            parent_iterations=parent_iters,
         )
-        if iterative_result is not None:
-            merged_usage = result.usage_summary.merge(
-                iterative_result.usage_summary,
-            )
-            total_time = result.execution_time + iterative_result.execution_time
-            all_findings: list[Any] = []
-            try:
-                base = json.loads(result.response)
-                if isinstance(base, list):
-                    all_findings.extend(base)
-            except (json.JSONDecodeError, TypeError):
-                pass
-            try:
-                extra = json.loads(iterative_result.response)
-                if isinstance(extra, list):
-                    all_findings.extend(extra)
-            except (json.JSONDecodeError, TypeError):
-                pass
-            return RLMChatCompletion(
-                root_model=result.root_model,
-                prompt=result.prompt,
-                response=json.dumps(all_findings),
-                usage_summary=merged_usage,
-                execution_time=total_time,
-            )
+        if recipe_path is not None:
+            log.info("Patched follow-up recipe: %s", recipe_path)
 
     return result
 
