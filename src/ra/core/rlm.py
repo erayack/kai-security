@@ -17,7 +17,7 @@ from ra.core.types import (
     UsageSummary,
 )
 from ra.environments import BaseEnv, SupportsPersistence, get_environment
-from ra.exceptions import LMError, SetupRLMError
+from ra.exceptions import LMError, RecursiveAgentError, SetupRLMError
 from ra.logger import RecursiveAgentLogger, create_printer
 from ra.utils.parsing import (
     find_code_blocks,
@@ -325,6 +325,17 @@ class RLM:
                         iteration_num=i + 1,
                     )
                 except Exception as exc:
+                    if isinstance(exc, RecursiveAgentError):
+                        exc.enrich(
+                            agent_name=self.name,
+                            depth=self.depth,
+                            iteration_num=i + 1,
+                            model=(
+                                self.backend_kwargs.get("model_name")
+                                if self.backend_kwargs
+                                else None
+                            ),
+                        )
                     logging.getLogger(__name__).error(
                         "LLM call failed on iteration %d: %s — "
                         "falling through to default answer",
@@ -333,9 +344,11 @@ class RLM:
                     )
                     break
 
-                # Collect child usage from spawn calls
+                # Collect child usage from spawn calls.
+                # Snapshot each rlm_calls list to avoid racing with
+                # orphaned daemon threads from timed-out code blocks.
                 for cb in iteration.code_blocks:
-                    for call in cb.result.rlm_calls:
+                    for call in list(cb.result.rlm_calls):
                         child_usage = child_usage.merge(call.usage_summary)
 
                 # Check if RLM is done and has a final answer.
@@ -353,12 +366,15 @@ class RLM:
                         iteration.final_answer = None
                         self.verbose.print_nudge(i + 1)
 
+                # Fire on_iteration BEFORE any downstream processing
+                # so rollout / status hooks are guaranteed to run even
+                # if later code (logger, formatting) raises.
+                if self.on_iteration:
+                    self.on_iteration(iteration, i + 1)
+
                 # If logger is used, log the iteration.
                 if self.logger:
                     self.logger.log(iteration)
-
-                if self.on_iteration:
-                    self.on_iteration(iteration, i + 1)
 
                 if final_answer is not None:
                     time_end = time.perf_counter()

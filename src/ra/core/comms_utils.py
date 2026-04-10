@@ -10,10 +10,27 @@ import os
 import socket
 import struct
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
 from ra.core.types import RLMChatCompletion
 from ra.exceptions import LMError
+
+
+# Current protocol version — bump when the wire format changes.
+PROTOCOL_VERSION: int = 1
+
+
+class LMErrorKind(str, Enum):
+    """Categorises LM response errors for caller-side retry logic."""
+
+    TIMEOUT = "timeout"
+    RATE_LIMIT = "rate_limit"
+    MODEL_ERROR = "model_error"
+    CONNECTION_ERROR = "connection_error"
+    EMPTY_RESPONSE = "empty_response"
+    UNKNOWN = "unknown"
+
 
 _SOCKET_TIMEOUT: int = int(os.environ.get("KAI_SOCKET_TIMEOUT", 900))
 
@@ -33,6 +50,7 @@ class LMRequest:
     prompts: list[str | dict[str, Any]] | None = None
     model: str | None = None
     depth: int = 0
+    version: int = PROTOCOL_VERSION
 
     @property
     def is_batched(self) -> bool:
@@ -41,7 +59,7 @@ class LMRequest:
 
     def to_dict(self) -> dict:
         """Convert to dict, excluding None values."""
-        d = {}
+        d: dict[str, Any] = {"version": self.version}
         if self.prompt is not None:
             d["prompt"] = self.prompt
         if self.prompts is not None:
@@ -59,6 +77,7 @@ class LMRequest:
             prompts=data.get("prompts"),
             model=data.get("model"),
             depth=data.get("depth", -1),  # TODO: Default should throw an error
+            version=data.get("version", 0),
         )
 
 
@@ -70,6 +89,7 @@ class LMResponse:
     """
 
     error: str | None = None
+    error_kind: LMErrorKind | None = None
     chat_completion: RLMChatCompletion | None = None
     chat_completions: list[RLMChatCompletion] | None = None
 
@@ -83,11 +103,22 @@ class LMResponse:
         """Check if this is a batched response."""
         return self.chat_completions is not None
 
+    @property
+    def retryable(self) -> bool:
+        """Whether the caller should retry this request."""
+        return self.error_kind in (
+            LMErrorKind.TIMEOUT,
+            LMErrorKind.RATE_LIMIT,
+            LMErrorKind.CONNECTION_ERROR,
+        )
+
     def to_dict(self) -> dict:
         """Convert to dict, excluding None values."""
+        error_kind_str = self.error_kind.value if self.error_kind else None
         if self.error is not None:
             return {
                 "error": self.error,
+                "error_kind": error_kind_str,
                 "chat_completion": None,
                 "chat_completions": None,
             }
@@ -96,15 +127,18 @@ class LMResponse:
                 "chat_completions": [c.to_dict() for c in self.chat_completions],
                 "chat_completion": None,
                 "error": None,
+                "error_kind": None,
             }
         if self.chat_completion is not None:
             return {
                 "chat_completion": self.chat_completion.to_dict(),
                 "chat_completions": None,
                 "error": None,
+                "error_kind": None,
             }
         return {
             "error": "No chat completion or error provided.",
+            "error_kind": LMErrorKind.UNKNOWN.value,
             "chat_completion": None,
             "chat_completions": None,
         }
@@ -122,8 +156,17 @@ class LMResponse:
         if data.get("chat_completion"):
             chat_completion = RLMChatCompletion.from_dict(data["chat_completion"])
 
+        raw_kind = data.get("error_kind")
+        error_kind: LMErrorKind | None = None
+        if raw_kind is not None:
+            try:
+                error_kind = LMErrorKind(raw_kind)
+            except ValueError:
+                error_kind = LMErrorKind.UNKNOWN
+
         return cls(
             error=data.get("error"),
+            error_kind=error_kind,
             chat_completion=chat_completion,
             chat_completions=chat_completions,
         )
@@ -141,9 +184,13 @@ class LMResponse:
         return cls(chat_completions=chat_completions)
 
     @classmethod
-    def error_response(cls, error: str) -> "LMResponse":
+    def error_response(
+        cls,
+        error: str,
+        kind: LMErrorKind = LMErrorKind.UNKNOWN,
+    ) -> "LMResponse":
         """Create an error response."""
-        return cls(error=error)
+        return cls(error=error, error_kind=kind)
 
 
 # =============================================================================
@@ -233,8 +280,16 @@ def send_lm_request(
             request.depth = depth
         response_data = socket_request(address, request.to_dict(), timeout)
         return LMResponse.from_dict(response_data)
+    except (socket.timeout, TimeoutError) as e:
+        return LMResponse.error_response(f"Request timed out: {e}", LMErrorKind.TIMEOUT)
+    except (ConnectionError, OSError) as e:
+        return LMResponse.error_response(
+            f"Connection failed: {e}", LMErrorKind.CONNECTION_ERROR
+        )
     except LMError as e:
-        return LMResponse.error_response(f"Request failed: {e}")
+        return LMResponse.error_response(
+            f"Request failed: {e}", LMErrorKind.MODEL_ERROR
+        )
 
 
 def send_lm_request_batched(
@@ -262,18 +317,40 @@ def send_lm_request_batched(
         response = LMResponse.from_dict(response_data)
 
         if not response.success:
-            # Return error responses for all prompts
-            return [LMResponse.error_response(response.error or "Unknown error")] * len(
-                prompts
-            )
+            kind = response.error_kind or LMErrorKind.UNKNOWN
+            return [
+                LMResponse.error_response(response.error or "Unknown error", kind)
+                for _ in prompts
+            ]
 
         if response.chat_completions is None:
-            return [LMResponse.error_response("No completions returned")] * len(prompts)
+            return [
+                LMResponse.error_response(
+                    "No completions returned",
+                    LMErrorKind.EMPTY_RESPONSE,
+                )
+                for _ in prompts
+            ]
 
         # Convert batched response to list of individual responses
         return [
             LMResponse.success_response(chat_completion)
             for chat_completion in response.chat_completions
         ]
+    except (socket.timeout, TimeoutError) as e:
+        return [
+            LMResponse.error_response(f"Request timed out: {e}", LMErrorKind.TIMEOUT)
+            for _ in prompts
+        ]
+    except (ConnectionError, OSError) as e:
+        return [
+            LMResponse.error_response(
+                f"Connection failed: {e}", LMErrorKind.CONNECTION_ERROR
+            )
+            for _ in prompts
+        ]
     except LMError as e:
-        return [LMResponse.error_response(f"Request failed: {e}")] * len(prompts)
+        return [
+            LMResponse.error_response(f"Request failed: {e}", LMErrorKind.MODEL_ERROR)
+            for _ in prompts
+        ]

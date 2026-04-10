@@ -2,10 +2,26 @@
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from ra.core.types import ClientBackend
+
+
+def _format_callable(name: str, fn: Callable[..., Any]) -> str:
+    """Format a callable as a one-line signature + docstring entry."""
+    try:
+        sig = inspect.signature(fn)
+        sig_str = f"{name}{sig}"
+    except (ValueError, TypeError):
+        sig_str = f"{name}(...)"
+    doc = inspect.getdoc(fn)
+    first_line = doc.split("\n", 1)[0].strip() if doc else ""
+    entry = f"- `{sig_str}`"
+    if first_line:
+        entry += f"\n    {first_line}"
+    return entry
 
 
 @dataclass
@@ -96,6 +112,42 @@ class RecursiveAgentConfig:
         if not self.agents:
             return 0
         return 1 + max(a.tree_depth() for a in self.agents)
+
+    def tool_appendix(self) -> str:
+        """Auto-generate a tool/spawn reference from callables.
+
+        Introspects ``inspect.signature()`` and docstrings for each
+        tool function and each ``spawn_<name>`` sub-agent to produce
+        a structured appendix.  The appendix is suitable for injection
+        after the system prompt so the model always sees accurate
+        callable signatures — even when the prose prompt drifts.
+        """
+        lines: list[str] = []
+
+        if self.tools:
+            lines.append("## Available tools")
+            lines.append("")
+            for name, fn in self.tools.items():
+                lines.append(_format_callable(name, fn))
+
+        if self.agents:
+            lines.append("## Available spawn functions")
+            lines.append("")
+            for agent in self.agents:
+                # spawn functions are generated at runtime; describe
+                # them from the agent config so the model knows the
+                # keyword arguments that become the sub-agent context.
+                spawn_name = f"spawn_{agent.name}"
+                doc = (
+                    f"Spawn a '{agent.name}' sub-agent. "
+                    f"Keyword arguments become the sub-agent's "
+                    f"context dict. Returns the sub-agent's "
+                    f"final answer as a string."
+                )
+                lines.append(f"- `{spawn_name}(**kwargs) -> str`\n    {doc}")
+
+        lines.append("")  # trailing newline
+        return "\n".join(lines)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dict. Tools stored as names, agents nested."""

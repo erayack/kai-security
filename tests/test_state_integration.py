@@ -131,9 +131,7 @@ class TestInjectStateManager:
         config = _make_config(name="root", agents=[fixer])
         recipe = WorkspaceRecipe(master_path="/tmp/test")
 
-        injected = inject_state_manager(
-            config, mgr, "run-1", recipe=recipe
-        )
+        injected = inject_state_manager(config, mgr, "run-1", recipe=recipe)
         # spawn_fixer wrapper should be installed
         assert "spawn_fixer" in injected.spawn_wrappers
         # The wrapper factory should be callable

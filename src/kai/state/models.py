@@ -15,6 +15,7 @@ class ThreatContext:
     access_roles: list[dict[str, Any]] = field(default_factory=list)
     boundaries: list[str] = field(default_factory=list)
     known_constraints: list[str] = field(default_factory=list)
+    design_specs: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict."""
@@ -24,6 +25,7 @@ class ThreatContext:
             "access_roles": self.access_roles,
             "boundaries": self.boundaries,
             "known_constraints": self.known_constraints,
+            "design_specs": self.design_specs,
         }
 
     @classmethod
@@ -35,6 +37,7 @@ class ThreatContext:
             access_roles=data.get("access_roles", []),
             boundaries=data.get("boundaries", []),
             known_constraints=data.get("known_constraints", []),
+            design_specs=data.get("design_specs", []),
         )
 
 
@@ -97,6 +100,9 @@ class RunRecord:
     execution_time: float | None = None
     total_exploits: int = 0
     total_fixes: int = 0
+    parent_run_id: str | None = None
+    prerequisite_diff: str | None = None  # cumulative diff of applied fixes
+    prerequisite_branch: str | None = None  # branch name for iterative runs
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict."""
@@ -112,6 +118,9 @@ class RunRecord:
             "execution_time": self.execution_time,
             "total_exploits": self.total_exploits,
             "total_fixes": self.total_fixes,
+            "parent_run_id": self.parent_run_id,
+            "prerequisite_diff": self.prerequisite_diff,
+            "prerequisite_branch": self.prerequisite_branch,
         }
 
     @classmethod
@@ -129,6 +138,9 @@ class RunRecord:
             execution_time=data.get("execution_time"),
             total_exploits=data.get("total_exploits", 0),
             total_fixes=data.get("total_fixes", 0),
+            parent_run_id=data.get("parent_run_id"),
+            prerequisite_diff=data.get("prerequisite_diff"),
+            prerequisite_branch=data.get("prerequisite_branch"),
         )
 
 
@@ -194,6 +206,7 @@ class ExploitRecord:
     required_privileges: str = ""
     category: str = ""  # active_exploit | trust_assumption_violation | ...
     trusted_component_abused: str = ""
+    affected_files: list[str] = field(default_factory=list)
     confirmed: bool | None = None
     poc_code: str | None = None
     test_output: str | None = None
@@ -204,6 +217,16 @@ class ExploitRecord:
     cvss_score: float | None = None
     cvss_justification: dict[str, str] | None = None
     chain_id: str | None = None
+    # Critic enrichment fields
+    adversarial_viability: str | None = None
+    profit_model: str | None = None
+    external_mitigations: str | None = None
+    platform_validity: str | None = None
+    critic_summary: str | None = None
+    # Rejection classification (set when confirmed=False)
+    rejection_reason: str | None = None
+    # Branch ref for iterative re-verification (e.g. "patched-84a12c2d")
+    prerequisite: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict."""
@@ -221,6 +244,7 @@ class ExploitRecord:
             "required_privileges": self.required_privileges,
             "category": self.category,
             "trusted_component_abused": self.trusted_component_abused,
+            "affected_files": self.affected_files,
             "confirmed": self.confirmed,
             "poc_code": self.poc_code,
             "test_output": self.test_output,
@@ -231,6 +255,13 @@ class ExploitRecord:
             "cvss_score": self.cvss_score,
             "cvss_justification": self.cvss_justification,
             "chain_id": self.chain_id,
+            "adversarial_viability": self.adversarial_viability,
+            "profit_model": self.profit_model,
+            "external_mitigations": self.external_mitigations,
+            "platform_validity": self.platform_validity,
+            "critic_summary": self.critic_summary,
+            "rejection_reason": self.rejection_reason,
+            "prerequisite": self.prerequisite,
         }
 
     @classmethod
@@ -250,6 +281,7 @@ class ExploitRecord:
             required_privileges=data.get("required_privileges", ""),
             category=data.get("category", ""),
             trusted_component_abused=data.get("trusted_component_abused", ""),
+            affected_files=data.get("affected_files", []),
             confirmed=data.get("confirmed"),
             poc_code=data.get("poc_code"),
             test_output=data.get("test_output"),
@@ -260,6 +292,15 @@ class ExploitRecord:
             cvss_score=data.get("cvss_score"),
             cvss_justification=data.get("cvss_justification"),
             chain_id=data.get("chain_id"),
+            adversarial_viability=data.get("adversarial_viability"),
+            profit_model=data.get("profit_model"),
+            external_mitigations=data.get(
+                "external_mitigations", data.get("off_chain_mitigations")
+            ),
+            platform_validity=data.get("platform_validity"),
+            critic_summary=data.get("critic_summary"),
+            rejection_reason=data.get("rejection_reason"),
+            prerequisite=data.get("prerequisite"),
         )
 
 

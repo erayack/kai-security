@@ -24,7 +24,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from kai import generate_id
-from kai.definitions import exploit_config, exploit_result_processors, setup_config
+from kai.definitions import (
+    exploit_config,
+    exploit_result_processors,
+    patch_assembler_config,
+    setup_config,
+)
 from kai.logging_config import configure_logging
 from kai.definitions.exploit.tools import make_graph_tools
 from kai.dependency import TreeSitterBuilder
@@ -36,6 +41,11 @@ from ra.agents import RecursiveAgent, RecursiveAgentConfig
 from ra.core.types import RLMChatCompletion, UsageSummary
 
 log = logging.getLogger(__name__)
+
+# Resolved once at import time so _save_result always writes relative to
+# the original working directory — even when LocalREPL._temp_cwd() has
+# moved the process CWD into a temp workspace.
+_STARTUP_CWD = Path.cwd()
 
 AGENTS: dict[str, RecursiveAgentConfig] = {
     "setup": setup_config,
@@ -74,7 +84,7 @@ def _save_result(
     Returns the path that was written.
     """
     if output_path is None:
-        out_dir = Path("output")
+        out_dir = _STARTUP_CWD / "output"
         out_dir.mkdir(exist_ok=True)
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         dest = out_dir / f"run_{ts}.json"
@@ -97,112 +107,255 @@ def _save_result(
     return dest
 
 
-_BUILD_COMMANDS: list[tuple[str, list[str]]] = [
-    ("foundry.toml", ["forge", "build"]),
-    ("Cargo.toml", ["cargo", "build"]),
-    ("package.json", ["npm", "run", "build"]),
-]
+# ---------------------------------------------------------------------------
+# Iterative re-verification helpers
+# ---------------------------------------------------------------------------
+
+_ITERATIVE_REASONS = {"unreachable", "multi_bug_chain"}
 
 
-def _detect_build_cmd(repo: str) -> list[str] | None:
-    """Return the build command for *repo*, or ``None`` if unknown."""
-    for marker, cmd in _BUILD_COMMANDS:
-        if (Path(repo) / marker).exists():
-            return cmd
-    return None
+def _collect_iterative_candidates(
+    state_manager: StateManager,
+    run_id: str,
+) -> list[Any]:
+    """Return rejected exploits eligible for iterative re-verification."""
+    from kai.state.models import ExploitRecord
+
+    rejected: list[ExploitRecord] = state_manager.get_exploits(
+        run_id, status="rejected"
+    )
+    return [e for e in rejected if e.rejection_reason in _ITERATIVE_REASONS]
 
 
-def _apply_fixes(
-    master_path: str,
-    findings: list[dict[str, Any]],
-    round_num: int,
+def _get(obj: Any, key: str, default: Any = None) -> Any:
+    """Read *key* from a dict or an object attribute."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def _seed_iterative_exploits(
+    state_manager: StateManager,
+    iterative_run_id: str,
+    parent_candidates: list[Any],
+    prerequisite: str,
 ) -> list[dict[str, Any]]:
-    """Apply patches from *findings* and return the subset that succeeded.
+    """Create new candidate records for the iterative run.
 
-    Creates a branch, applies each patch individually, commits, and
-    runs a build check.  On build failure the commit is rolled back
-    and an empty list is returned.
+    *parent_candidates* may be ``ExploitRecord`` objects (from a live
+    run) or plain dicts (deserialized from a follow-up recipe).
+
+    Returns a list of pending_candidates dicts for root context.
     """
-    branch = f"fix/round-{round_num}"
-    run = subprocess.run
+    from kai.state.models import ExploitRecord
 
-    # Create a fix branch
-    run(
-        ["git", "checkout", "-b", branch],
-        cwd=master_path,
-        capture_output=True,
-    )
-
-    applied: list[dict[str, Any]] = []
-    for finding in findings:
-        patch = finding.get("patch", "")
-        if not patch:
-            continue
-        try:
-            fd, tmp_str = tempfile.mkstemp(suffix=".patch")
-            tmp = Path(tmp_str)
-            os.close(fd)
-            tmp.write_text(patch)
-            res = run(
-                ["git", "apply", str(tmp)],
-                cwd=master_path,
-                capture_output=True,
-            )
-            if res.returncode == 0:
-                applied.append(finding)
-            else:
-                log.warning(
-                    "Patch for %s failed: %s",
-                    finding.get("hypothesis", "?"),
-                    res.stderr.decode(errors="replace").strip(),
-                )
-        finally:
-            tmp.unlink(missing_ok=True)
-
-    if not applied:
-        run(["git", "checkout", "-"], cwd=master_path, capture_output=True)
-        run(
-            ["git", "branch", "-D", branch],
-            cwd=master_path,
-            capture_output=True,
+    pending: list[dict[str, Any]] = []
+    now = datetime.now(timezone.utc).isoformat()
+    for parent in parent_candidates:
+        new_id = generate_id()
+        rec = ExploitRecord(
+            run_id=iterative_run_id,
+            exploit_id=new_id,
+            timestamp=now,
+            source_agent="iterative_seed",
+            status="candidate",
+            hypothesis=_get(parent, "hypothesis", ""),
+            file=_get(parent, "file", ""),
+            function=_get(parent, "function", ""),
+            exploit_sketch=_get(parent, "exploit_sketch", ""),
+            attacker_role=_get(parent, "attacker_role", ""),
+            required_privileges=_get(parent, "required_privileges", ""),
+            category=_get(parent, "category", ""),
+            trusted_component_abused=_get(parent, "trusted_component_abused", ""),
+            affected_files=_get(parent, "affected_files", []),
+            prerequisite=prerequisite,
         )
-        return []
+        state_manager.add_exploit(rec)
+        pending.append(
+            {
+                "exploit_id": new_id,
+                "hypothesis": _get(parent, "hypothesis", ""),
+                "file": _get(parent, "file", ""),
+                "function": _get(parent, "function", ""),
+                "exploit_sketch": _get(parent, "exploit_sketch", ""),
+            }
+        )
+    return pending
 
-    # Commit the applied patches
-    run(["git", "add", "-A"], cwd=master_path, capture_output=True)
-    run(
-        ["git", "commit", "-m", f"Round {round_num} fixes"],
-        cwd=master_path,
-        capture_output=True,
+
+def _run_patch_assembler(
+    recipe: WorkspaceRecipe,
+    *,
+    state_manager: StateManager,
+    run_id: str,
+    patches: list[dict[str, Any]],
+    branch_name: str,
+    verbose: bool = False,
+    log_structured: bool = False,
+    save_rollouts: bool = False,
+    rollout_agents: set[str] | None = None,
+) -> str | None:
+    """Run the patch assembler agent. Returns the diff or None on failure.
+
+    The agent applies *patches* to a new branch, resolves conflicts,
+    and verifies the build.  After completion the host captures
+    ``git diff <before> HEAD`` and persists it as
+    ``RunRecord.prerequisite_diff``.
+    """
+    master = recipe.master_path
+
+    # Record HEAD before the agent mutates the worktree.
+    head_before = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"],
+        cwd=master,
+        text=True,
+    ).strip()
+
+    # Build hints from the recipe (if available).
+    build_hints: dict[str, str] = {}
+    build_cmd = getattr(recipe, "build_cmd", None)
+    test_cmd = getattr(recipe, "test_cmd", None)
+    if build_cmd:
+        build_hints["build_cmd"] = build_cmd
+    if test_cmd:
+        build_hints["test_cmd"] = test_cmd
+
+    context: dict[str, Any] = {
+        "master_path": master,
+        "patches": patches,
+        "branch_name": branch_name,
+    }
+    if build_hints:
+        context["build_hints"] = build_hints
+
+    cfg = replace(
+        patch_assembler_config,
+        verbose=verbose,
+        log_structured=log_structured,
+        environment_kwargs={
+            **patch_assembler_config.environment_kwargs,
+            "workspace_factory": lambda: master,
+            "skip_cleanup": True,
+        },
     )
 
-    # Build check
-    build_cmd = _detect_build_cmd(master_path)
-    if build_cmd:
-        res = run(build_cmd, cwd=master_path, capture_output=True)
-        if res.returncode != 0:
-            log.warning(
-                "Build failed after round %d fixes, rolling back",
-                round_num,
-            )
-            run(
-                ["git", "reset", "--hard", "HEAD~1"],
-                cwd=master_path,
-                capture_output=True,
-            )
-            run(
-                ["git", "checkout", "-"],
-                cwd=master_path,
-                capture_output=True,
-            )
-            run(
-                ["git", "branch", "-D", branch],
-                cwd=master_path,
-                capture_output=True,
-            )
-            return []
+    # Iteration tracking only (no ExploitsProxy / spawn wrappers).
+    cfg = inject_state_manager(
+        cfg,
+        state_manager,
+        run_id,
+        save_rollouts=save_rollouts,
+        rollout_agents=rollout_agents,
+        _depth=1,
+    )
 
-    return applied
+    try:
+        agent = RecursiveAgent(cfg)
+        agent.completion(context)
+
+        # Capture cumulative diff and persist it.
+        diff = subprocess.check_output(
+            ["git", "diff", head_before, "HEAD"],
+            cwd=master,
+            text=True,
+        )
+        state_manager.update_run(run_id, prerequisite_diff=diff)
+        return diff
+    except Exception:
+        log.exception("Patch assembler failed for run %s", run_id)
+        # Attempt to restore the original branch.
+        try:
+            subprocess.check_call(
+                ["git", "checkout", "-"],
+                cwd=master,
+                timeout=30,
+            )
+        except Exception:
+            log.warning("Could not restore original branch in %s", master)
+        return None
+
+
+def _maybe_run_patch_assembler(
+    recipe: WorkspaceRecipe,
+    state_manager: StateManager,
+    run_id: str,
+    *,
+    verbose: bool = False,
+    log_structured: bool = False,
+    save_rollouts: bool = False,
+    rollout_agents: set[str] | None = None,
+) -> str | None:
+    """Assemble patches and save a follow-up recipe for the user.
+
+    Guards: blocked candidates + fixes with patches must exist.
+    On success, saves a recipe at ``output/recipe_patched_{id}.json``
+    and returns its path.  The user can launch the follow-up with
+    ``--recipe``.
+
+    Returns the saved recipe path, or ``None`` if not triggered.
+    """
+    candidates = _collect_iterative_candidates(state_manager, run_id)
+    if not candidates:
+        log.info("Iterative: no reachability-rejected candidates")
+        return None
+
+    # Need at least one fix with a patch
+    fixes = state_manager.get_fixes(run_id)
+    fix_dicts = [f.to_dict() for f in fixes if f.patch]
+    if not fix_dicts:
+        log.info("Iterative: no fixes with patches available")
+        return None
+
+    branch_name = f"patched-{run_id[:12]}"
+
+    log.info(
+        "Patch assembler: %d candidates, %d patches",
+        len(candidates),
+        len(fix_dicts),
+    )
+
+    diff = _run_patch_assembler(
+        recipe,
+        state_manager=state_manager,
+        run_id=run_id,
+        patches=fix_dicts,
+        branch_name=branch_name,
+        verbose=verbose,
+        log_structured=log_structured,
+        save_rollouts=save_rollouts,
+        rollout_agents=rollout_agents,
+    )
+    if diff is None:
+        return None
+
+    # Build pending_candidates for the follow-up recipe
+    pending = [
+        {
+            "exploit_id": c.exploit_id,
+            "hypothesis": c.hypothesis,
+            "file": c.file,
+            "function": c.function,
+            "exploit_sketch": c.exploit_sketch,
+        }
+        for c in candidates
+    ]
+
+    # Save follow-up recipe
+    followup = replace(
+        recipe,
+        prerequisite_branch=branch_name,
+        pending_candidates=pending,
+    )
+    out_dir = _STARTUP_CWD / "output"
+    out_dir.mkdir(exist_ok=True)
+    dest = out_dir / f"recipe_patched_{run_id[:12]}.json"
+    dest.write_text(json.dumps(followup.to_dict(), indent=2))
+
+    log.info(
+        "Follow-up recipe saved to %s — run with --recipe to continue",
+        dest,
+    )
+    return str(dest)
 
 
 def run_exploit(
@@ -212,7 +365,6 @@ def run_exploit(
     log_file: str = "",
     log_structured: bool = False,
     instructions: str = "",
-    prior_findings: list[dict[str, Any]] | None = None,
     pending_candidates: list[dict[str, Any]] | None = None,
     state_manager: StateManager | None = None,
     run_id: str | None = None,
@@ -220,6 +372,8 @@ def run_exploit(
     rollout_agents: set[str] | None = None,
     threat_context: ThreatContext | None = None,
     skip_fixer: bool = False,
+    config: RecursiveAgentConfig | None = None,
+    max_iterations: int | None = None,
 ) -> RLMChatCompletion:
     """Run the exploit agent with a pre-built workspace recipe.
 
@@ -227,30 +381,63 @@ def run_exploit(
     ----------
     instructions:
         Free-text guidance passed through to the exploit agent context.
-    prior_findings:
-        Already-known vulnerabilities from earlier rounds.  The agent
-        is told not to re-report these and to focus on new bugs.
     state_manager:
         Optional state manager for progress tracking.
     run_id:
         Run identifier (required when *state_manager* is given).
+    config:
+        Override the default ``exploit_config``.
+    max_iterations:
+        Override the config's ``max_iterations`` budget.
 
     Returns the full ``RLMChatCompletion`` from the exploit agent.
     """
+    base_config = config if config is not None else exploit_config
+
     if log_file:
         log_file = str(Path(log_file).resolve())
+
+    # Checkout prerequisite branch if the recipe carries one
+    if recipe.prerequisite_branch is not None:
+        log.info(
+            "Checking out prerequisite branch %s in %s",
+            recipe.prerequisite_branch,
+            recipe.master_path,
+        )
+        subprocess.check_call(
+            ["git", "checkout", recipe.prerequisite_branch],
+            cwd=recipe.master_path,
+            timeout=60,
+        )
+
+    # Seed pending candidates from recipe when not passed explicitly
+    if pending_candidates is None and recipe.pending_candidates is not None:
+        pending_candidates = recipe.pending_candidates
+    if (
+        pending_candidates is not None
+        and state_manager is not None
+        and run_id is not None
+    ):
+        _seed_iterative_exploits(
+            state_manager,
+            run_id,
+            pending_candidates,
+            recipe.prerequisite_branch or "",
+        )
 
     # Build dependency graph and bind as root tools
     graph = TreeSitterBuilder().build(recipe.master_path)
     graph_tools = make_graph_tools(graph)
 
     injected_config = inject_workspace(
-        exploit_config,
+        base_config,
         recipe,
         verbose=verbose,
         log_file=log_file or None,
         log_structured=log_structured or None,
     )
+    if max_iterations is not None:
+        injected_config = replace(injected_config, max_iterations=max_iterations)
     injected_config = replace(
         injected_config,
         tools={**injected_config.tools, **graph_tools},
@@ -316,8 +503,6 @@ def run_exploit(
     context: dict[str, Any] = {"master_path": recipe.master_path}
     if instructions:
         context["instructions"] = instructions
-    if prior_findings:
-        context["prior_findings"] = prior_findings
     if pending_candidates:
         context["pending_candidates"] = pending_candidates
     if threat_context is not None:
@@ -336,7 +521,6 @@ def run_pipeline(
     log_file: str = "",
     log_structured: bool = False,
     instructions: str = "",
-    max_rounds: int = 1,
     state_dir: str = "output/state",
     no_state: bool = False,
     save_rollouts: bool = False,
@@ -345,15 +529,16 @@ def run_pipeline(
     run_id: str | None = None,
     threat_context: ThreatContext | None = None,
     skip_fixer: bool = False,
+    no_iterative: bool = False,
 ) -> RLMChatCompletion:
     """Run the full setup → exploit pipeline.
 
     1. Create a long-lived master_dir.
     2. Run the setup agent to build the repo and produce a recipe.
-    3. Loop up to *max_rounds* times: run exploit, apply fixes, repeat.
+    3. Run the exploit agent (with optional iterative re-verification).
     4. Clean up master_dir on success (preserved on failure).
 
-    Returns a merged ``RLMChatCompletion`` containing all findings.
+    Returns the ``RLMChatCompletion`` from the exploit run.
     """
     repo_path = str(Path(repo_path).resolve())
     master_dir = tempfile.mkdtemp(prefix="kai_master_")
@@ -432,22 +617,39 @@ def run_pipeline(
                 "Setup agent failed to produce valid JSON after "
                 f"{max_setup_attempts} attempts"
             )
+        # The setup agent occasionally wraps the recipe in a list.
+        if isinstance(recipe_data, list):
+            if len(recipe_data) == 1 and isinstance(recipe_data[0], dict):
+                recipe_data = recipe_data[0]
+            else:
+                raise RuntimeError(
+                    "Setup agent returned a JSON list instead of a recipe dict"
+                )
         recipe = WorkspaceRecipe.from_dict(recipe_data)
 
-        # --- Step 3: iterative exploit loop ---
+        # Persist recipe so future runs can use --recipe.
+        # Rewrite master_path to the original repo_path because the
+        # temp master_dir is cleaned up after a successful run.
+        saved_recipe = replace(recipe, master_path=repo_path)
+        recipe_dest = _STARTUP_CWD / "output" / "recipe.json"
+        recipe_dest.parent.mkdir(exist_ok=True)
+        recipe_dest.write_text(json.dumps(saved_recipe.to_dict(), indent=2))
+        log.info("Recipe saved to %s", recipe_dest)
+
+        # --- Step 3: exploit run ---
         result = _run_exploit_loop(
             recipe,
             verbose=verbose,
             log_file=log_file,
             log_structured=log_structured,
             instructions=instructions,
-            max_rounds=max_rounds,
             state_manager=sm,
             run_id=rid,
             save_rollouts=save_rollouts,
             rollout_agents=rollout_agents,
             threat_context=threat_context,
             skip_fixer=skip_fixer,
+            no_iterative=no_iterative,
         )
         succeeded = True
 
@@ -530,13 +732,16 @@ def _run_chain_assembler(
     )
     cfg = replace(cfg, tools={**cfg.tools, **graph_tools})
 
-    # Attach state hooks + rollout recording
+    # Attach state hooks + rollout recording.
+    # _depth=1 so the chain assembler gets iteration tracking but NOT
+    # root-level extras (ExploitsProxy, spawn_wrappers, on_extend).
     cfg = inject_state_manager(
         cfg,
         state_manager,
         run_id,
         save_rollouts=save_rollouts,
         rollout_agents=rollout_agents,
+        _depth=1,
     )
 
     try:
@@ -556,41 +761,24 @@ def _run_exploit_loop(
     log_file: str = "",
     log_structured: bool = False,
     instructions: str = "",
-    max_rounds: int = 1,
     state_manager: StateManager | None = None,
     run_id: str | None = None,
     save_rollouts: bool = False,
     rollout_agents: set[str] | None = None,
     threat_context: ThreatContext | None = None,
     skip_fixer: bool = False,
+    no_iterative: bool = False,
 ) -> RLMChatCompletion:
-    """Run up to *max_rounds* of exploit → fix → re-audit."""
-    all_findings: list[dict[str, Any]] = []
-    fixed_findings: list[dict[str, Any]] = []
-    pending_for_next: list[dict[str, Any]] | None = None
-    last_result: RLMChatCompletion | None = None
-    merged_usage = UsageSummary(model_usage_summaries={})
-    total_time = 0.0
+    """Run the exploit agent, optionally followed by iterative re-verification."""
     chain_thread: threading.Thread | None = None
 
-    for round_num in range(1, max_rounds + 1):
-        # Per-round log file
-        if log_file and max_rounds > 1:
-            stem = Path(log_file).stem
-            suffix = Path(log_file).suffix
-            parent = Path(log_file).parent
-            round_log = str(parent / f"{stem}_round{round_num}{suffix}")
-        else:
-            round_log = log_file
-
+    try:
         result = run_exploit(
             recipe,
             verbose=verbose,
-            log_file=round_log,
+            log_file=log_file,
             log_structured=log_structured,
             instructions=instructions,
-            prior_findings=fixed_findings or None,
-            pending_candidates=pending_for_next,
             state_manager=state_manager,
             run_id=run_id,
             save_rollouts=save_rollouts,
@@ -598,30 +786,12 @@ def _run_exploit_loop(
             threat_context=threat_context,
             skip_fixer=skip_fixer,
         )
-        last_result = result
-        merged_usage = merged_usage.merge(result.usage_summary)
-        total_time += result.execution_time
 
         # Save intermediate so no work is lost
         _save_result(result, None)
 
-        # Parse new findings
-        try:
-            new_findings = json.loads(result.response)
-        except (json.JSONDecodeError, TypeError):
-            break
-
-        if not isinstance(new_findings, list) or not new_findings:
-            break
-
-        all_findings.extend(new_findings)
-
         # Launch chain assembler if verified exploits exist
-        if (
-            state_manager is not None
-            and run_id is not None
-            and (chain_thread is None or not chain_thread.is_alive())
-        ):
+        if state_manager is not None and run_id is not None:
             verified = state_manager.get_exploits(run_id, status="verified")
             verified += state_manager.get_exploits(run_id, status="verified_and_fixed")
             if verified:
@@ -637,64 +807,29 @@ def _run_exploit_loop(
                         "save_rollouts": save_rollouts,
                         "rollout_agents": rollout_agents,
                     },
-                    daemon=True,
                 )
                 chain_thread.start()
+    finally:
+        # Always wait for the chain assembler — it writes to the
+        # state directory and needs master_dir alive.
+        if chain_thread is not None and chain_thread.is_alive():
+            chain_thread.join(timeout=300)
 
-        # Apply fixes and continue (unless last round).
-        # Only successfully-applied findings go into prior context
-        # so the next round doesn't skip unfixed bugs.
-        if round_num < max_rounds:
-            fixed = _apply_fixes(recipe.master_path, new_findings, round_num)
-            fixed_findings.extend(fixed)
+    # --- Patch assembly + follow-up recipe ---
+    if not no_iterative and state_manager is not None and run_id is not None:
+        recipe_path = _maybe_run_patch_assembler(
+            recipe,
+            state_manager,
+            run_id,
+            verbose=verbose,
+            log_structured=log_structured,
+            save_rollouts=save_rollouts,
+            rollout_agents=rollout_agents,
+        )
+        if recipe_path is not None:
+            log.info("Patched follow-up recipe: %s", recipe_path)
 
-            # Collect leftover work for the next round: candidates
-            # never verified and confirmed exploits never fixed.
-            # Both need re-verification because _apply_fixes may
-            # have changed the codebase.
-            pending: list[dict[str, Any]] = []
-            if state_manager is not None and run_id is not None:
-                for e in state_manager.get_exploits(run_id, status="candidate"):
-                    pending.append(
-                        {
-                            "hypothesis": e.hypothesis,
-                            "file": e.file,
-                            "function": e.function,
-                            "exploit_sketch": e.exploit_sketch,
-                        }
-                    )
-                for e in state_manager.get_exploits(run_id, status="verified"):
-                    if e.confirmed:
-                        item: dict[str, Any] = {
-                            "hypothesis": e.hypothesis,
-                            "file": e.file,
-                            "function": e.function,
-                            "exploit_sketch": e.exploit_sketch,
-                        }
-                        if e.poc_code:
-                            item["poc_code"] = e.poc_code
-                        pending.append(item)
-            pending_for_next = pending or None
-
-    # Wait for chain assembler to finish
-    if chain_thread is not None and chain_thread.is_alive():
-        chain_thread.join(timeout=300)
-
-    # Return merged result when multi-round, or original for single
-    if last_result is None:
-        msg = "No exploit rounds completed"
-        raise RuntimeError(msg)
-
-    if max_rounds == 1:
-        return last_result
-
-    return RLMChatCompletion(
-        root_model=last_result.root_model,
-        prompt=last_result.prompt,
-        response=json.dumps(all_findings),
-        usage_summary=merged_usage,
-        execution_time=total_time,
-    )
+    return result
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -807,12 +942,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Extra instructions for the exploit agent.",
     )
     pipe_parser.add_argument(
-        "--max-rounds",
-        type=int,
-        default=1,
-        help="Max fix-and-re-audit rounds (default: 1).",
-    )
-    pipe_parser.add_argument(
         "--state-dir",
         default="output/state",
         help="Directory for state storage (default: output/state).",
@@ -839,6 +968,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Skip fixer agent — only analyze and verify.",
+    )
+    pipe_parser.add_argument(
+        "--no-iterative",
+        action="store_true",
+        default=False,
+        help="Disable iterative re-verification of unreachable rejects.",
     )
 
     return parser
@@ -875,9 +1010,13 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "pipeline":
         log_file = args.log_file
         instructions = args.instructions
-        max_rounds = args.max_rounds
         state_dir = args.state_dir
         no_state = args.no_state
+        no_iterative = args.no_iterative or os.environ.get("KAI_NO_ITERATIVE", "") in (
+            "1",
+            "true",
+            "yes",
+        )
         tc: ThreatContext | None = None
         if args.threat_context:
             tc = _load_threat_context(args.threat_context)
@@ -912,13 +1051,13 @@ def main(argv: list[str] | None = None) -> None:
                     log_file=log_file,
                     log_structured=structured,
                     instructions=instructions,
-                    max_rounds=max_rounds,
                     state_manager=sm,
                     run_id=rid,
                     save_rollouts=save_rollouts,
                     rollout_agents=rollout_agents,
                     threat_context=tc,
                     skip_fixer=args.skip_fixer,
+                    no_iterative=no_iterative,
                 )
                 if sm is not None and rid is not None:
                     sm.update_run(
@@ -952,7 +1091,6 @@ def main(argv: list[str] | None = None) -> None:
                     log_file=log_file,
                     log_structured=structured,
                     instructions=instructions,
-                    max_rounds=max_rounds,
                     state_dir=state_dir,
                     no_state=no_state,
                     save_rollouts=save_rollouts,
@@ -961,6 +1099,7 @@ def main(argv: list[str] | None = None) -> None:
                     run_id=rid,
                     threat_context=tc,
                     skip_fixer=args.skip_fixer,
+                    no_iterative=no_iterative,
                 )
             print(result.response)
             dest = _save_result(result, args.output)

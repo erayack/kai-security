@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -29,20 +30,26 @@ def make_on_early_stop_hook(
     """
 
     def _on_early_stop(current_iteration: int) -> str | None:
-        pending = state_manager.get_exploits(run_id, status="candidate")
-        if not pending:
+        candidates = state_manager.get_exploits(run_id, status="candidate")
+        failed = state_manager.get_exploits(run_id, status="failed")
+        pending = candidates + failed
+        # Only block finalization for actionable active exploits;
+        # non-active categories (trust_assumption_violation, etc.)
+        # should not hold up the pipeline.
+        actionable = [p for p in pending if p.category == "active_exploit"]
+        if not actionable:
             return None
         bullets = "\n".join(
-            f"  - [{p.file}:{p.function}] {p.hypothesis[:120]}" for p in pending
+            f"  - [{p.file}:{p.function}] {p.hypothesis[:120]}" for p in actionable
         )
         log.info(
-            "on_early_stop: %d unverified candidate(s) at iteration %d, "
+            "on_early_stop: %d actionable candidate(s) at iteration %d, "
             "injecting nudge",
-            len(pending),
+            len(actionable),
             current_iteration,
         )
         return (
-            f"Do not finalize yet. There are {len(pending)} exploit "
+            f"Do not finalize yet. There are {len(actionable)} exploit "
             f"candidate(s) still pending verification:\n{bullets}\n\n"
             f"Continue by verifying and fixing these candidates before "
             f"producing your final answer."
@@ -146,30 +153,34 @@ def make_rollout_on_iteration_hook(
 
     When ``iteration.final_answer`` is not ``None`` a result entry is
     appended.
+
+    Thread safety: ``spawn_id`` is stored in thread-local storage so
+    that orphaned daemon threads from timed-out spawns cannot corrupt
+    the rollout of a subsequent spawn running on a different thread.
     """
-    spawn_id: list[str] = []  # mutable; empty means no spawn yet
+    _tls = threading.local()
 
     def _on_iteration(iteration: RLMIteration, iteration_num: int) -> None:
         try:
             ts = datetime.now(timezone.utc).isoformat()
 
             # New spawn detected — emit metadata
-            if iteration_num == 1 or not spawn_id:
-                spawn_id.clear()
-                spawn_id.append(generate_id())
+            current_id: str = getattr(_tls, "spawn_id", "")
+            if iteration_num == 1 or not current_id:
+                _tls.spawn_id = generate_id()
                 state_manager.open_rollout(
                     run_id,
                     agent_name,
                     depth,
                     {
-                        "spawn_id": spawn_id[0],
+                        "spawn_id": _tls.spawn_id,
                         "timestamp": ts,
                         "backend": backend,
                         "model": model,
                     },
                 )
 
-            sid = spawn_id[0]
+            sid: str = _tls.spawn_id
 
             # Build iteration payload
             code_blocks: list[dict[str, object]] = []

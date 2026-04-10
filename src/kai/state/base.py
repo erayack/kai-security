@@ -53,8 +53,12 @@ class StateManager(ABC):
     # -- Exploits --
 
     @abstractmethod
-    def add_exploit(self, exploit: ExploitRecord) -> None:
-        """Persist a new exploit record."""
+    def add_exploit(self, exploit: ExploitRecord) -> bool:
+        """Persist a new exploit record.
+
+        Always inserts — deduplication is the root agent's
+        responsibility.  Returns ``True`` on success.
+        """
 
     @abstractmethod
     def update_exploit(self, run_id: str, exploit_id: str, **fields: object) -> None:

@@ -40,6 +40,7 @@ Each agent's model can be overridden via environment variables. Set these in `.e
 | `KAI_ANALYZER_MODEL` | `minimax/minimax-m2.5` | Vulnerability analysis |
 | `KAI_VERIFIER_MODEL` | `openai/gpt-5.2` | PoC verification |
 | `KAI_FIXER_MODEL` | `openai/gpt-5.2` | Patch generation |
+| `KAI_CRITIC_MODEL` | `anthropic/claude-opus-4.5` | Adversarial viability assessment |
 | `KAI_RESEARCHER_MODEL` | `minimax/minimax-m2.5` | Web research |
 | `KAI_SETUP_MODEL` | `minimax/minimax-m2.5` | Project setup |
 
@@ -60,6 +61,7 @@ Each agent's iteration limit can be tuned independently:
 | `KAI_ANALYZER_ITERS` | `30` | Vulnerability analysis |
 | `KAI_VERIFIER_ITERS` | `30` | PoC verification |
 | `KAI_FIXER_ITERS` | `25` | Patch generation |
+| `KAI_CRITIC_ITERS` | `10` | Adversarial viability assessment |
 | `KAI_RESEARCHER_ITERS` | `15` | Web research |
 | `KAI_SETUP_ITERS` | `30` | Project setup |
 
@@ -85,18 +87,9 @@ uv run python -m kai.main pipeline --repo-path /path/to/target --verbose
 uv run python -m kai.main pipeline --repo-path /path/to/target --verbose --log-file run.log
 ```
 
-### Iterative fix-and-re-audit
+### Iterative re-verification
 
-Use `--max-rounds` to run multiple passes. After each round, verified patches are applied to the codebase and the exploit agent re-audits the updated code to find deeper bugs that were hidden behind the first-round issues.
-
-```bash
-# Three rounds of analysis
-uv run python -m kai.main pipeline --repo-path /path/to/target --max-rounds 3 --verbose --log-file audit.log
-```
-
-With `--log-file` and multiple rounds, each round gets its own log: `audit_round1.log`, `audit_round2.log`, etc. Intermediate results are saved to `output/` after each round so no work is lost.
-
-Only findings whose patches apply cleanly are passed as context to subsequent rounds — the agent won't skip bugs that failed to patch.
+When the exploit agent finds and patches showstopper bugs, candidates that were rejected as "unreachable" or part of a multi-bug chain are automatically re-verified against the patched codebase. This happens within a single run — no manual re-launch is needed. Disable with `--no-iterative`.
 
 ### Extra instructions
 
@@ -197,7 +190,7 @@ uv run python -m kai.main agent exploit --input '{"master_path": "/tmp/master"}'
 | `--verbose` | both | Rich console output showing each iteration |
 | `--log-file PATH` | both | Save verbose output to a file |
 | `--instructions TEXT` | pipeline | Extra instructions for the exploit agent |
-| `--max-rounds N` | pipeline | Fix-and-re-audit rounds (default: 1) |
+| `--no-iterative` | pipeline | Disable iterative re-verification of unreachable rejects |
 | `--backend NAME` | agent | Override LLM backend |
 | `--model NAME` | agent | Override model name |
 | `--max-iterations N` | agent | Override iteration budget |

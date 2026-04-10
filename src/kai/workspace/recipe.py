@@ -21,16 +21,23 @@ class WorkspaceRecipe:
     copy_dirs: list[str] = field(default_factory=list)
     copy_files: list[str] = field(default_factory=list)
     post_copy_commands: list[str] = field(default_factory=list)
+    prerequisite_branch: str | None = None
+    pending_candidates: list[dict[str, Any]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict."""
-        return {
+        d: dict[str, Any] = {
             "master_path": self.master_path,
             "symlink_dirs": self.symlink_dirs,
             "copy_dirs": self.copy_dirs,
             "copy_files": self.copy_files,
             "post_copy_commands": self.post_copy_commands,
         }
+        if self.prerequisite_branch is not None:
+            d["prerequisite_branch"] = self.prerequisite_branch
+        if self.pending_candidates is not None:
+            d["pending_candidates"] = self.pending_candidates
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WorkspaceRecipe:
@@ -41,4 +48,6 @@ class WorkspaceRecipe:
             copy_dirs=data.get("copy_dirs", []),
             copy_files=data.get("copy_files", []),
             post_copy_commands=data.get("post_copy_commands", []),
+            prerequisite_branch=data.get("prerequisite_branch"),
+            pending_candidates=data.get("pending_candidates"),
         )

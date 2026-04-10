@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import replace
 from typing import Any, Callable
 
@@ -80,6 +81,7 @@ def _make_spawn_fn(
     pending: list[Any] = []
     records: list[SpawnRecord] = []
     call_count = [0]  # mutable counter shared across calls
+    _count_lock = threading.Lock()
 
     def _log_error(msg: str) -> None:
         log.error(msg)
@@ -91,10 +93,12 @@ def _make_spawn_fn(
                 pass
 
     def _spawn(**kwargs: Any) -> str:
-        call_count[0] += 1
+        with _count_lock:
+            call_count[0] += 1
+            current_count = call_count[0]
         indexed_config = config
-        if call_count[0] > 1:
-            indexed_config = replace(config, name=f"{config.name}#{call_count[0]}")
+        if current_count > 1:
+            indexed_config = replace(config, name=f"{config.name}#{current_count}")
 
         # Forward cooperative cancellation event from parent REPL
         cancel_event = getattr(_spawn, "_cancel_event", None)

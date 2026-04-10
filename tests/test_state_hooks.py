@@ -206,9 +206,7 @@ class TestAnalyzerProcessor:
     def test_precondition_fields_default_empty(self) -> None:
         """Candidates without precondition fields get empty defaults."""
         mgr = _make_manager()
-        raw = json.dumps(
-            [{"hypothesis": "h", "file": "f", "function": "fn"}]
-        )
+        raw = json.dumps([{"hypothesis": "h", "file": "f", "function": "fn"}])
         process_analyzer_result(mgr, "r1", {}, raw)
         e = mgr.get_exploits("r1")[0]
         assert e.attacker_role == ""

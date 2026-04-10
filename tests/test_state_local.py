@@ -245,6 +245,80 @@ class TestExploits:
         assert data[0]["exploit_id"] == "e1"
 
 
+class TestAddExploitNeverDeduplicates:
+    """add_exploit always persists — dedup is the root agent's job."""
+
+    def test_first_insert_succeeds(self, tmp_path: Path) -> None:
+        mgr = _make_manager(str(tmp_path))
+        exploit = ExploitRecord(
+            run_id="r1",
+            exploit_id="e1",
+            timestamp="t",
+            source_agent="analyzer",
+            status="candidate",
+            hypothesis="reentrancy",
+            file="Vault.sol",
+            function="withdraw",
+        )
+        assert mgr.add_exploit(exploit) is True
+        assert len(mgr.get_exploits("r1")) == 1
+
+    def test_same_file_function_both_persisted(self, tmp_path: Path) -> None:
+        """Multiple bugs in the same function are all kept."""
+        mgr = _make_manager(str(tmp_path))
+        mgr.add_exploit(
+            ExploitRecord(
+                run_id="r1",
+                exploit_id="e1",
+                timestamp="t",
+                source_agent="analyzer",
+                status="candidate",
+                hypothesis="reentrancy via withdraw",
+                file="Vault.sol",
+                function="withdraw",
+            )
+        )
+        second = ExploitRecord(
+            run_id="r1",
+            exploit_id="e2",
+            timestamp="t",
+            source_agent="analyzer",
+            status="candidate",
+            hypothesis="missing access control in withdraw",
+            file="Vault.sol",
+            function="withdraw",
+        )
+        assert mgr.add_exploit(second) is True
+        assert len(mgr.get_exploits("r1")) == 2
+
+    def test_different_function_allowed(self, tmp_path: Path) -> None:
+        mgr = _make_manager(str(tmp_path))
+        mgr.add_exploit(
+            ExploitRecord(
+                run_id="r1",
+                exploit_id="e1",
+                timestamp="t",
+                source_agent="analyzer",
+                status="candidate",
+                hypothesis="h1",
+                file="Vault.sol",
+                function="withdraw",
+            )
+        )
+        other = ExploitRecord(
+            run_id="r1",
+            exploit_id="e2",
+            timestamp="t",
+            source_agent="analyzer",
+            status="candidate",
+            hypothesis="h2",
+            file="Vault.sol",
+            function="deposit",
+        )
+        assert mgr.add_exploit(other) is True
+        assert len(mgr.get_exploits("r1")) == 2
+
+
 class TestFixes:
     def test_add_and_get(self, tmp_path: Path) -> None:
         mgr = _make_manager(str(tmp_path))

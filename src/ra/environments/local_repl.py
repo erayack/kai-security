@@ -130,11 +130,15 @@ class LocalREPL(NonIsolatedEnv):
         **kwargs,
     ):
         factory = kwargs.pop("workspace_factory", None)
+        self._skip_cleanup: bool = kwargs.pop("skip_cleanup", False)
         self._query_model: str | None = kwargs.pop("query_model", None)
         super().__init__(persistent=persistent, depth=depth, **kwargs)
 
         self.lm_handler_address = lm_handler_address
-        self.original_cwd = os.getcwd()
+        try:
+            self.original_cwd = os.getcwd()
+        except (FileNotFoundError, OSError):
+            self.original_cwd = tempfile.gettempdir()
         if factory is not None:
             self.temp_dir = factory()
         else:
@@ -376,13 +380,20 @@ class LocalREPL(NonIsolatedEnv):
 
     @contextmanager
     def _temp_cwd(self):
-        """Temporarily change to temp directory for execution."""
-        old_cwd = os.getcwd()
+        """Temporarily change to temp directory for execution.
+
+        Uses ``self.original_cwd`` (captured at init) instead of
+        ``os.getcwd()`` so the restore is immune to other threads
+        deleting the process CWD via cleanup.
+        """
         try:
             os.chdir(self.temp_dir)
             yield
         finally:
-            os.chdir(old_cwd)
+            try:
+                os.chdir(self.original_cwd)
+            except (FileNotFoundError, OSError):
+                pass  # original_cwd was deleted; stay in temp_dir
 
     @staticmethod
     def _split_last_expr(code: str) -> tuple[str, str | None]:
@@ -462,6 +473,26 @@ class LocalREPL(NonIsolatedEnv):
             if key not in self.globals and not key.startswith("_"):
                 self.locals[key] = value
 
+    @staticmethod
+    def _compute_var_deltas(
+        before: dict[str, int], after: dict[str, int]
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        """Compute added, changed, removed variable name tuples.
+
+        Args:
+            before: ``{name: id(value)}`` snapshot before execution.
+            after: ``{name: id(value)}`` snapshot after execution.
+
+        Returns:
+            ``(added, changed, removed)`` — sorted tuples of names.
+        """
+        before_keys = set(before)
+        after_keys = set(after)
+        added = sorted(after_keys - before_keys)
+        removed = sorted(before_keys - after_keys)
+        changed = sorted(k for k in before_keys & after_keys if before[k] != after[k])
+        return tuple(added), tuple(changed), tuple(removed)
+
     def execute_code(self, code: str) -> REPLResult:
         """Execute code in the persistent namespace and return result.
 
@@ -482,10 +513,17 @@ class LocalREPL(NonIsolatedEnv):
         body, last_expr = self._split_last_expr(code)
         targets = self._find_assignment_targets(code)
 
+        # Snapshot locals before execution for delta tracking
+        locals_before = {
+            k: id(v) for k, v in self.locals.items() if not k.startswith("_")
+        }
+
         # Shared state between main thread and worker
         combined = {**self.globals, **self.locals}
         exc_holder: list[Exception] = []
         succeeded = False
+        # Capture last-expression value separately from stdout
+        out_value_holder: list[str] = []
 
         # Cooperative cancellation: stamp every tool so spawn functions
         # can forward the event to child RLM instances.
@@ -510,7 +548,9 @@ class LocalREPL(NonIsolatedEnv):
                             last_expr, combined, combined
                         )
                         if result is not None:
-                            print(repr(result))
+                            result_repr = repr(result)
+                            out_value_holder.append(result_repr)
+                            print(result_repr)
 
                     succeeded = True
                 except Exception as e:
@@ -519,6 +559,9 @@ class LocalREPL(NonIsolatedEnv):
             worker = threading.Thread(target=_run, daemon=True)
             worker.start()
             worker.join(timeout=self._exec_timeout)
+
+            exception_name: str | None = None
+            has_error = False
 
             if worker.is_alive():
                 # Signal child RLMs to stop at next iteration boundary
@@ -532,6 +575,8 @@ class LocalREPL(NonIsolatedEnv):
                 stderr = stderr_buf.getvalue() + f"\n{error_msg}"
                 # Snapshot: thread may still be running
                 self._writeback_locals(dict(combined), targets, error_msg)
+                exception_name = "TimeoutError"
+                has_error = True
             elif exc_holder:
                 stdout = stdout_buf.getvalue()
                 e = exc_holder[0]
@@ -539,10 +584,20 @@ class LocalREPL(NonIsolatedEnv):
                 stderr = stderr_buf.getvalue() + f"\n{error_msg}"
                 # Thread has exited — safe to read combined
                 self._writeback_locals(combined, targets, error_msg)
+                exception_name = type(e).__name__
+                has_error = True
             else:
                 self._writeback_locals(combined, targets)
                 stdout = stdout_buf.getvalue()
                 stderr = stderr_buf.getvalue()
+
+        # Compute variable deltas
+        locals_after = {
+            k: id(v) for k, v in self.locals.items() if not k.startswith("_")
+        }
+        added_vars, changed_vars, removed_vars = self._compute_var_deltas(
+            locals_before, locals_after
+        )
 
         # Drain sub-agent completions and spawn records from tools
         spawn_records: list[SpawnRecord] = []
@@ -563,6 +618,12 @@ class LocalREPL(NonIsolatedEnv):
             execution_time=time.perf_counter() - start_time,
             rlm_calls=self._pending_llm_calls.copy(),
             spawn_records=spawn_records,
+            added_vars=added_vars,
+            changed_vars=changed_vars,
+            removed_vars=removed_vars,
+            out_value=out_value_holder[0] if out_value_holder else None,
+            exception_name=exception_name,
+            has_error=has_error,
         )
 
     def __enter__(self):
@@ -574,10 +635,11 @@ class LocalREPL(NonIsolatedEnv):
 
     def cleanup(self):
         """Clean up temp directory and reset state."""
-        try:
-            shutil.rmtree(self.temp_dir)
-        except Exception:
-            pass
+        if not self._skip_cleanup:
+            try:
+                shutil.rmtree(self.temp_dir)
+            except Exception:
+                pass
         self.globals.clear()
         self.locals.clear()
 
