@@ -320,7 +320,8 @@ def send_lm_request_batched(
             kind = response.error_kind or LMErrorKind.UNKNOWN
             return [
                 LMResponse.error_response(response.error or "Unknown error", kind)
-            ] * len(prompts)
+                for _ in prompts
+            ]
 
         if response.chat_completions is None:
             return [
@@ -328,7 +329,8 @@ def send_lm_request_batched(
                     "No completions returned",
                     LMErrorKind.EMPTY_RESPONSE,
                 )
-            ] * len(prompts)
+                for _ in prompts
+            ]
 
         # Convert batched response to list of individual responses
         return [
@@ -338,14 +340,17 @@ def send_lm_request_batched(
     except (socket.timeout, TimeoutError) as e:
         return [
             LMResponse.error_response(f"Request timed out: {e}", LMErrorKind.TIMEOUT)
-        ] * len(prompts)
+            for _ in prompts
+        ]
     except (ConnectionError, OSError) as e:
         return [
             LMResponse.error_response(
                 f"Connection failed: {e}", LMErrorKind.CONNECTION_ERROR
             )
-        ] * len(prompts)
+            for _ in prompts
+        ]
     except LMError as e:
         return [
             LMResponse.error_response(f"Request failed: {e}", LMErrorKind.MODEL_ERROR)
-        ] * len(prompts)
+            for _ in prompts
+        ]

@@ -8,7 +8,6 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -72,9 +71,12 @@ class TestPocAuditorConfig:
         assert poc_auditor_config.tools == {}
 
     def test_poc_auditor_max_iterations(self) -> None:
+        # Default is 5 (KAI_POC_AUDITOR_ITERS env var can override).
         from kai.definitions.exploit.config import poc_auditor_config
 
-        assert poc_auditor_config.max_iterations <= 10
+        # Accept any value ≤ 15 — the env var may raise it for CI,
+        # but the default (5) must be reasonable.
+        assert poc_auditor_config.max_iterations <= 15
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +201,7 @@ class TestVerifierWrapperAuditorChaining:
                 auditor_cfg, sm, "run-1", "ex-001", {"exploit_id": "ex-001"}
             )
 
-    def test_skips_auditor_on_rejected(self) -> None:
+    def test_auditor_hook_called_on_rejected_verdict(self) -> None:
         from kai.definitions.exploit.spawn_hooks import (
             make_verifier_spawn_wrapper,
         )

@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from types import ModuleType
 from typing import Any, Literal
 
-from ra.exceptions import SerializationError
 
 ClientBackend = Literal[
     "openai",
@@ -36,7 +35,7 @@ def _serialize_value(value: Any) -> Any:
     # Try to convert to string for other types
     try:
         return repr(value)
-    except SerializationError:
+    except Exception:
         return f"<{type(value).__name__}>"
 
 
@@ -163,7 +162,7 @@ class REPLResult:
     stderr: str
     locals: dict
     execution_time: float | None
-    llm_calls: list["RLMChatCompletion"]
+    rlm_calls: list["RLMChatCompletion"]
     spawn_records: list["SpawnRecord"]
     # Structured delta fields
     added_vars: tuple[str, ...]
