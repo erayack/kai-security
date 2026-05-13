@@ -52,20 +52,20 @@ OPENAI_API_KEY=...
 
 You can also override one agent at a time with `KAI_<AGENT>_BACKEND`, for example `KAI_VERIFIER_BACKEND=openai`.
 
-Each agent's model can be overridden via environment variables. For OpenRouter, use provider-prefixed IDs such as `anthropic/claude-opus-4.5`; for direct OpenAI, use OpenAI model IDs such as `gpt-5.2`.
+Each agent's model can be overridden via environment variables. For OpenRouter, use provider-prefixed IDs such as `anthropic/claude-opus-4.5`; for direct OpenAI, use OpenAI model IDs such as `gpt-5.5`.
 
 | Variable | OpenRouter default | OpenAI default | Agent |
 |---|---|---|---|
-| `KAI_ROOT_MODEL` | `anthropic/claude-opus-4.5` | `gpt-5.2` | Root exploit orchestrator |
-| `KAI_ANALYZER_MODEL` | `minimax/minimax-m2.5` | `gpt-5.2` | Vulnerability analysis |
-| `KAI_VERIFIER_MODEL` | `openai/gpt-5.2` | `gpt-5.2` | Proof-of-concept verification |
-| `KAI_FIXER_MODEL` | `openai/gpt-5.2` | `gpt-5.2` | Patch generation |
-| `KAI_CRITIC_MODEL` | `anthropic/claude-opus-4.5` | `gpt-5.2` | Adversarial viability assessment |
-| `KAI_RESEARCHER_MODEL` | `minimax/minimax-m2.5` | `gpt-5.2` | Web research |
-| `KAI_SETUP_MODEL` | `minimax/minimax-m2.5` | `gpt-5.2` | Project setup |
-| `KAI_POC_AUDITOR_MODEL` | `openai/gpt-4.1-mini` | `gpt-4.1-mini` | PoC soundness audit |
-| `KAI_CHAIN_MODEL` | `anthropic/claude-opus-4.5` | `gpt-5.2` | Multi-step chain assembly |
-| `KAI_PATCH_ASSEMBLER_MODEL` | `openai/gpt-4.1` | `gpt-4.1` | Iterative patch assembly |
+| `KAI_ROOT_MODEL` | `anthropic/claude-opus-4.5` | `gpt-5.5` | Root exploit orchestrator |
+| `KAI_ANALYZER_MODEL` | `minimax/minimax-m2.5` | `gpt-5.5` | Vulnerability analysis |
+| `KAI_VERIFIER_MODEL` | `openai/gpt-5.2` | `gpt-5.5` | Proof-of-concept verification |
+| `KAI_FIXER_MODEL` | `openai/gpt-5.2` | `gpt-5.4` | Patch generation |
+| `KAI_CRITIC_MODEL` | `anthropic/claude-opus-4.5` | `gpt-5.4` | Adversarial viability assessment |
+| `KAI_RESEARCHER_MODEL` | `minimax/minimax-m2.5` | `gpt-5.4` | Web research |
+| `KAI_SETUP_MODEL` | `minimax/minimax-m2.5` | `gpt-5.4` | Project setup |
+| `KAI_POC_AUDITOR_MODEL` | `openai/gpt-4.1-mini` | `gpt-5.4` | PoC soundness audit |
+| `KAI_CHAIN_MODEL` | `anthropic/claude-opus-4.5` | `gpt-5.4` | Multi-step chain assembly |
+| `KAI_PATCH_ASSEMBLER_MODEL` | `openai/gpt-4.1` | `gpt-5.4` | Iterative patch assembly |
 
 Before deploying a new model, run the REPL compliance test to verify it can follow the interaction pattern:
 
