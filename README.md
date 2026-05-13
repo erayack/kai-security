@@ -1,3 +1,5 @@
+![kai-security banner](kai-security.png)
+
 # kai-security
 
 Automated vulnerability discovery, verification, and patching using recursive language models.
@@ -319,4 +321,21 @@ make lint
 
 # Type check
 make typecheck
+```
+
+## Citation
+
+Kai is built on the Recursive Language Models architecture. If you use this
+work in research, please cite:
+
+```bibtex
+@misc{zhang2026recursivelanguagemodels,
+      title={Recursive Language Models},
+      author={Alex L. Zhang and Tim Kraska and Omar Khattab},
+      year={2026},
+      eprint={2512.24601},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2512.24601},
+}
 ```
