@@ -41,6 +41,11 @@ make run REPO_PATH=/path/to/target
 | `OPENAI_API_KEY` | Required when `KAI_BACKEND=openai` | Direct OpenAI LLM calls (`OPEN_AI_API_KEY` is also accepted as an alias) |
 | `JINA_API_KEY` | Optional | Web search and URL reading (researcher agent) |
 
+When using OpenRouter, Kai sends attribution headers by default:
+`HTTP-Referer=https://github.com/firstbatchxyz/kai-security` and
+`X-Title=kai-security`. Override them with `OPENROUTER_APP_URL` and
+`OPENROUTER_APP_TITLE` if you run a fork or private deployment.
+
 ### Model configuration
 
 OpenRouter is the default backend. To use direct OpenAI instead, set:
