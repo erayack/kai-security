@@ -42,7 +42,7 @@ make run REPO_PATH=/path/to/target
 | `JINA_API_KEY` | Optional | Web search and URL reading (researcher agent) |
 
 When using OpenRouter, Kai sends attribution headers by default:
-`HTTP-Referer=https://github.com/firstbatchxyz/kai-security` and
+`HTTP-Referer=https://kai.dria.co/` and
 `X-OpenRouter-Title=kai-security`, plus categories
 `cli-agent,programming-app`. OpenRouter derives the app icon from the favicon
 of `OPENROUTER_APP_URL`; point that variable at a public project page with a

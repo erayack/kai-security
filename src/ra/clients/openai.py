@@ -19,7 +19,7 @@ DEFAULT_PRIME_INTELLECT_BASE_URL = "https://api.pinference.ai/api/v1/"
 
 OPENROUTER_APP_URL = os.getenv(
     "OPENROUTER_APP_URL",
-    "https://github.com/firstbatchxyz/kai-security",
+    "https://kai.dria.co/",
 )
 OPENROUTER_APP_TITLE = os.getenv("OPENROUTER_APP_TITLE", "kai-security")
 OPENROUTER_APP_CATEGORIES = os.getenv(
