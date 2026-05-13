@@ -371,10 +371,10 @@ make lint
 make typecheck
 ```
 
-## Citation
+## Related Work
 
-Kai is built on the Recursive Language Models architecture. If you use this
-work in research, please cite:
+Kai uses ideas from the Recursive Language Models paper. To cite that
+underlying research, use:
 
 ```bibtex
 @misc{zhang2026recursivelanguagemodels,
