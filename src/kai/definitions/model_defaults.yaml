@@ -1,0 +1,48 @@
+supported_backends:
+  - openai
+  - openrouter
+
+models:
+  query:
+    openrouter: openai/gpt-5.2
+    openai: gpt-5.2
+
+  root:
+    openrouter: anthropic/claude-opus-4.5
+    openai: gpt-5.2
+
+  analyzer:
+    openrouter: minimax/minimax-m2.5
+    openai: gpt-5.2
+
+  verifier:
+    openrouter: openai/gpt-5.2
+    openai: gpt-5.2
+
+  fixer:
+    openrouter: openai/gpt-5.2
+    openai: gpt-5.2
+
+  critic:
+    openrouter: anthropic/claude-opus-4.5
+    openai: gpt-5.2
+
+  researcher:
+    openrouter: minimax/minimax-m2.5
+    openai: gpt-5.2
+
+  setup:
+    openrouter: minimax/minimax-m2.5
+    openai: gpt-5.2
+
+  chain:
+    openrouter: anthropic/claude-opus-4.5
+    openai: gpt-5.2
+
+  patch_assembler:
+    openrouter: openai/gpt-4.1
+    openai: gpt-4.1
+
+  poc_auditor:
+    openrouter: openai/gpt-4.1-mini
+    openai: gpt-4.1-mini

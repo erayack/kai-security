@@ -21,13 +21,7 @@ config = RecursiveAgentConfig(
     },
     backend=resolve_backend("setup"),
     backend_kwargs={
-        "model_name": resolve_model(
-            "setup",
-            {
-                "openrouter": "minimax/minimax-m2.5",
-                "openai": "gpt-5.2",
-            },
-        ),
+        "model_name": resolve_model("setup"),
     },
     max_iterations=int(os.environ.get("KAI_SETUP_ITERS", 30)),
 )

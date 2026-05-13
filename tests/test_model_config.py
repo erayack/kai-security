@@ -4,7 +4,23 @@ from __future__ import annotations
 
 import pytest
 
-from kai.definitions.model_config import resolve_backend, resolve_model
+from kai.definitions.model_config import (
+    model_defaults,
+    resolve_backend,
+    resolve_model,
+    supported_backends,
+)
+
+
+def test_supported_backends_loaded_from_yaml() -> None:
+    assert supported_backends() == {"openai", "openrouter"}
+
+
+def test_model_defaults_loaded_from_yaml() -> None:
+    assert model_defaults("root") == {
+        "openrouter": "anthropic/claude-opus-4.5",
+        "openai": "gpt-5.2",
+    }
 
 
 def test_default_backend_is_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -39,27 +55,26 @@ def test_model_uses_backend_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("KAI_BACKEND", "openai")
     monkeypatch.delenv("KAI_ROOT_MODEL", raising=False)
 
-    model = resolve_model(
-        "root",
-        {
-            "openrouter": "anthropic/claude-opus-4.5",
-            "openai": "gpt-5.2",
-        },
-    )
-
-    assert model == "gpt-5.2"
+    assert resolve_model("root") == "gpt-5.2"
 
 
 def test_model_env_override_wins(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("KAI_BACKEND", "openai")
     monkeypatch.setenv("KAI_ROOT_MODEL", "gpt-custom")
 
-    model = resolve_model(
-        "root",
-        {
-            "openrouter": "anthropic/claude-opus-4.5",
-            "openai": "gpt-5.2",
-        },
-    )
+    assert resolve_model("root") == "gpt-custom"
 
-    assert model == "gpt-custom"
+
+def test_model_can_still_use_explicit_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("KAI_BACKEND", "openrouter")
+    monkeypatch.delenv("KAI_TEST_AGENT_MODEL", raising=False)
+
+    assert resolve_model(
+        "test_agent",
+        {
+            "openrouter": "router-model",
+            "openai": "openai-model",
+        },
+    ) == "router-model"
