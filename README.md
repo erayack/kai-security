@@ -4,7 +4,7 @@
 
 Automated vulnerability discovery, verification, and patching using recursive language models.
 
-Kai runs a multi-stage pipeline: a **setup agent** clones and builds the target project, then an **exploit agent** orchestrates sub-agents (recon, analysis, verification, patching) to find and confirm vulnerabilities with working proof-of-concept exploits.
+Kai runs a multi-stage pipeline: a **setup agent** prepares and builds the target project, then an **exploit agent** orchestrates sub-agents (analysis, verification, critique, research, patching) to find and confirm vulnerabilities with working proof-of-concept exploits.
 
 Built on [ra](src/ra/), a recursive language model framework where LLMs write code that launches other LLMs.
 
@@ -13,9 +13,9 @@ Built on [ra](src/ra/), a recursive language model framework where LLMs write co
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-# Clone the repo
-git clone https://github.com/firstbatch/exploit-agent.git
-cd exploit-agent
+# Clone kai-security
+git clone https://github.com/firstbatchxyz/kai-security.git
+cd kai-security
 
 # Install dependencies
 uv sync
@@ -100,9 +100,24 @@ Each agent's iteration limit can be tuned independently:
 
 ## Usage
 
+### Analyze A Cloned Repository
+
+Kai works against a local checkout of the target you are authorized to test. Keep the target checkout separate from the `kai-security` checkout:
+
+```bash
+# Clone the target project somewhere outside kai-security
+git clone https://github.com/example/target-project.git /tmp/target-project
+
+# Run kai-security from this repo
+cd /path/to/kai-security
+uv run python -m kai.main pipeline --repo-path /tmp/target-project --verbose
+```
+
+The setup agent copies the target into an internal workspace, installs dependencies, builds it when it can infer the build command, and writes `output/recipe.json`. The exploit agent then uses that recipe to analyze, verify, and optionally patch findings. The original target checkout is the input; generated state and results stay under `output/` unless you override the paths.
+
 ### Full pipeline (setup + exploit)
 
-Point Kai at a repository. The setup agent clones it, installs dependencies, builds it, and produces a workspace recipe. The exploit agent then analyzes the codebase for vulnerabilities.
+Point Kai at a local repository checkout. The setup agent prepares an internal workspace, installs dependencies, builds it when possible, and produces a workspace recipe. The exploit agent then analyzes the codebase for vulnerabilities.
 
 ```bash
 # From a local repo path
@@ -113,6 +128,49 @@ make run REPO_PATH=/path/to/target ARGS="--verbose"
 
 # With logging to file
 uv run python -m kai.main pipeline --repo-path /path/to/target --verbose --log-file run.log
+```
+
+### Verbose Mode And Rollout Export
+
+`--verbose` turns on a Rich console trace for the agent loop. It shows each iteration, emitted REPL code, execution output, sub-agent spawn calls, nested `llm_query()` calls, final answers, timing, and usage summaries. It does not change the analysis; it only makes the run observable.
+
+Use `--log-file PATH` with `--verbose` to save the same human-readable trace:
+
+```bash
+uv run python -m kai.main pipeline --repo-path /path/to/target --verbose --log-file output/run.log
+```
+
+Use `--save-rollouts` when you want machine-readable rollout histories for later inspection or evaluation:
+
+```bash
+uv run python -m kai.main pipeline --repo-path /path/to/target --save-rollouts
+```
+
+Rollouts are JSONL files under `output/state/<run_id>/rollouts/<agent>.jsonl` by default. Each line is one `metadata`, `iteration`, or `result` entry. To enable rollout export without a CLI flag, set `KAI_SAVE_ROLLOUTS=1`; to limit export to specific agents, set `KAI_ROLLOUT_AGENTS=exploit,analyzer,verifier` using agent names such as `setup`, `exploit`, `analyzer`, `verifier`, `critic`, `researcher`, `fixer`, `chain_assembler`, `patch_assembler`, or `poc_auditor`.
+
+Rollout export uses the state manager, so leave state tracking enabled. If you pass `--no-state`, Kai still writes the final result JSON but does not write rollout files.
+
+### Output
+
+Results are always saved to disk as JSON. By default they go to `output/run_<timestamp>.json`. Use `--output` / `-o` to choose a custom path:
+
+```bash
+# Default: writes to output/run_20250101T120000Z.json
+uv run python -m kai.main pipeline --repo-path /path/to/target
+
+# Custom path
+uv run python -m kai.main pipeline --repo-path /path/to/target -o results/my_run.json
+```
+
+The JSON file contains:
+
+```json
+{
+  "model": "...",
+  "execution_time": 123.4,
+  "usage": { "model_usage_summaries": { "...": { } } },
+  "result": [ ]
+}
 ```
 
 ### Iterative re-verification
@@ -215,13 +273,30 @@ uv run python -m kai.main agent exploit --input '{"master_path": "/tmp/master"}'
 | Flag | Mode | Description |
 |---|---|---|
 | `--output PATH`, `-o` | both | Save result JSON to PATH (default: `output/run_<timestamp>.json`) |
-| `--verbose` | both | Rich console output showing each iteration |
+| `--verbose` | both | Rich console output showing each iteration, REPL block, sub-call, timing, and usage summary |
 | `--log-file PATH` | both | Save verbose output to a file |
+| `--log-structured` | both | Emit JSON logs for log aggregation |
+| `--save-rollouts` | both | Save per-agent JSONL rollout histories under the state directory |
+| `--threat-context PATH` | both | Load a YAML/JSON threat context file |
 | `--instructions TEXT` | pipeline | Extra instructions for the exploit agent |
+| `--state-dir PATH` | pipeline | Directory for state storage and rollout export (default: `output/state`) |
+| `--no-state` | pipeline | Disable state tracking and rollout export |
+| `--skip-fixer` | pipeline | Analyze and verify findings without running fixer agents |
 | `--no-iterative` | pipeline | Disable iterative re-verification of unreachable rejects |
 | `--backend NAME` | agent | Override LLM backend |
 | `--model NAME` | agent | Override model name |
 | `--max-iterations N` | agent | Override iteration budget |
+
+### Execution Environments
+
+Kai currently ships two REPL environments:
+
+| Environment | Status | Notes |
+|---|---|---|
+| `local` | Default, actively used | Runs agent-generated Python in a local workspace. This is the path currently exercised most heavily. |
+| `docker` | Available, secondary | Runs agent-generated Python inside a Docker container with a host HTTP proxy for LLM/tool calls. Requires Docker and may pull `python:3.11-slim` on first use. |
+
+The registered environment surface is intentionally limited to these two choices.
 
 ## Responsible use
 
@@ -245,33 +320,6 @@ before opening a pull request, and run:
 make check
 ```
 
-## License
-
-Kai is available under the [MIT License](LICENSE).
-
-### Output
-
-Results are always saved to disk as JSON. By default they go to `output/run_<timestamp>.json`. Use `--output` / `-o` to choose a custom path:
-
-```bash
-# Default — writes to output/run_20250101T120000Z.json
-uv run python -m kai.main pipeline --repo-path /path/to/target
-
-# Custom path
-uv run python -m kai.main pipeline --repo-path /path/to/target -o results/my_run.json
-```
-
-The JSON file contains:
-
-```json
-{
-  "model": "...",
-  "execution_time": 123.4,
-  "usage": { "model_usage_summaries": { ... } },
-  "result": [ ... ]
-}
-```
-
 ## Supported Languages
 
 The dependency graph indexes source files using [tree-sitter](https://tree-sitter.github.io/) grammars. The following languages are supported:
@@ -292,7 +340,7 @@ The dependency graph indexes source files using [tree-sitter](https://tree-sitte
 pipeline --repo-path /path/to/target
     |
     v
-[Setup Agent]  — clones repo, installs deps, builds, produces recipe
+[Setup Agent]  — prepares workspace, installs deps, builds, produces recipe
     |
     v
 [Exploit Agent] (root RLM, depth 0)
@@ -339,3 +387,7 @@ work in research, please cite:
       url={https://arxiv.org/abs/2512.24601},
 }
 ```
+
+## License
+
+Kai is available under the [MIT License](LICENSE).

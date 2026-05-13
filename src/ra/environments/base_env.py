@@ -31,8 +31,8 @@ class BaseEnv(ABC):
 
 class IsolatedEnv(BaseEnv, ABC):
     """
-    These environments (e.g. Modal Envs) sit on a completely separate machine from the LM,
-    guaranteeing complete isolation from the LM process.
+    These environments sit on a separate machine or container from the LM,
+    providing stronger isolation from the LM process.
     """
 
     def __init__(self, persistent: bool = False, **kwargs):

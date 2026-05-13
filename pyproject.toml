@@ -41,9 +41,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/firstbatch/exploit-agent"
-Repository = "https://github.com/firstbatch/exploit-agent"
-Issues = "https://github.com/firstbatch/exploit-agent/issues"
+Homepage = "https://github.com/firstbatchxyz/kai-security"
+Repository = "https://github.com/firstbatchxyz/kai-security"
+Issues = "https://github.com/firstbatchxyz/kai-security/issues"
 
 [project.optional-dependencies]
 dev = [

@@ -14,8 +14,7 @@ RLM.completion(prompt)
 │
 ├── Environment (REPL)
 │   ├── LocalREPL  — exec() in sandboxed namespace
-│   ├── DockerREPL — container with HTTP proxy
-│   └── ModalREPL  — cloud sandbox with HTTP broker
+│   └── DockerREPL — container with HTTP proxy
 │
 └── Iteration Loop
     ├── LLM call via lm_handler.completion()
@@ -84,8 +83,6 @@ Sandboxed Python execution environments for the agentic loop.
 | `base_env.py` | `BaseEnv` abstract class, `IsolatedEnv` / `NonIsolatedEnv` variants, and the `SupportsPersistence` protocol for multi-turn sessions. |
 | `local_repl.py` | `LocalREPL` — sandboxed `exec()` with restricted builtins. Provides `llm_query()`, `llm_query_batched()`, and `FINAL_VAR()` in the REPL namespace. Thread-safe with locking. |
 | `docker_repl.py` | `DockerREPL` — runs code in a Docker container with an HTTP proxy for LLM requests. |
-| `modal_repl.py` | `ModalREPL` — cloud sandbox on Modal. Runs a broker server inside the sandbox that queues LLM requests for the host process. |
-| `constants.py` | Shared constants for environment configuration. |
 
 **Persistence protocol**: Environments implementing `SupportsPersistence` support versioned contexts (`context_0`, `context_1`, ...) and message histories (`history_0`, `history_1`, ...) for multi-turn workflows.
 
