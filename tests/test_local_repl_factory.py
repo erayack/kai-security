@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from ra.environments import get_environment
 from ra.environments.local_repl import LocalREPL
 
 
@@ -27,6 +28,19 @@ class TestLocalREPLDefaultTempDir:
         path = repl.temp_dir
         repl.cleanup()
         assert not os.path.exists(path)
+
+
+class TestEnvironmentFactory:
+    def test_local_environment_supported(self) -> None:
+        env = get_environment("local", {})
+        try:
+            assert isinstance(env, LocalREPL)
+        finally:
+            env.cleanup()
+
+    def test_unknown_environment_not_supported(self) -> None:
+        with pytest.raises(ValueError, match=r"Supported: \['local', 'docker'\]"):
+            get_environment("remote", {})
 
 
 class TestLocalREPLWorkspaceFactory:

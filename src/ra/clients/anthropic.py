@@ -1,7 +1,7 @@
 from collections import defaultdict
 from typing import Any
 
-import anthropic  # type: ignore[import-not-found]  # ty: ignore[unresolved-import]
+import anthropic  # type: ignore[import-not-found]
 
 from ra.clients.base_lm import BaseLM
 from ra.core.types import ModelUsageSummary, UsageSummary

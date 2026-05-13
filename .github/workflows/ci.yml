@@ -8,6 +8,8 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
 
     steps:
       - name: Checkout
@@ -22,13 +24,18 @@ jobs:
         uses: astral-sh/setup-uv@v4
         with:
           enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
 
       - name: Install dependencies
         run: uv sync --group dev
 
-      - name: Lint (ruff)
-        run: uvx ruff check src
+      - name: Lint
+        run: uv run ruff check src tests
 
-      - name: Typecheck (ty)
-        run: uvx ty check src
+      - name: Typecheck
+        run: uv run ty check src
+
+      - name: Test
+        run: uv run pytest -q -p pytest_asyncio.plugin

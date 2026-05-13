@@ -2,9 +2,8 @@
 Docker REPL environment that runs Python code in a Docker container.
 
 Setup:
-    docker build -t rlm-sandbox -f Dockerfile.sandbox .
-
-Or use any Python 3.11+ image with: pip install dill requests
+    DockerREPL defaults to python:3.11-slim and installs dill,
+    requests, and json-repair inside the container when missing.
 """
 
 import ast
@@ -473,25 +472,66 @@ class DockerREPL(NonIsolatedEnv):
             text=True,
         )
         if result.returncode != 0:
+            self.cleanup()
             raise RuntimeError(f"Failed to start container: {result.stderr}")
 
         self.container_id = result.stdout.strip()
 
-        # Install dependencies
+        # Install dependencies required by the generated executor.
         assert self.container_id is not None
-        subprocess.run(
+        dep_check = subprocess.run(
             [
                 "docker",
                 "exec",
                 self.container_id,
-                "pip",
-                "install",
-                "-q",
-                "dill",
-                "requests",
+                "python",
+                "-c",
+                "import dill, requests, json_repair",
             ],
             capture_output=True,
+            text=True,
         )
+        if dep_check.returncode != 0:
+            install_result = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    self.container_id,
+                    "pip",
+                    "install",
+                    "-q",
+                    "dill",
+                    "requests",
+                    "json-repair",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if install_result.returncode != 0:
+                self.cleanup()
+                raise RuntimeError(
+                    "Failed to install DockerREPL dependencies: "
+                    f"{install_result.stderr}"
+                )
+
+        dep_check = subprocess.run(
+            [
+                "docker",
+                "exec",
+                self.container_id,
+                "python",
+                "-c",
+                "import dill, requests, json_repair",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if dep_check.returncode != 0:
+            self.cleanup()
+            raise RuntimeError(
+                "DockerREPL dependencies are unavailable after setup: "
+                f"{dep_check.stderr}"
+            )
 
     # =================================================================
     # SupportsPersistence protocol
@@ -501,7 +541,7 @@ class DockerREPL(NonIsolatedEnv):
         """Update the LM handler address for a new completion."""
         self.lm_handler_address = address
         if self._handler_cls is not None:
-            self._handler_cls.lm_handler_address = address  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+            self._handler_cls.lm_handler_address = address  # type: ignore[attr-defined]
 
     def load_context(self, context_payload: dict | list | str):
         """Load context as context_0 (and ``context`` alias)."""

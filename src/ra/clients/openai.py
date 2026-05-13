@@ -12,7 +12,7 @@ from ra.core.types import ModelUsageSummary, UsageSummary
 load_dotenv()
 
 # Load API keys from environment variables
-DEFAULT_OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+DEFAULT_OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("OPEN_AI_API_KEY")
 DEFAULT_OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 DEFAULT_VERCEL_API_KEY = os.getenv("AI_GATEWAY_API_KEY")
 DEFAULT_PRIME_INTELLECT_BASE_URL = "https://api.pinference.ai/api/v1/"
@@ -93,7 +93,7 @@ class OpenAIClient(BaseLM):
 
         response = self.client.chat.completions.create(
             model=model,
-            messages=messages,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            messages=messages,  # type: ignore[arg-type]
             extra_body=extra_body,
         )
         self._track_cost(response, model)
@@ -126,7 +126,7 @@ class OpenAIClient(BaseLM):
         ) as client:
             response = await client.chat.completions.create(
                 model=model,
-                messages=messages,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+                messages=messages,  # type: ignore[arg-type]
                 extra_body=extra_body,
             )
         self._track_cost(response, model)

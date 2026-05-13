@@ -17,7 +17,7 @@ ClientBackend = Literal[
     "azure_openai",
     "gemini",
 ]
-EnvironmentType = Literal["local", "docker", "modal"]
+EnvironmentType = Literal["local", "docker"]
 
 
 def _serialize_value(value: Any) -> Any:
@@ -333,7 +333,7 @@ class QueryMetadata:
             elif isinstance(prompt[0], dict):
                 if "content" in prompt[0]:
                     self.context_lengths = [
-                        len(str(chunk.get("content", "")))  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+                        len(str(chunk.get("content", "")))  # type: ignore[union-attr]
                         for chunk in prompt
                     ]
                 else:
