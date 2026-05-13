@@ -17,12 +17,21 @@ DEFAULT_OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 DEFAULT_VERCEL_API_KEY = os.getenv("AI_GATEWAY_API_KEY")
 DEFAULT_PRIME_INTELLECT_BASE_URL = "https://api.pinference.ai/api/v1/"
 
-OPENROUTER_APP_URL = os.getenv("OPENROUTER_APP_URL", "https://kai.dria.co")
-OPENROUTER_APP_TITLE = os.getenv("OPENROUTER_APP_TITLE", "Kai")
+OPENROUTER_APP_URL = os.getenv(
+    "OPENROUTER_APP_URL",
+    "https://kai.dria.co/",
+)
+OPENROUTER_APP_TITLE = os.getenv("OPENROUTER_APP_TITLE", "kai-security")
+OPENROUTER_APP_CATEGORIES = os.getenv(
+    "OPENROUTER_APP_CATEGORIES",
+    "cli-agent,programming-app",
+)
 _OPENROUTER_HEADERS = {
     "HTTP-Referer": OPENROUTER_APP_URL,
-    "X-Title": OPENROUTER_APP_TITLE,
+    "X-OpenRouter-Title": OPENROUTER_APP_TITLE,
 }
+if OPENROUTER_APP_CATEGORIES:
+    _OPENROUTER_HEADERS["X-OpenRouter-Categories"] = OPENROUTER_APP_CATEGORIES
 
 
 class OpenAIClient(BaseLM):
