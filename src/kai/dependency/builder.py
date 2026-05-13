@@ -243,7 +243,7 @@ class TreeSitterBuilder:
     def _create_parser(lang: str) -> Any:
         """Create a tree-sitter parser, language-pack first."""
         try:
-            from tree_sitter_language_pack import get_parser  # type: ignore[import-not-found]  # ty: ignore[unresolved-import]
+            from tree_sitter_language_pack import get_parser  # type: ignore[import-not-found]
 
             return get_parser(lang)
         except ImportError:

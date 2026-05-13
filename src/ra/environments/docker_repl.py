@@ -501,7 +501,7 @@ class DockerREPL(NonIsolatedEnv):
         """Update the LM handler address for a new completion."""
         self.lm_handler_address = address
         if self._handler_cls is not None:
-            self._handler_cls.lm_handler_address = address  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+            self._handler_cls.lm_handler_address = address  # type: ignore[attr-defined]
 
     def load_context(self, context_payload: dict | list | str):
         """Load context as context_0 (and ``context`` alias)."""

@@ -5,9 +5,23 @@ build-backend = "uv_build"
 [project]
 name = "kai"
 version = "0.1.0"
-description = ""
+description = "Automated vulnerability discovery, verification, and patching using recursive language models."
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "FirstBatch" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Testing",
+]
 dependencies = [
     "openai>=1.109.1",
     "pathspec>=0.12.1",
@@ -25,6 +39,11 @@ dependencies = [
     "json-repair>=0.58.0",
     "eth-account>=0.13.7",
 ]
+
+[project.urls]
+Homepage = "https://github.com/firstbatch/exploit-agent"
+Repository = "https://github.com/firstbatch/exploit-agent"
+Issues = "https://github.com/firstbatch/exploit-agent/issues"
 
 [project.optional-dependencies]
 dev = [

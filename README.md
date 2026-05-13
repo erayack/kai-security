@@ -1,4 +1,4 @@
-# Kai
+# kai-security
 
 Automated vulnerability discovery, verification, and patching using recursive language models.
 
@@ -22,29 +22,50 @@ uv sync
 cp .env.example .env
 ```
 
+Common developer commands are available through `make`:
+
+```bash
+make test
+make lint
+make typecheck
+make run REPO_PATH=/path/to/target
+```
+
 ### API keys
 
 | Key | Required | Used by |
 |---|---|---|
-| `OPENROUTER_API_KEY` | Yes | LLM calls (sub-agents) |
+| `OPENROUTER_API_KEY` | Required when `KAI_BACKEND=openrouter` | LLM calls through OpenRouter |
+| `OPENAI_API_KEY` | Required when `KAI_BACKEND=openai` | Direct OpenAI LLM calls (`OPEN_AI_API_KEY` is also accepted as an alias) |
 | `JINA_API_KEY` | Optional | Web search and URL reading (researcher agent) |
 
 ### Model configuration
 
-Each agent's model can be overridden via environment variables. Set these in `.env` or export them:
+OpenRouter is the default backend. To use direct OpenAI instead, set:
 
-| Variable | Default | Agent |
-|---|---|---|
-| `KAI_ROOT_MODEL` | `anthropic/claude-opus-4.5` | Root exploit orchestrator |
-| `KAI_RECON_MODEL` | `openai/gpt-5.2` | Reconnaissance |
-| `KAI_ANALYZER_MODEL` | `minimax/minimax-m2.5` | Vulnerability analysis |
-| `KAI_VERIFIER_MODEL` | `openai/gpt-5.2` | PoC verification |
-| `KAI_FIXER_MODEL` | `openai/gpt-5.2` | Patch generation |
-| `KAI_CRITIC_MODEL` | `anthropic/claude-opus-4.5` | Adversarial viability assessment |
-| `KAI_RESEARCHER_MODEL` | `minimax/minimax-m2.5` | Web research |
-| `KAI_SETUP_MODEL` | `minimax/minimax-m2.5` | Project setup |
+```bash
+KAI_BACKEND=openai
+OPENAI_API_KEY=...
+```
 
-All models are routed through OpenRouter. Before deploying a new model, run the REPL compliance test to verify it can follow the interaction pattern:
+You can also override one agent at a time with `KAI_<AGENT>_BACKEND`, for example `KAI_VERIFIER_BACKEND=openai`.
+
+Each agent's model can be overridden via environment variables. For OpenRouter, use provider-prefixed IDs such as `anthropic/claude-opus-4.5`; for direct OpenAI, use OpenAI model IDs such as `gpt-5.2`.
+
+| Variable | OpenRouter default | OpenAI default | Agent |
+|---|---|---|---|
+| `KAI_ROOT_MODEL` | `anthropic/claude-opus-4.5` | `gpt-5.2` | Root exploit orchestrator |
+| `KAI_ANALYZER_MODEL` | `minimax/minimax-m2.5` | `gpt-5.2` | Vulnerability analysis |
+| `KAI_VERIFIER_MODEL` | `openai/gpt-5.2` | `gpt-5.2` | Proof-of-concept verification |
+| `KAI_FIXER_MODEL` | `openai/gpt-5.2` | `gpt-5.2` | Patch generation |
+| `KAI_CRITIC_MODEL` | `anthropic/claude-opus-4.5` | `gpt-5.2` | Adversarial viability assessment |
+| `KAI_RESEARCHER_MODEL` | `minimax/minimax-m2.5` | `gpt-5.2` | Web research |
+| `KAI_SETUP_MODEL` | `minimax/minimax-m2.5` | `gpt-5.2` | Project setup |
+| `KAI_POC_AUDITOR_MODEL` | `openai/gpt-4.1-mini` | `gpt-4.1-mini` | PoC soundness audit |
+| `KAI_CHAIN_MODEL` | `anthropic/claude-opus-4.5` | `gpt-5.2` | Multi-step chain assembly |
+| `KAI_PATCH_ASSEMBLER_MODEL` | `openai/gpt-4.1` | `gpt-4.1` | Iterative patch assembly |
+
+Before deploying a new model, run the REPL compliance test to verify it can follow the interaction pattern:
 
 ```bash
 uv run --with pytest --with python-dotenv -- pytest tests/test_model_repl.py -v
@@ -57,13 +78,15 @@ Each agent's iteration limit can be tuned independently:
 | Variable | Default | Agent |
 |---|---|---|
 | `KAI_ROOT_ITERS` | `45` | Root exploit orchestrator |
-| `KAI_RECON_ITERS` | `15` | Reconnaissance |
 | `KAI_ANALYZER_ITERS` | `30` | Vulnerability analysis |
 | `KAI_VERIFIER_ITERS` | `30` | PoC verification |
 | `KAI_FIXER_ITERS` | `25` | Patch generation |
 | `KAI_CRITIC_ITERS` | `10` | Adversarial viability assessment |
 | `KAI_RESEARCHER_ITERS` | `15` | Web research |
 | `KAI_SETUP_ITERS` | `30` | Project setup |
+| `KAI_POC_AUDITOR_ITERS` | `5` | PoC soundness audit |
+| `KAI_CHAIN_ITERS` | `20` | Multi-step chain assembly |
+| `KAI_PATCH_ASSEMBLER_ITERS` | `15` | Iterative patch assembly |
 
 ### Timeouts
 
@@ -82,6 +105,9 @@ Point Kai at a repository. The setup agent clones it, installs dependencies, bui
 ```bash
 # From a local repo path
 uv run python -m kai.main pipeline --repo-path /path/to/target --verbose
+
+# Equivalent Makefile entry point
+make run REPO_PATH=/path/to/target ARGS="--verbose"
 
 # With logging to file
 uv run python -m kai.main pipeline --repo-path /path/to/target --verbose --log-file run.log
@@ -195,6 +221,32 @@ uv run python -m kai.main agent exploit --input '{"master_path": "/tmp/master"}'
 | `--model NAME` | agent | Override model name |
 | `--max-iterations N` | agent | Override iteration budget |
 
+## Responsible use
+
+Kai is intended for authorized security research on repositories and systems
+you are allowed to test. Do not use it to attack, degrade, or exploit systems
+without permission.
+
+The default local REPL is a developer convenience, not a hard security
+boundary. Run untrusted targets in disposable containers, virtual machines, or
+isolated CI workers.
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting and disclosure
+guidance.
+
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md)
+before opening a pull request, and run:
+
+```bash
+make check
+```
+
+## License
+
+Kai is available under the [MIT License](LICENSE).
+
 ### Output
 
 Results are always saved to disk as JSON. By default they go to `output/run_<timestamp>.json`. Use `--output` / `-o` to choose a custom path:
@@ -244,9 +296,9 @@ pipeline --repo-path /path/to/target
 [Exploit Agent] (root RLM, depth 0)
     |-- dep_* tools (dependency graph navigation)
     |-- llm_query (single-shot LLM calls)
-    |-- spawn_recon(...)       -> [Recon Agent]      (depth 1, workspace)
     |-- spawn_analyzer(...)    -> [Analyzer Agent]    (depth 1, workspace)
     |-- spawn_verifier(...)    -> [Verifier Agent]    (depth 1, workspace)
+    |-- spawn_critic(...)      -> [Critic Agent]      (depth 1)
     |-- spawn_researcher(...)  -> [Researcher Agent]  (depth 1, web tools)
     |-- spawn_fixer(...)       -> [Fixer Agent]       (depth 1, workspace)
 ```
@@ -257,14 +309,14 @@ Each sub-agent is a full RLM with its own REPL, iteration budget, and `llm_query
 
 ```bash
 # Run tests
-uv run --with pytest --with pytest-asyncio -- pytest tests/ -q
+make test
 
 # Format
-uvx ruff format src
+uv run ruff format src tests scripts
 
 # Lint
-uvx ruff check src
+make lint
 
 # Type check
-uvx ty check src
+make typecheck
 ```
