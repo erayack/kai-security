@@ -43,8 +43,11 @@ make run REPO_PATH=/path/to/target
 
 When using OpenRouter, Kai sends attribution headers by default:
 `HTTP-Referer=https://github.com/firstbatchxyz/kai-security` and
-`X-Title=kai-security`. Override them with `OPENROUTER_APP_URL` and
-`OPENROUTER_APP_TITLE` if you run a fork or private deployment.
+`X-OpenRouter-Title=kai-security`, plus categories
+`cli-agent,programming-app`. OpenRouter derives the app icon from the favicon
+of `OPENROUTER_APP_URL`; point that variable at a public project page with a
+favicon if you want a custom image. Override categories with
+`OPENROUTER_APP_CATEGORIES`.
 
 ### Model configuration
 

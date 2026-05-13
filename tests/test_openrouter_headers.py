@@ -14,7 +14,8 @@ def test_openrouter_client_uses_kai_security_headers() -> None:
 
     assert client._async_client_kwargs["default_headers"] == {
         "HTTP-Referer": "https://github.com/firstbatchxyz/kai-security",
-        "X-Title": "kai-security",
+        "X-OpenRouter-Title": "kai-security",
+        "X-OpenRouter-Categories": "cli-agent,programming-app",
     }
 
 
