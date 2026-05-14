@@ -43,14 +43,14 @@ COPY pyproject.toml uv.lock README.md ./
 # `--no-install-project` is required because src/ is not in the build
 # context yet — installing the local `kai` package now would fail with
 # "Expected a Python module at: src/kai/__init__.py".
-RUN uv sync --frozen --no-dev --no-install-project --extra railway
+RUN uv sync --frozen --no-dev --no-install-project --extra railway --extra cybergym
 
 # Copy the source tree last so editable installs can resolve.
 COPY src ./src
 COPY evaluation ./evaluation
 
 # Re-run uv sync to register the local `kai` project in the venv.
-RUN uv sync --frozen --no-dev --extra railway
+RUN uv sync --frozen --no-dev --extra railway --extra cybergym
 
 # ---------- runtime ----------
 FROM ${PYTHON_IMAGE} AS runtime
