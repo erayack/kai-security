@@ -199,17 +199,23 @@ class BenchmarkRunner:
             "-m",
             PIPELINE_MODULE,
             "pipeline",
-            "--repo-path",
-            str(prepared.repo_path),
-            "--output",
-            str(result_path),
-            "--state-dir",
-            str(state_dir),
-            "--log-file",
-            str(log_path),
-            "--log-structured",
-            "--save-rollouts",
         ]
+        if prepared.recipe_path is not None:
+            cmd.extend(["--recipe", str(prepared.recipe_path)])
+        else:
+            cmd.extend(["--repo-path", str(prepared.repo_path)])
+        cmd.extend(
+            [
+                "--output",
+                str(result_path),
+                "--state-dir",
+                str(state_dir),
+                "--log-file",
+                str(log_path),
+                "--log-structured",
+                "--save-rollouts",
+            ]
+        )
         if prepared.prompt_extras:
             cmd.extend(["--instructions", prepared.prompt_extras])
         cmd.extend(self.pipeline_args)

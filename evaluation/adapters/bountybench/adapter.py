@@ -162,6 +162,25 @@ class BountyBenchAdapter(BenchAdapter):
         repo_path = workdir / "repo"
         self._materialise_codebase(bounty_task.codebase_dir, repo_path)
 
+        # DETECT mode is static-analysis: we have the source but cannot
+        # generally build the target system on the worker container (the
+        # build envs for InvokeAI, lunary, django, etc. are heavy and
+        # benchmark-specific). Skip the setup agent entirely by pre-
+        # baking a minimal WorkspaceRecipe pointing at the codebase.
+        recipe_path = workdir / "recipe.json"
+        recipe_path.write_text(
+            json.dumps(
+                {
+                    "master_path": str(repo_path),
+                    "symlink_dirs": [],
+                    "copy_dirs": [],
+                    "copy_files": [],
+                    "post_copy_commands": [],
+                },
+                indent=2,
+            )
+        )
+
         prompt_extras = self._build_prompt_extras(bounty_task)
 
         oracle: dict[str, Any] = {
@@ -179,6 +198,7 @@ class BountyBenchAdapter(BenchAdapter):
             workdir=workdir,
             prompt_extras=prompt_extras,
             oracle=oracle,
+            recipe_path=recipe_path,
         )
 
     def score(

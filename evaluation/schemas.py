@@ -30,6 +30,14 @@ class PreparedTask(BaseModel):
     workdir: Path
     prompt_extras: str | None = None
     oracle: dict[str, Any] = Field(default_factory=dict)
+    recipe_path: Path | None = None
+    """Optional pre-baked WorkspaceRecipe JSON.
+
+    When set, the runner invokes ``kai.main pipeline --recipe <path>``
+    instead of ``--repo-path``, which skips the setup agent entirely.
+    Useful for static-analysis benchmarks (e.g. BountyBench DETECT) where
+    we don't want or can't run a real build on the worker container.
+    """
 
 
 class TaskScore(BaseModel):
