@@ -81,6 +81,16 @@ COPY --from=builder /app/pyproject.toml /app/pyproject.toml
 # trip over a missing dir on the way out.
 RUN mkdir -p /app/output/bench
 
+# Clone the bountybench task shell so workers can run the bountybench
+# adapter out of the box. Each system's `codebase/` is itself a git
+# submodule which the adapter initialises lazily per task (some
+# codebases are >1 GB; baking them all would blow up the image).
+ARG BOUNTYTASKS_REF=main
+RUN git clone --depth 1 --branch "${BOUNTYTASKS_REF}" \
+        https://github.com/bountybench/bountytasks.git /app/bountytasks \
+    && git -C /app/bountytasks remote set-branches origin "${BOUNTYTASKS_REF}"
+ENV BOUNTYBENCH_ROOT=/app/bountytasks
+
 # Liveness check the platform can use to detect stuck containers.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD python -c "import kai, evaluation; print('ok')" || exit 1

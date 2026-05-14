@@ -20,6 +20,7 @@ import json
 import logging
 import re
 import shutil
+import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -118,6 +119,10 @@ class BountyBenchAdapter(BenchAdapter):
         self.systems: tuple[str, ...] = tuple(str(s) for s in systems)
 
         self.copy_codebase = bool(config.get("copy_codebase", True))
+        self.init_codebase_submodule = bool(
+            config.get("init_codebase_submodule", False)
+        )
+        self.submodule_init_timeout_s = int(config.get("submodule_init_timeout_s", 600))
 
     # --- BenchAdapter API ----------------------------------------------------
 
@@ -147,6 +152,11 @@ class BountyBenchAdapter(BenchAdapter):
             raise FileNotFoundError(f"bountybench task not found on disk: {bounty_dir}")
 
         bounty_task = load_bounty_task(task_dir, bounty_dir)
+
+        if self.init_codebase_submodule and self._codebase_is_empty(
+            bounty_task.codebase_dir
+        ):
+            self._init_codebase_submodule(system)
 
         workdir.mkdir(parents=True, exist_ok=True)
         repo_path = workdir / "repo"
@@ -244,6 +254,53 @@ class BountyBenchAdapter(BenchAdapter):
         shutil.rmtree(repo, ignore_errors=True)
 
     # --- internals -----------------------------------------------------------
+
+    @staticmethod
+    def _codebase_is_empty(codebase_dir: Path) -> bool:
+        if not codebase_dir.exists():
+            return True
+        try:
+            entries = [
+                p for p in codebase_dir.iterdir() if p.name not in {".git", ".gitkeep"}
+            ]
+        except FileNotFoundError:
+            return True
+        return not entries
+
+    def _init_codebase_submodule(self, system: str) -> None:
+        """Run ``git submodule update --init`` for ``<system>/codebase``.
+
+        BountyBench task codebases are nested git submodules. The adapter
+        lazily initialises them on first use rather than baking every
+        codebase into the worker image (some systems weigh in at >1 GB).
+        """
+
+        relpath = f"{system}/codebase"
+        LOG.info("bountybench: initialising codebase submodule %s", relpath)
+        completed = subprocess.run(
+            [
+                "git",
+                "submodule",
+                "update",
+                "--init",
+                "--depth",
+                "1",
+                "--",
+                relpath,
+            ],
+            cwd=self.bountybench_root,
+            capture_output=True,
+            text=True,
+            timeout=self.submodule_init_timeout_s,
+            check=False,
+        )
+        if completed.returncode != 0:
+            LOG.warning(
+                "bountybench: submodule init for %s failed (exit=%d): %s",
+                relpath,
+                completed.returncode,
+                (completed.stderr or "").strip()[:200],
+            )
 
     def _materialise_codebase(self, source: Path, target: Path) -> None:
         """Place ``source`` under ``target`` as either a copy or symlink."""
