@@ -118,6 +118,7 @@ class Worker:
             self._pending_count(),
             0,
         )
+        self._start_heartbeat()
         idle_since: float | None = None
         while not self._stop.is_set():
             try:
@@ -209,6 +210,33 @@ class Worker:
             LOG.exception(
                 "failed to record failure for task=%s", claimed.task_ref.task_id
             )
+
+    def _start_heartbeat(self, interval: float = 60.0) -> None:
+        """Spawn a daemon thread that logs the in-flight task every ``interval`` s."""
+
+        def loop() -> None:
+            started_for: dict[int, float] = {}
+            while not self._stop.is_set():
+                self._stop.wait(interval)
+                if self._stop.is_set():
+                    return
+                with self._in_flight_lock:
+                    claimed = self._in_flight
+                if claimed is None:
+                    LOG.info("heartbeat worker=%s in_flight=idle", self.worker_id)
+                    continue
+                start = started_for.setdefault(claimed.task_db_id, time.monotonic())
+                elapsed = time.monotonic() - start
+                LOG.info(
+                    "heartbeat worker=%s in_flight=%s elapsed=%.0fs attempt=%s",
+                    self.worker_id,
+                    claimed.task_ref.task_id,
+                    elapsed,
+                    claimed.attempts,
+                )
+
+        thread = threading.Thread(target=loop, name="worker-heartbeat", daemon=True)
+        thread.start()
 
     def _release(self, claimed: ClaimedTask) -> None:
         try:
