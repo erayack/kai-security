@@ -32,6 +32,7 @@ _BUILTIN_MODULES = {
     "noop": "evaluation.adapters.noop.adapter",
     "cybergym": "evaluation.adapters.cybergym.adapter",
     "bountybench": "evaluation.adapters.bountybench.adapter",
+    "evmbench": "evaluation.adapters.evmbench.adapter",
 }
 
 

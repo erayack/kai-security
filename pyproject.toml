@@ -57,6 +57,9 @@ dev = [
 railway = [
     "psycopg[binary]>=3.2.3",
 ]
+cybergym = [
+    "huggingface-hub>=1.14.0",
+]
 
 [dependency-groups]
 dev = [

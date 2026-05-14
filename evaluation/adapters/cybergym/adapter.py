@@ -122,15 +122,38 @@ class CyberGymAdapter(BenchAdapter):
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         config = config or {}
-        self.data_dir = self._require_path(config, "data_dir")
-        self.mask_map = self._require_path(config, "mask_map")
-        self.server_url = self._require_str(config, "server_url")
-        pkg_root = config.get("cybergym_pkg_root")
-        self.cybergym_pkg_root = (
-            Path(pkg_root).expanduser().resolve() if pkg_root else None
-        )
+        self.dataset_source = str(config.get("dataset_source") or "local").lower()
+        if self.dataset_source not in {"local", "huggingface"}:
+            raise ValueError(
+                f"cybergym dataset_source must be 'local' or 'huggingface', got "
+                f"{self.dataset_source!r}"
+            )
+        if self.dataset_source == "local":
+            self.data_dir = self._require_path(config, "data_dir")
+            self.mask_map = self._require_path(config, "mask_map")
+            self.server_url = self._require_str(config, "server_url")
+            pkg_root = config.get("cybergym_pkg_root")
+            self.cybergym_pkg_root = (
+                Path(pkg_root).expanduser().resolve() if pkg_root else None
+            )
+        else:
+            # HuggingFace mode skips gen_task and the submission server.
+            # We fetch the per-task files directly from the HF Hub. No
+            # data_dir / mask_map / server URL needed.
+            self.data_dir = None
+            self.mask_map = None
+            self.server_url = ""
+            self.cybergym_pkg_root = None
+        self.hf_repo = str(config.get("huggingface_repo") or "sunblaze-ucb/cybergym")
+        self.hf_revision = config.get("huggingface_revision")
         self.difficulty = config.get("difficulty", DEFAULT_DIFFICULTY)
         self.submit = bool(config.get("submit", True))
+        if self.dataset_source == "huggingface" and self.submit:
+            LOG.info(
+                "cybergym: forcing submit=False for HuggingFace mode "
+                "(no verifier server available)."
+            )
+            self.submit = False
         self.task_ids = tuple(config.get("task_ids") or ())
         self.tasks_file = config.get("tasks_file")
 
@@ -155,7 +178,10 @@ class CyberGymAdapter(BenchAdapter):
         task_out = workdir / "task"
         task_out.mkdir(parents=True, exist_ok=True)
 
-        self._gen_task(task.task_id, task_out)
+        if self.dataset_source == "huggingface":
+            self._fetch_task_from_hf(task.task_id, task_out)
+        else:
+            self._gen_task(task.task_id, task_out)
 
         description = self._read_text_if_exists(task_out / "description.txt")
         readme = self._read_text_if_exists(task_out / "README.md")
@@ -168,13 +194,31 @@ class CyberGymAdapter(BenchAdapter):
         tarball = next(task_out.glob("repo-*.tar.gz"), None)
         if tarball is None:
             raise FileNotFoundError(
-                f"gen_task did not produce a repo tarball under {task_out}; "
-                "verify --data-dir and --mask-map are correct."
+                f"task materialisation produced no repo tarball under "
+                f"{task_out}; check dataset_source / data_dir / HF token."
             )
         with tarfile.open(tarball, "r:gz") as tar:
             _safe_extract(tar, repo_dir)
 
         instructions = self._build_instructions(description, readme)
+
+        # Pre-bake a stub WorkspaceRecipe so the pipeline skips the
+        # setup agent entirely. CyberGym tasks ship pre-patched source
+        # archives — there's no build for kai to perform; the exploit
+        # agent should reason against the source directly.
+        recipe_path = workdir / "recipe.json"
+        recipe_path.write_text(
+            json.dumps(
+                {
+                    "master_path": str(repo_dir),
+                    "symlink_dirs": [],
+                    "copy_dirs": [],
+                    "copy_files": [],
+                    "post_copy_commands": [],
+                },
+                indent=2,
+            )
+        )
 
         oracle = {
             "task_id": task.task_id,
@@ -182,6 +226,7 @@ class CyberGymAdapter(BenchAdapter):
             "description": description,
             "readme": readme,
             "task_out": str(task_out),
+            "dataset_source": self.dataset_source,
         }
         return PreparedTask(
             task_ref=task,
@@ -189,6 +234,7 @@ class CyberGymAdapter(BenchAdapter):
             workdir=workdir,
             prompt_extras=instructions,
             oracle=oracle,
+            recipe_path=recipe_path,
         )
 
     def score(
@@ -277,6 +323,60 @@ class CyberGymAdapter(BenchAdapter):
         if readme:
             chunks.append("\n# README.md\n" + readme)
         return "\n".join(chunks)
+
+    def _fetch_task_from_hf(self, task_id: str, out_dir: Path) -> None:
+        """Pull a single task's description + repo tarball from the HF Hub.
+
+        Each task lives at ``data/<type>/<id>/`` in the canonical dataset
+        ``sunblaze-ucb/cybergym``. We only fetch the files we need:
+        ``description.txt`` and ``repo-vul.tar.gz``. Everything else
+        (patch.diff, error.txt, repo-fix.tar.gz) is ignored to keep the
+        per-task download tiny.
+        """
+
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError as exc:  # pragma: no cover - dep missing
+            raise RuntimeError(
+                "cybergym HuggingFace mode requires `huggingface_hub`; install "
+                "via `uv sync --extra cybergym`."
+            ) from exc
+
+        if ":" not in task_id:
+            raise ValueError(
+                f"cybergym task_id must be of the form '<type>:<id>', got {task_id!r}"
+            )
+        task_type, raw_id = task_id.split(":", 1)
+        rel_dir = f"data/{task_type}/{raw_id}"
+
+        LOG.info(
+            "cybergym(hf): fetching %s from %s (revision=%s)",
+            rel_dir,
+            self.hf_repo,
+            self.hf_revision or "main",
+        )
+        for filename in ("description.txt", "repo-vul.tar.gz"):
+            try:
+                local = hf_hub_download(
+                    repo_id=self.hf_repo,
+                    filename=f"{rel_dir}/{filename}",
+                    repo_type="dataset",
+                    revision=self.hf_revision,
+                    local_dir=str(out_dir),
+                    local_dir_use_symlinks=False,
+                )
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(
+                    f"failed to fetch {rel_dir}/{filename} from HF Hub: {exc}"
+                ) from exc
+            # hf_hub_download writes to `out_dir / rel_dir / filename`;
+            # the adapter expects the file at `out_dir / filename`, so
+            # we flatten the layout by moving / copying.
+            target = out_dir / filename
+            if Path(local) != target:
+                if target.exists():
+                    target.unlink()
+                shutil.move(str(local), str(target))
 
     def _gen_task(self, task_id: str, out_dir: Path) -> None:
         cmd = [

@@ -91,6 +91,16 @@ RUN git clone --depth 1 --branch "${BOUNTYTASKS_REF}" \
     && git -C /app/bountytasks remote set-branches origin "${BOUNTYTASKS_REF}"
 ENV BOUNTYBENCH_ROOT=/app/bountytasks
 
+# Clone the EVMbench frontier-evals subtree so the evmbench adapter can
+# read audits/<id>/config.yaml. Each audit's source repo lives at
+# evmbench-org/<id> on GitHub and the adapter clones it lazily on first
+# use (with a per-worker on-disk cache).
+ARG FRONTIER_EVALS_REF=main
+RUN git clone --depth 1 --branch "${FRONTIER_EVALS_REF}" \
+        https://github.com/openai/frontier-evals.git /app/frontier-evals \
+    && git -C /app/frontier-evals remote set-branches origin "${FRONTIER_EVALS_REF}"
+ENV EVMBENCH_FRONTIER_EVALS_ROOT=/app/frontier-evals/project/evmbench
+
 # Liveness check the platform can use to detect stuck containers.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD python -c "import kai, evaluation; print('ok')" || exit 1
