@@ -1,0 +1,52 @@
+# Keep secrets and local-dev cruft out of the image.
+
+# --- secrets / env -------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# --- vcs metadata --------------------------------------------------------
+.git
+.gitignore
+.github
+
+# --- python build artefacts ---------------------------------------------
+**/__pycache__
+**/*.py[cod]
+*.egg-info
+build/
+dist/
+.venv
+.python-version
+
+# --- caches / IDE --------------------------------------------------------
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.cursor
+.idea
+.vscode
+.attocode
+.claude
+
+# --- generated / heavy local-only artefacts ------------------------------
+output/
+benchmark_output/
+generator_conversations/
+fixer_conversations/
+test_scripts/
+repos/
+testbed/
+kai_workspaces/
+evaluation_output/
+debug/
+**/.DS_Store
+
+# --- docs / tests that the worker never reads ----------------------------
+docs/
+tests/
+*.md
+!README.md
+
+# Image + screenshots are huge and unused in the worker.
+*.png

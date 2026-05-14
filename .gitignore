@@ -10,6 +10,7 @@ master/
 .idea/*
 docs/*
 !docs/open-source-hygiene.md
+!docs/railway-deploy.md
 bounties/*
 # Virtual environments
 .venv
@@ -62,3 +63,6 @@ kai_workspaces/
 
 # evaluation_output
 evaluation_output/
+
+# attocode code-intel MCP cache
+.attocode/

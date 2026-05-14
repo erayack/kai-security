@@ -52,6 +52,11 @@ dev = [
     "ruff>=0.14.8",
     "ty>=0.0.1a32",
 ]
+# Optional extras for the Railway parallel runner.
+# These are NOT installed by default; install with `uv sync --extra railway`.
+railway = [
+    "psycopg[binary]>=3.2.3",
+]
 
 [dependency-groups]
 dev = [
