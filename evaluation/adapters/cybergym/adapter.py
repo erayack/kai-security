@@ -493,14 +493,38 @@ def _decode_marker(text: str) -> bytes | None:
 
 
 def _safe_extract(tar: tarfile.TarFile, target: Path) -> None:
+    """Extract ``tar`` into ``target`` skipping unsafe / non-portable entries.
+
+    Wireshark and a few other arvo tasks ship tarballs with absolute
+    symlinks (e.g. ``install-sh -> /usr/share/automake-1.16/install-sh``)
+    that ``filter="data"`` flatly rejects with ``AbsoluteLinkError``. We
+    skip those members rather than aborting the whole task — the agent
+    only needs the source, not the build glue. Any path-traversal
+    members ("../...") are still rejected outright.
+    """
+
     target = target.resolve()
-    for member in tar.getmembers():
+
+    def member_filter(
+        member: tarfile.TarInfo, dest: str
+    ) -> tarfile.TarInfo | None:
         member_path = (target / member.name).resolve()
         if not str(member_path).startswith(str(target)):
             raise RuntimeError(
                 f"refusing to extract path outside target: {member.name}"
             )
-    tar.extractall(target, filter="data")
+        try:
+            return tarfile.data_filter(member, dest)
+        except tarfile.AbsoluteLinkError:
+            LOG.debug(
+                "skipping absolute symlink %s -> %s", member.name, member.linkname
+            )
+            return None
+        except (tarfile.LinkOutsideDestinationError, tarfile.AbsolutePathError):
+            LOG.debug("skipping path-violating entry %s", member.name)
+            return None
+
+    tar.extractall(target, filter=member_filter)
 
 
 @register_adapter("cybergym")
