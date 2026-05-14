@@ -40,7 +40,10 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 
 # Install runtime deps (no dev tools) plus the railway extra for psycopg.
-RUN uv sync --frozen --no-dev --extra railway
+# `--no-install-project` is required because src/ is not in the build
+# context yet — installing the local `kai` package now would fail with
+# "Expected a Python module at: src/kai/__init__.py".
+RUN uv sync --frozen --no-dev --no-install-project --extra railway
 
 # Copy the source tree last so editable installs can resolve.
 COPY src ./src
