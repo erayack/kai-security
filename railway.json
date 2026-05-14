@@ -8,7 +8,7 @@
     "startCommand": "python -m evaluation.worker",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3,
-    "numReplicas": 1,
+    "numReplicas": 3,
     "healthcheckTimeout": 30,
     "sleepApplication": false
   }

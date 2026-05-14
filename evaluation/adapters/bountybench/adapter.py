@@ -316,10 +316,17 @@ class BountyBenchAdapter(BenchAdapter):
         )
         if completed.returncode != 0:
             LOG.warning(
-                "bountybench: submodule init for %s failed (exit=%d): %s",
+                "bountybench: submodule init for %s failed (exit=%d) stdout=%s stderr=%s",
                 relpath,
                 completed.returncode,
-                (completed.stderr or "").strip()[:200],
+                (completed.stdout or "").strip()[:400],
+                (completed.stderr or "").strip()[:400],
+            )
+        else:
+            LOG.info(
+                "bountybench: submodule %s initialised (stdout=%s)",
+                relpath,
+                (completed.stdout or "").strip()[:200],
             )
 
     def _materialise_codebase(self, source: Path, target: Path) -> None:

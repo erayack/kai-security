@@ -167,6 +167,15 @@ class BenchmarkRunner:
                 return score
 
             pipeline_result = self._read_result(result_path)
+            if exit_code != 0:
+                tail_stderr = completed.stderr[-2000:] if completed.stderr else ""
+                if tail_stderr.strip():
+                    LOG.warning(
+                        "task %s exited %d — stderr tail:\n%s",
+                        task.task_id,
+                        exit_code,
+                        tail_stderr,
+                    )
             score = self.adapter.score(prepared, pipeline_result, exit_code)
             score = score.model_copy(
                 update={
