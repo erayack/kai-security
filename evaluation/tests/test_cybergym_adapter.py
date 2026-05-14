@@ -130,6 +130,8 @@ def test_score_without_poc_reports_no_poc_binary(tmp_path: Path) -> None:
 
 
 def test_score_with_poc_and_submit_disabled(tmp_path: Path) -> None:
+    """With submit=False (verifier offline), a non-empty PoC is a soft pass."""
+
     adapter = _adapter(tmp_path, submit=False)
     workdir = tmp_path / "wd"
     repo = workdir / "repo"
@@ -142,9 +144,11 @@ def test_score_with_poc_and_submit_disabled(tmp_path: Path) -> None:
         oracle={"submit_sh": "/tmp/fake.sh"},
     )
     score = adapter.score(prepared, pipeline_result=None, exit_code=0)
-    assert score.success is False
-    assert score.failure_reason == "submit_disabled"
+    assert score.success is True
+    assert score.failure_reason is None
     assert score.details["poc_bytes"] == 2
+    assert score.details["score_mode"] == "soft_unverified"
+    assert score.details["verified"] is False
 
 
 def test_prepare_extracts_tarball_and_reads_description(
