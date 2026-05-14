@@ -43,15 +43,16 @@ SYSTEM_PROMPT = textwrap.dedent("""\
     Your goal is to produce a `WorkspaceRecipe` dict. Follow these steps:
 
     1. **Inspect the repository.** Read README, config files (foundry.toml, package.json, Makefile, Cargo.toml, hardhat.config.js, etc.) to understand the project type, language, build system, and dependencies. Use `list_dir` with `recursive=True` on the repo to understand its full structure, and delegate analysis of large files to `llm_query`.
-    2. **Clone the repo into master_dir.** Use `run_shell("git clone --recurse-submodules <repo_path> <master_dir>")`. This is critical — never use `cp -r` because it breaks git submodules. If cloning fails because master_dir exists, remove it first with `rm -rf` then clone again.
+    2. **Clone the repo into master_dir.** Use `run_shell("git clone --recurse-submodules --jobs 8 <repo_path> <master_dir>")`. This is critical — never use `cp -r` because it breaks git submodules. The `--jobs 8` flag clones submodules in parallel; without it a project with many submodules can burn an entire setup budget on serial clones. If cloning fails because master_dir exists, remove it first with `rm -rf` then clone again.
     3. **Install dependencies and compile.** Run the appropriate install and build commands (e.g., `forge install && forge build`, `npm install`, `cargo build`, etc.). Check return codes and stderr for errors. Iterate to fix issues.
 
     **IMPORTANT — Handling broken or missing submodules:**
     After cloning, verify that dependency directories actually exist (e.g., check if `lib/` is populated for Foundry projects). Git submodule commands (`git submodule update --init`) may silently succeed but do nothing if the source repo has a `.gitmodules` file but the submodule entries were never properly committed to the git tree. This is a common issue with CTF/audit repos.
 
-    If submodules are missing after clone + init, **fall back to direct installation**:
-    - For Foundry projects: parse `.gitmodules` to find the GitHub URLs, then use `forge install <org>/<repo> --no-git` for each dependency. Example: `forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts --no-git`.
-    - As a last resort: `git clone <url> <path>` each dependency directly into the expected directory.
+    If submodules are missing after clone + init, **fall back to direct installation — but batch every fallback into one shell call.** One shell call per missing submodule is a serious anti-pattern that exhausts the iteration budget. Concrete rules:
+    - For Foundry projects: parse `.gitmodules` to find all GitHub URLs, then put every `forge install` in a single shell command: `forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts solady/solady ... --no-git`.
+    - For raw `git clone` fallbacks: chain every clone in one `run_shell` with `&&` (or `;` if you want to keep going past failures), and pass `--depth 1` to skip history. Example: `git clone --depth 1 <url1> <path1> && git clone --depth 1 <url2> <path2> && …`. Use `git clone --recurse-submodules --jobs 8` when the dep itself has nested submodules.
+    - Alternative: `git submodule update --init --recursive --jobs 8` first — fast and one call.
     - After installing deps, always verify the directory exists before proceeding to build.
     4. **Classify directories.** Determine which dirs are heavy/read-only (e.g., `node_modules`, `lib`, `.git`, `out`, `cache`, `artifacts`, `dependencies`) and which contain editable source (e.g., `src`, `test`, `contracts`, `script`). When uncertain, use `llm_query` to analyze directory contents and classify them.
     5. **Identify root-level files to copy.** These are config and build files that a worker sandbox needs (e.g., `foundry.toml`, `remappings.txt`, `package.json`, etc.).
@@ -85,4 +86,7 @@ SYSTEM_PROMPT = textwrap.dedent("""\
     WARNING: FINAL(my_var) does NOT resolve the variable — it \
     returns the literal string "my_var". If your answer is in a \
     variable, you MUST use FINAL_VAR.
+
+    **CRITICAL — your final answer MUST be the recipe JSON object, never a REPL block.**
+    The string passed to FINAL / the value of the variable passed to FINAL_VAR must be a single JSON object matching the `WorkspaceRecipe` schema above. A REPL code block (```repl … ```), a sentence of prose, or any non-JSON output is a hard failure: the caller will crash with a parse error. If you are running low on iterations and have not finished cloning or building, emit the BEST PARTIAL recipe you have — with whatever `master_path`, `symlink_dirs`, `copy_dirs`, `copy_files`, and `post_copy_commands` you can produce — rather than another REPL block. A partial recipe with `master_path` set is recoverable; a REPL block is not.
 """)

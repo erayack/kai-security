@@ -36,7 +36,7 @@ from kai.dependency import TreeSitterBuilder
 from kai.state import LocalStateManager, StateManager, inject_state_manager
 from kai.state.models import RunRecord, ThreatContext
 from kai.workspace.integration import inject_workspace
-from kai.workspace.recipe import WorkspaceRecipe
+from kai.workspace.recipe import InvalidRecipeError, WorkspaceRecipe
 from ra.agents import RecursiveAgent, RecursiveAgentConfig
 from ra.core.types import RLMChatCompletion, UsageSummary
 
@@ -569,11 +569,15 @@ def run_pipeline(
     succeeded = False
     try:
         # --- Step 1: run setup agent (with one retry) ---
-        recipe_data = None
+        recipe: WorkspaceRecipe | None = None
         max_setup_attempts = 2
+        last_invalid_recipe_error: InvalidRecipeError | None = None
         for attempt in range(1, max_setup_attempts + 1):
             setup_cfg = replace(
-                setup_config, verbose=verbose, log_structured=log_structured
+                setup_config,
+                verbose=verbose,
+                log_structured=log_structured,
+                log_file=log_file or "",
             )
             setup_agent = RecursiveAgent(setup_cfg)
             setup_result = setup_agent.completion(
@@ -595,37 +599,58 @@ def run_pipeline(
                 continue
             try:
                 recipe_data = json.loads(raw_response)
-                break
             except json.JSONDecodeError:
                 from json_repair import repair_json
 
                 repaired = str(repair_json(raw_response))
+                recipe_data = None
                 if repaired and repaired.strip():
                     try:
                         recipe_data = json.loads(repaired)
-                        break
                     except json.JSONDecodeError:
-                        pass
+                        recipe_data = None
+                if recipe_data is None:
+                    log.warning(
+                        "Setup agent response not valid JSON (attempt %d/%d)",
+                        attempt,
+                        max_setup_attempts,
+                    )
+                    continue
+            # The setup agent occasionally wraps the recipe in a list.
+            if isinstance(recipe_data, list):
+                if len(recipe_data) == 1 and isinstance(recipe_data[0], dict):
+                    recipe_data = recipe_data[0]
+                else:
+                    log.warning(
+                        "Setup agent returned a JSON list instead of a recipe "
+                        "dict (attempt %d/%d)",
+                        attempt,
+                        max_setup_attempts,
+                    )
+                    continue
+            try:
+                recipe = WorkspaceRecipe.from_dict(recipe_data)
+                break
+            except InvalidRecipeError as exc:
+                last_invalid_recipe_error = exc
                 log.warning(
-                    "Setup agent response not valid JSON (attempt %d/%d)",
+                    "Setup agent recipe invalid — missing %s (attempt %d/%d)",
+                    ", ".join(exc.missing),
                     attempt,
                     max_setup_attempts,
                 )
 
-        if recipe_data is None:
+        if recipe is None:
+            if last_invalid_recipe_error is not None:
+                raise RuntimeError(
+                    "Setup agent failed to produce a valid recipe after "
+                    f"{max_setup_attempts} attempts; last error: "
+                    f"{last_invalid_recipe_error}"
+                ) from last_invalid_recipe_error
             raise RuntimeError(
                 "Setup agent failed to produce valid JSON after "
                 f"{max_setup_attempts} attempts"
             )
-        # The setup agent occasionally wraps the recipe in a list.
-        if isinstance(recipe_data, list):
-            if len(recipe_data) == 1 and isinstance(recipe_data[0], dict):
-                recipe_data = recipe_data[0]
-            else:
-                raise RuntimeError(
-                    "Setup agent returned a JSON list instead of a recipe dict"
-                )
-        recipe = WorkspaceRecipe.from_dict(recipe_data)
 
         # Persist recipe so future runs can use --recipe.
         # Rewrite master_path to the original repo_path because the
@@ -1025,7 +1050,13 @@ def main(argv: list[str] | None = None) -> None:
         try:
             if args.recipe:
                 with open(args.recipe) as f:
-                    recipe = WorkspaceRecipe.from_dict(json.load(f))
+                    recipe_data = json.load(f)
+                try:
+                    recipe = WorkspaceRecipe.from_dict(recipe_data)
+                except InvalidRecipeError as exc:
+                    raise SystemExit(
+                        f"--recipe {args.recipe} is invalid: {exc}"
+                    ) from exc
                 if not no_state:
                     try:
                         sm = LocalStateManager(state_dir=state_dir)

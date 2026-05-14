@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from kai.workspace.recipe import WorkspaceRecipe
+import pytest
+
+from kai.workspace.recipe import InvalidRecipeError, WorkspaceRecipe
 
 
 class TestWorkspaceRecipeConstruction:
@@ -81,3 +83,28 @@ class TestWorkspaceRecipeToDict:
         serialized = json.dumps(recipe.to_dict())
         restored = WorkspaceRecipe.from_dict(json.loads(serialized))
         assert restored == recipe
+
+
+class TestWorkspaceRecipeValidation:
+    """Regression tests for B-004 — recipe parsing must raise a typed error."""
+
+    def test_from_dict_missing_master_path_raises_typed_error(self) -> None:
+        with pytest.raises(InvalidRecipeError) as info:
+            WorkspaceRecipe.from_dict({})
+        assert info.value.missing == ["master_path"]
+        assert "master_path" in str(info.value)
+        assert info.value.data == {}
+
+    def test_from_dict_not_a_dict_raises(self) -> None:
+        with pytest.raises(InvalidRecipeError) as info:
+            WorkspaceRecipe.from_dict([{"master_path": "/m"}])  # type: ignore[arg-type]
+        assert "object" in str(info.value).lower()
+        assert info.value.data == [{"master_path": "/m"}]
+
+    def test_invalid_recipe_error_is_value_error(self) -> None:
+        with pytest.raises(ValueError):
+            WorkspaceRecipe.from_dict({})
+
+    def test_partial_recipe_with_master_path_succeeds(self) -> None:
+        recipe = WorkspaceRecipe.from_dict({"master_path": "/m"})
+        assert recipe.master_path == "/m"
