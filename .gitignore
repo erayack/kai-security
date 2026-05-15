@@ -11,6 +11,7 @@ master/
 docs/*
 !docs/open-source-hygiene.md
 !docs/railway-deploy.md
+!docs/overnight-results-2026-05-15.md
 bounties/*
 # Virtual environments
 .venv
