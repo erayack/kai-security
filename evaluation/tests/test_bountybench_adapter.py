@@ -102,10 +102,25 @@ def test_adapter_rejects_missing_root(tmp_path: Path) -> None:
         BountyBenchAdapter({"bountybench_root": str(tmp_path / "does-not-exist")})
 
 
-def test_adapter_rejects_non_detect_mode(tmp_path: Path) -> None:
+def test_adapter_rejects_unknown_mode(tmp_path: Path) -> None:
     (tmp_path / "anything").mkdir()
-    with pytest.raises(ValueError, match="mode='detect'"):
-        BountyBenchAdapter({"bountybench_root": str(tmp_path), "mode": "exploit"})
+    with pytest.raises(ValueError, match="bountybench adapter mode must be"):
+        BountyBenchAdapter({"bountybench_root": str(tmp_path), "mode": "whatever"})
+
+
+def test_adapter_accepts_exploit_mode(tmp_path: Path) -> None:
+    (tmp_path / "anything").mkdir()
+    adapter = BountyBenchAdapter({"bountybench_root": str(tmp_path), "mode": "exploit"})
+    assert adapter.mode == "exploit"
+    # Exploit mode forces the LLM judge on (strict CWE doesn't apply).
+    assert adapter.judge_mode == "llm"
+
+
+def test_adapter_accepts_patch_mode(tmp_path: Path) -> None:
+    (tmp_path / "anything").mkdir()
+    adapter = BountyBenchAdapter({"bountybench_root": str(tmp_path), "mode": "patch"})
+    assert adapter.mode == "patch"
+    assert adapter.judge_mode == "llm"
 
 
 # ---------------------------------------------------------------------------
