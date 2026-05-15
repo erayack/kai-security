@@ -332,26 +332,31 @@ def test_unused_status_running_constant_value() -> None:
     assert STATUS_FAILED == "failed"
 
 
+def _backdate_heartbeat(store: TaskStore, task_db_id: int, when: datetime) -> None:
+    """Test helper: force both timestamp columns into the past."""
+
+    with store._connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            store._sql(
+                "UPDATE bench_tasks SET claimed_at = %s, last_heartbeat_at = %s "
+                "WHERE id = %s"
+            ),
+            store._sqlite_params(
+                (store._sqlite_dt(when), store._sqlite_dt(when), task_db_id)
+            ),
+        )
+        conn.commit()
+        cur.close()
+
+
 def test_reclaim_stale_claims_returns_old_running_tasks(store: TaskStore) -> None:
     store.enqueue("run-r", "noop", _make_tasks("noop", 3))
     a = store.claim_next("w1", benchmark="noop")
     b = store.claim_next("w2", benchmark="noop")
     assert a is not None and b is not None
 
-    # Force a's claimed_at into the past via raw SQL (no public API for it).
-    with store._connect() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            store._sql("UPDATE bench_tasks SET claimed_at = %s WHERE id = %s"),
-            store._sqlite_params(
-                (
-                    store._sqlite_dt(datetime(2000, 1, 1, tzinfo=timezone.utc)),
-                    a.task_db_id,
-                )
-            ),
-        )
-        conn.commit()
-        cur.close()
+    _backdate_heartbeat(store, a.task_db_id, datetime(2000, 1, 1, tzinfo=timezone.utc))
 
     n = store.reclaim_stale_claims(max_age_seconds=60)
     assert n == 1
@@ -371,3 +376,118 @@ def test_reclaim_stale_claims_is_a_noop_with_no_orphans(store: TaskStore) -> Non
     store.claim_next("w", benchmark="noop")
     # Default cutoff (1 day) — no claim is that old.
     assert store.reclaim_stale_claims(max_age_seconds=86400) == 0
+
+
+def test_heartbeat_refreshes_last_heartbeat_at(store: TaskStore) -> None:
+    """A live worker's heartbeat must protect a long-running task from
+    being swept by ``reclaim_stale_claims``."""
+
+    store.enqueue("run-hb", "noop", _make_tasks("noop", 1))
+    claimed = store.claim_next("w", benchmark="noop")
+    assert claimed is not None
+
+    # Simulate the claim being old (60+ minutes ago), but the worker is
+    # still alive and just sent a heartbeat. claimed_at remains old but
+    # last_heartbeat_at gets refreshed to "now".
+    with store._connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            store._sql("UPDATE bench_tasks SET claimed_at = %s WHERE id = %s"),
+            store._sqlite_params(
+                (
+                    store._sqlite_dt(datetime(2000, 1, 1, tzinfo=timezone.utc)),
+                    claimed.task_db_id,
+                )
+            ),
+        )
+        conn.commit()
+        cur.close()
+
+    touched = store.heartbeat(claimed.task_db_id)
+    assert touched is True
+
+    # The heartbeat is fresh, so even with a 1 s threshold the sweep
+    # leaves the row alone — the old claimed_at no longer matters.
+    assert store.reclaim_stale_claims(max_age_seconds=1) == 0
+    rows = store.tail_status("run-hb")
+    assert rows[0]["status"] == STATUS_RUNNING
+
+
+def test_heartbeat_noop_on_already_completed_claim(store: TaskStore) -> None:
+    """A late heartbeat from a worker whose claim already moved on (the
+    sweep reclaimed it, another worker completed it, etc.) must not
+    resurrect the row or touch its timestamps."""
+
+    store.enqueue("run-hb2", "noop", _make_tasks("noop", 1))
+    claimed = store.claim_next("w", benchmark="noop")
+    assert claimed is not None
+    store.complete(
+        claimed.task_db_id,
+        TaskScore(task_ref=claimed.task_ref, success=True),
+    )
+
+    touched = store.heartbeat(claimed.task_db_id)
+    assert touched is False
+    rows = store.tail_status("run-hb2")
+    assert rows[0]["status"] == STATUS_DONE
+
+
+def test_reclaim_uses_heartbeat_not_claim_age(store: TaskStore) -> None:
+    """Two rows with equally old ``claimed_at`` — the one with a fresh
+    heartbeat survives; the one without (simulating a killed worker)
+    gets reclaimed."""
+
+    store.enqueue("run-r3", "noop", _make_tasks("noop", 2))
+    healthy = store.claim_next("alive", benchmark="noop")
+    dead = store.claim_next("killed", benchmark="noop")
+    assert healthy is not None and dead is not None
+
+    old = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    _backdate_heartbeat(store, healthy.task_db_id, old)
+    _backdate_heartbeat(store, dead.task_db_id, old)
+
+    # The "alive" worker pings — only its row's last_heartbeat_at moves
+    # to now(); claimed_at stays old.
+    assert store.heartbeat(healthy.task_db_id) is True
+
+    n = store.reclaim_stale_claims(max_age_seconds=60)
+    assert n == 1
+
+    rows = {r["task_id"]: r["status"] for r in store.tail_status("run-r3")}
+    assert rows[healthy.task_ref.task_id] == STATUS_RUNNING
+    assert rows[dead.task_ref.task_id] == STATUS_PENDING
+
+
+def test_reclaim_handles_pre_migration_rows_via_claimed_at_fallback(
+    store: TaskStore,
+) -> None:
+    """A row claimed before the migration (``last_heartbeat_at IS NULL``)
+    must still be reclaim-eligible based on its ``claimed_at`` age. This
+    is the live-deploy compatibility path: we don't lose rows that were
+    in flight when the new code rolled out."""
+
+    store.enqueue("run-mig", "noop", _make_tasks("noop", 1))
+    claimed = store.claim_next("w", benchmark="noop")
+    assert claimed is not None
+
+    # Pre-migration shape: claimed_at populated, last_heartbeat_at NULL.
+    with store._connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            store._sql(
+                "UPDATE bench_tasks SET claimed_at = %s, "
+                "last_heartbeat_at = NULL WHERE id = %s"
+            ),
+            store._sqlite_params(
+                (
+                    store._sqlite_dt(datetime(2000, 1, 1, tzinfo=timezone.utc)),
+                    claimed.task_db_id,
+                )
+            ),
+        )
+        conn.commit()
+        cur.close()
+
+    assert store.reclaim_stale_claims(max_age_seconds=60) == 1
+    rows = store.tail_status("run-mig")
+    assert rows[0]["status"] == STATUS_PENDING

@@ -174,7 +174,7 @@ class TaskStore:
             if self._dialect == "postgres"
             else "INTEGER PRIMARY KEY AUTOINCREMENT"
         )
-        return [
+        statements: list[str] = [
             (
                 "CREATE TABLE IF NOT EXISTS bench_runs ("
                 "  run_id        TEXT PRIMARY KEY,"
@@ -186,16 +186,17 @@ class TaskStore:
             ),
             (
                 "CREATE TABLE IF NOT EXISTS bench_tasks ("
-                f"  id              {autoinc},"
-                "  run_id          TEXT NOT NULL REFERENCES bench_runs(run_id),"
-                "  benchmark       TEXT NOT NULL,"
-                "  task_id         TEXT NOT NULL,"
-                f"  task_metadata   {json_col},"
-                "  status          TEXT NOT NULL DEFAULT 'pending',"
-                "  attempts        INTEGER NOT NULL DEFAULT 0,"
-                "  worker_id       TEXT,"
-                f"  claimed_at      {ts_col},"
-                f"  finished_at     {ts_col},"
+                f"  id                  {autoinc},"
+                "  run_id              TEXT NOT NULL REFERENCES bench_runs(run_id),"
+                "  benchmark           TEXT NOT NULL,"
+                "  task_id             TEXT NOT NULL,"
+                f"  task_metadata       {json_col},"
+                "  status              TEXT NOT NULL DEFAULT 'pending',"
+                "  attempts            INTEGER NOT NULL DEFAULT 0,"
+                "  worker_id           TEXT,"
+                f"  claimed_at          {ts_col},"
+                f"  last_heartbeat_at   {ts_col},"
+                f"  finished_at         {ts_col},"
                 "  UNIQUE (run_id, task_id)"
                 ")"
             ),
@@ -218,6 +219,19 @@ class TaskStore:
                 ")"
             ),
         ]
+        if self._dialect == "postgres":
+            # Live-deploy migration: Postgres clusters created before the
+            # ``last_heartbeat_at`` column existed don't get it from the
+            # idempotent CREATE TABLE above. ``ADD COLUMN IF NOT EXISTS``
+            # surfaces it without locking out healthy in-flight workers.
+            # SQLite doesn't support IF NOT EXISTS on ADD COLUMN, but it
+            # only ever opens fresh databases in tests / single-machine
+            # use, so the CREATE TABLE path is enough there.
+            statements.append(
+                f"ALTER TABLE bench_tasks ADD COLUMN IF NOT EXISTS "
+                f"last_heartbeat_at {ts_col}"
+            )
+        return statements
 
     def ensure_run(
         self,
@@ -321,7 +335,7 @@ class TaskStore:
         sql = (
             "UPDATE bench_tasks "
             "SET status = %s, worker_id = %s, claimed_at = %s, "
-            "    attempts = attempts + 1 "
+            "    last_heartbeat_at = %s, attempts = attempts + 1 "
             "WHERE id = ("
             "  SELECT id FROM bench_tasks "
             f"  WHERE {where} "
@@ -331,7 +345,7 @@ class TaskStore:
             ") "
             "RETURNING id, run_id, benchmark, task_id, task_metadata, attempts"
         )
-        update_params: list[Any] = [STATUS_RUNNING, worker_id, now]
+        update_params: list[Any] = [STATUS_RUNNING, worker_id, now, now]
         update_params.extend(params)
         with self._connect() as conn:
             cur = conn.cursor()
@@ -377,10 +391,12 @@ class TaskStore:
                 task_db_id = row[0]
                 cur.execute(
                     "UPDATE bench_tasks SET status = ?, worker_id = ?, "
-                    "claimed_at = ?, attempts = attempts + 1 WHERE id = ?",
+                    "claimed_at = ?, last_heartbeat_at = ?, "
+                    "attempts = attempts + 1 WHERE id = ?",
                     (
                         STATUS_RUNNING,
                         worker_id,
+                        self._sqlite_dt(now),
                         self._sqlite_dt(now),
                         task_db_id,
                     ),
@@ -473,14 +489,51 @@ class TaskStore:
             finally:
                 cur.close()
 
-    def reclaim_stale_claims(self, max_age_seconds: int) -> int:
-        """Return any ``running`` tasks claimed more than ``max_age_seconds`` ago
-        to the ``pending`` pool.
+    def heartbeat(self, task_db_id: int) -> bool:
+        """Refresh ``last_heartbeat_at`` for an in-flight claim.
 
-        Workers that crash or are killed mid-task leave their row in the
-        ``running`` state forever — there is no daemon process otherwise
-        watching them. A worker calls this periodically so that orphan
-        claims become eligible for re-claim.
+        Workers call this once per heartbeat tick (usually 60 s) so the
+        reclaim sweep can distinguish a healthy long-running task from a
+        zombie claim left behind by a killed worker.
+
+        Returns True if the row was still ``running`` and the heartbeat
+        landed; False if the row had already moved on (raced with a
+        ``complete()`` / ``release()`` / ``reclaim_stale_claims()``).
+        """
+
+        now = _now()
+        with self._connect() as conn:
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    self._sql(
+                        "UPDATE bench_tasks SET last_heartbeat_at = %s "
+                        "WHERE id = %s AND status = %s"
+                    ),
+                    self._sqlite_params(
+                        (self._sqlite_dt(now), task_db_id, STATUS_RUNNING)
+                    ),
+                )
+                touched = (cur.rowcount or 0) > 0
+                conn.commit()
+            finally:
+                cur.close()
+        return touched
+
+    def reclaim_stale_claims(self, max_age_seconds: int) -> int:
+        """Return any ``running`` tasks whose heartbeat has gone stale.
+
+        A claim is considered stale when ``last_heartbeat_at`` (or
+        ``claimed_at`` if the heartbeat column is still NULL — old
+        pre-migration rows) is older than ``max_age_seconds``. Healthy
+        workers refresh ``last_heartbeat_at`` every heartbeat tick, so
+        long-running but live tasks stay safe regardless of how old the
+        claim is; only orphans from dead workers get swept.
+
+        Workers call this periodically (default cadence in
+        :class:`evaluation.worker.Worker` is once per minute with a 300 s
+        threshold) so a killed replica's claims become re-claimable
+        within ~5 minutes instead of hours.
         """
 
         if max_age_seconds <= 0:
@@ -492,9 +545,10 @@ class TaskStore:
                 cur.execute(
                     self._sql(
                         "UPDATE bench_tasks SET status = %s, worker_id = NULL, "
-                        "claimed_at = NULL "
-                        "WHERE status = %s AND claimed_at IS NOT NULL "
-                        "AND claimed_at < %s"
+                        "claimed_at = NULL, last_heartbeat_at = NULL "
+                        "WHERE status = %s "
+                        "AND COALESCE(last_heartbeat_at, claimed_at) IS NOT NULL "
+                        "AND COALESCE(last_heartbeat_at, claimed_at) < %s"
                     ),
                     self._sqlite_params(
                         (

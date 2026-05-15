@@ -41,10 +41,6 @@ from evaluation.store import (
 LOG = logging.getLogger("evaluation.worker")
 
 
-class _StopRequested(Exception):
-    """Internal sentinel used when SIGTERM arrives between tasks."""
-
-
 class Worker:
     """A long-running benchmark worker.
 
@@ -147,13 +143,6 @@ class Worker:
             idle_since = None
             try:
                 self._handle_claim(claimed)
-            except _StopRequested:
-                LOG.info(
-                    "stop honoured; releasing task=%s",
-                    claimed.task_ref.task_id,
-                )
-                self._release(claimed)
-                break
             except Exception:
                 LOG.exception(
                     "task=%s failed unexpectedly; marking failed",
@@ -214,17 +203,29 @@ class Worker:
     def _start_heartbeat(
         self,
         interval: float = 60.0,
-        reclaim_every: int = 5,
-        reclaim_max_age_seconds: int = 7200,
+        reclaim_every: int = 1,
+        reclaim_max_age_seconds: int = 300,
     ) -> None:
-        """Spawn a daemon thread that logs the in-flight task and periodically
-        reclaims stale ``running`` rows back to ``pending``.
+        """Spawn a daemon thread that refreshes ``last_heartbeat_at`` for
+        the in-flight claim and periodically reclaims stale ``running``
+        rows back to ``pending``.
 
-        Workers killed by Railway redeploys / OOMs leave their last claim
-        in the ``running`` state forever. Every ``reclaim_every`` ticks
-        (default ~5 min when ``interval`` is 60 s) we run a SQL update
-        that releases any claim older than ``reclaim_max_age_seconds``
-        (default 2 h, comfortably past any sane per-task timeout).
+        Each ``interval``-second tick:
+
+        * Writes ``last_heartbeat_at = now()`` for the worker's current
+          claim (if any) so the reclaim sweep treats it as live.
+        * Logs an ``in_flight=...`` heartbeat line.
+        * Every ``reclaim_every`` ticks (default: every tick, i.e. once
+          per minute), calls
+          :meth:`evaluation.store.TaskStore.reclaim_stale_claims` with
+          ``reclaim_max_age_seconds`` (default 300 s = 5 × heartbeat
+          interval, well past any in-flight worker that's still alive).
+
+        Because the reclaim now keys on ``last_heartbeat_at`` rather
+        than ``claimed_at``, a long-running healthy task is *never*
+        swept regardless of how old the claim is — its heartbeat keeps
+        the row fresh. Only orphan claims from killed replicas (no
+        heartbeat for >5 min) get returned to the pending pool.
         """
 
         def loop() -> None:
@@ -235,19 +236,27 @@ class Worker:
                 if self._stop.is_set():
                     return
                 tick += 1
+                with self._in_flight_lock:
+                    claimed = self._in_flight
+                if claimed is not None:
+                    try:
+                        self.store.heartbeat(claimed.task_db_id)
+                    except Exception:  # noqa: BLE001
+                        LOG.exception(
+                            "heartbeat write failed for task=%s",
+                            claimed.task_ref.task_id,
+                        )
                 if tick % max(reclaim_every, 1) == 0:
                     try:
                         n = self.store.reclaim_stale_claims(reclaim_max_age_seconds)
                         if n:
                             LOG.info(
-                                "reclaimed %d stale claim(s) older than %ds",
+                                "reclaimed %d stale claim(s) (no heartbeat for >%ds)",
                                 n,
                                 reclaim_max_age_seconds,
                             )
                     except Exception:  # noqa: BLE001
                         LOG.exception("reclaim_stale_claims failed; will retry")
-                with self._in_flight_lock:
-                    claimed = self._in_flight
                 if claimed is None:
                     LOG.info("heartbeat worker=%s in_flight=idle", self.worker_id)
                     continue
