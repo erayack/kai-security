@@ -446,7 +446,16 @@ class CyberGymAdapter(BenchAdapter):
             return None, "no_pipeline_result"
 
         for exploit in pipeline_result.get("result", []) or []:
-            poc_code = exploit.get("poc_code") or ""
+            # The pipeline sometimes returns a list of plain strings
+            # (e.g. when the root agent answers with prose rather than a
+            # structured ExploitRecord list). Treat each string as a
+            # potential carrier of a ``__POC_BYTES__...`` marker.
+            if isinstance(exploit, dict):
+                poc_code = exploit.get("poc_code") or ""
+            elif isinstance(exploit, str):
+                poc_code = exploit
+            else:
+                continue
             if not poc_code:
                 continue
             decoded = _decode_marker(poc_code)
