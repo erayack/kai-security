@@ -57,7 +57,6 @@ FROM ${PYTHON_IMAGE} AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH=/app/.venv/bin:$PATH \
     VIRTUAL_ENV=/app/.venv \
     KAI_BACKEND=openrouter \
     KAI_LOG_STRUCTURED=1 \
@@ -66,8 +65,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         ca-certificates \
+        curl \
         tini \
     && rm -rf /var/lib/apt/lists/*
+
+# Foundry (forge, cast, anvil) — required by the evmbench adapter's
+# ``setup_mode: "auto"`` path so kai's setup agent can run
+# ``forge install`` / ``forge build`` against each audit's codebase.
+# Without this, tree-sitter only sees stub ``lib/`` paths and the
+# exploit agent's dep-graph is empty for Foundry projects.
+ENV FOUNDRY_DIR=/root/.foundry
+ENV PATH=${FOUNDRY_DIR}/bin:/app/.venv/bin:$PATH
+RUN curl -L https://foundry.paradigm.xyz | bash \
+    && ${FOUNDRY_DIR}/bin/foundryup
 
 WORKDIR /app
 

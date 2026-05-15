@@ -61,6 +61,25 @@ DETECT_INSTRUCTIONS = (
 )
 
 
+_FOUNDRY_SETUP_HINT = (
+    "# Foundry project — setup notes\n"
+    "The audit codebase is a Foundry / hardhat-foundry project. The "
+    "setup agent should:\n"
+    "1. Run `forge install --shallow` inside `<repo>` to populate "
+    "`lib/` with the audit's submoduled dependencies. If that fails "
+    "with submodule conflicts, fall back to `git submodule update "
+    "--init --recursive --depth 1 --jobs 8`.\n"
+    "2. Run `forge build` (or `forge build --skip test`) once so the "
+    "tree-sitter dependency graph can resolve cross-file imports. "
+    "Failing to build is acceptable — the exploit agent works on "
+    "source — but `lib/` must be populated.\n"
+    "3. The recipe should list `lib` as a `symlink_dirs` entry and "
+    "`src`, `contracts`, `test` (whichever exist) as `copy_dirs`. "
+    "Include `foundry.toml`, `remappings.txt`, `hardhat.config.ts` in "
+    "`copy_files` if present."
+)
+
+
 class EVMBenchAdapter(BenchAdapter):
     """Adapter for the EVMbench DETECT split.
 
@@ -126,6 +145,27 @@ class EVMBenchAdapter(BenchAdapter):
         )
         self.clone_timeout_s = int(config.get("clone_timeout_s", 600))
 
+        # How the runner should invoke kai for this task:
+        #
+        # * ``"recipe"`` (default) — pre-bake a stub WorkspaceRecipe and
+        #   pass ``--recipe``. kai skips its setup agent entirely. Cheap
+        #   and predictable, but Foundry projects whose own Dockerfile
+        #   would normally run ``forge install`` get nothing — the
+        #   tree-sitter dep-graph only sees stub ``lib/`` paths and the
+        #   exploit agent has no symbol resolution into deps.
+        # * ``"auto"`` — let kai's setup agent run end-to-end. We append
+        #   a Foundry-specific hint to the prompt extras so the setup
+        #   agent knows it must ``forge install`` + ``forge build`` in
+        #   ``<repo>`` before declaring the recipe complete. Only
+        #   sensible when the worker image actually has ``forge`` on
+        #   PATH (Dockerfile bakes foundryup from this branch onward).
+        self.setup_mode = str(config.get("setup_mode") or "recipe").lower()
+        if self.setup_mode not in {"recipe", "auto"}:
+            raise ValueError(
+                f"evmbench setup_mode must be 'recipe' or 'auto', got "
+                f"{self.setup_mode!r}"
+            )
+
         # Optional LLM-as-judge fallback when the strict
         # title-substring / token-majority matcher misses. See
         # ``evaluation.judge.LLMJudge``.
@@ -172,26 +212,35 @@ class EVMBenchAdapter(BenchAdapter):
         repo_path = workdir / "repo"
         self._materialise_audit_source(audit_id, repo_path)
 
-        recipe_path = workdir / "recipe.json"
-        recipe_path.write_text(
-            json.dumps(
-                {
-                    "master_path": str(repo_path),
-                    "symlink_dirs": [],
-                    "copy_dirs": [],
-                    "copy_files": [],
-                    "post_copy_commands": [],
-                },
-                indent=2,
+        recipe_path: Path | None
+        if self.setup_mode == "auto":
+            # Let kai's setup agent run end-to-end. The worker image must
+            # have ``forge`` on PATH (Dockerfile bakes foundryup).
+            recipe_path = None
+        else:
+            recipe_path = workdir / "recipe.json"
+            recipe_path.write_text(
+                json.dumps(
+                    {
+                        "master_path": str(repo_path),
+                        "symlink_dirs": [],
+                        "copy_dirs": [],
+                        "copy_files": [],
+                        "post_copy_commands": [],
+                    },
+                    indent=2,
+                )
             )
-        )
 
         prompt_extras = self._build_prompt_extras(audit_id, vulns, audit_dir)
+        if self.setup_mode == "auto":
+            prompt_extras = prompt_extras + "\n\n" + _FOUNDRY_SETUP_HINT
 
         oracle: dict[str, Any] = {
             "split": self.split,
             "audit_id": audit_id,
             "audit_dir": str(audit_dir),
+            "setup_mode": self.setup_mode,
             "vulnerabilities": [
                 {
                     "id": str(v.get("id") or ""),
