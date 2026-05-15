@@ -1,35 +1,41 @@
-"""Offline CyberGym verifier.
+"""Offline CyberGym verifier (server-agnostic, no local dataset required).
 
-For every successful cybergym task in the given run(s), pull the PoC
-bytes out of ``bench_scores.score_json.details.poc_b64`` and POST them
-to a running CyberGym submission server. Update the DB row with the
-verifier's actual ``exit_code`` so the soft ``score_mode:
-soft_unverified`` becomes ``score_mode: verified`` (or
-``verified_rejected`` when the server says no).
+For every cybergym task in the given run(s) whose ``score_json`` carries
+a ``poc_b64`` field, this script POSTs the PoC binary to a running
+CyberGym submission server and updates the row with the verifier's
+actual ``exit_code``. Soft ``score_mode: soft_unverified`` flips to
+``verified`` (vulnerable build's exit_code == 0) or
+``verified_rejected``.
 
-This script is intended to run locally — the cybergym submission
-server is Docker-based and cannot live on Railway today. You provide:
+Design constraints we hit:
 
-* ``--server`` — URL of the running ``cybergym.server`` instance
-  (e.g. ``http://127.0.0.1:8666``).
-* ``--data-dir`` and ``--mask-map`` — paths to the cybergym dataset
-  and ``mask_map.json`` (only needed to regenerate per-task
-  ``submit.sh`` files via the upstream ``gen_task`` CLI, which is the
-  cleanest path to post a PoC). ``--cybergym-pkg-root`` lets you
-  point at a checked-out cybergym repo if the package isn't on
-  ``PYTHONPATH``.
+* The verifier server (``python -m cybergym.server``) is Docker-based;
+  it cannot run on Railway today. It must run somewhere with Docker
+  access (a Modal sandbox, a small VM, your laptop). The URL is the
+  only thing we need.
+* The user's local machine should *not* need the cybergym dataset.
+  We pull ``mask_map.json`` from the CyberGym GitHub repo on first
+  use (~50 KB) and compute the agent id + checksum locally. No
+  ``--data-dir`` argument, no 240 GB dataset clone.
+* PoC bytes are read from ``bench_scores.score_json.details.poc_b64``,
+  which the cybergym adapter writes per task (capped at 1 MiB).
+
+This script can run anywhere with ``DATABASE_URL`` set to the Railway
+Postgres URL and ``--server`` pointed at the running cybergym server.
+The verifier loop and DB updates are unchanged from the previous
+incarnation; only the metadata-construction path is server-agnostic.
 
 Usage::
 
-    DATABASE_URL=postgres://... python scripts/cybergym_verify.py <run-id>
-        --server http://127.0.0.1:8666
-        --data-dir ~/data/cybergym_data/data
-        --mask-map ~/src/cybergym/mask_map.json
-        --cybergym-pkg-root ~/src/cybergym
+    DATABASE_URL=postgres://... python scripts/cybergym_verify.py <run-id> \
+        --server https://my-cybergym-server.modal.run
 
-The script never deletes anything; it only updates ``bench_scores`` /
-``bench_tasks`` rows for rows whose ``details`` already contains
-``poc_b64``.
+Optional flags:
+
+* ``--mask-map-source github`` (default) or ``--mask-map-source url
+  <URL>`` if you've hosted ``mask_map.json`` elsewhere.
+* ``--dry-run`` — print what would be posted, do not touch the DB.
+* ``--limit N`` — verify at most N rows per run.
 """
 
 from __future__ import annotations
@@ -39,13 +45,19 @@ import base64
 import json
 import logging
 import os
-import subprocess
 import sys
-import tempfile
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 LOG = logging.getLogger("scripts.cybergym_verify")
+
+DEFAULT_MASK_MAP_URL = (
+    "https://raw.githubusercontent.com/sunblaze-ucb/cybergym/main/mask_map.json"
+)
+DEFAULT_SALT = "CyberGym"
+SUBMIT_TIMEOUT_S = 600
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -56,24 +68,38 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--server", required=True, help="cybergym submission server URL."
     )
-    parser.add_argument("--data-dir", required=True, type=Path)
-    parser.add_argument("--mask-map", required=True, type=Path)
     parser.add_argument(
-        "--cybergym-pkg-root",
+        "--mask-map-source",
+        default="github",
+        choices=["github", "url", "path"],
+        help="where to fetch mask_map.json from (default: github).",
+    )
+    parser.add_argument(
+        "--mask-map-url",
+        default=DEFAULT_MASK_MAP_URL,
+        help="override mask_map.json URL when --mask-map-source=url.",
+    )
+    parser.add_argument(
+        "--mask-map-path",
         type=Path,
         default=None,
-        help="optional path to a cybergym checkout (added to PYTHONPATH).",
+        help="local mask_map.json path when --mask-map-source=path.",
+    )
+    parser.add_argument(
+        "--salt",
+        default=DEFAULT_SALT,
+        help="checksum salt; matches cybergym DEFAULT_SALT.",
     )
     parser.add_argument(
         "--difficulty",
         default="level1",
-        help="difficulty level passed to gen_task (default level1).",
+        help="difficulty hint included in the submission metadata.",
     )
     parser.add_argument(
         "--limit",
         type=int,
         default=None,
-        help="stop after verifying this many tasks per run (debugging).",
+        help="stop after verifying this many tasks per run.",
     )
     parser.add_argument(
         "--dry-run",
@@ -84,6 +110,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--database-url",
         default=None,
         help="override DATABASE_URL (otherwise read from env).",
+    )
+    parser.add_argument(
+        "--require-flag",
+        action="store_true",
+        help="set the metadata.require_flag bit (matches cybergym --with-flag).",
     )
     return parser.parse_args(argv)
 
@@ -102,17 +133,31 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
+        import httpx
         import psycopg
-    except ImportError:
-        LOG.error("psycopg not installed; run `uv sync --extra railway`")
+    except ImportError as exc:
+        LOG.error(
+            "missing dependency (%s); run `uv sync --extra railway --extra cybergym`",
+            exc.name,
+        )
         return 2
+
+    mask_map = _load_mask_map(args)
+    if mask_map is None:
+        return 2
+    LOG.info("loaded mask_map with %d task entries", len(mask_map))
 
     total_attempted = 0
     total_verified_match = 0
     total_verified_no_match = 0
     total_skipped = 0
 
-    with psycopg.connect(db_url) as conn:
+    submit_url = args.server.rstrip("/") + "/submit-vul"
+
+    with (
+        psycopg.connect(db_url) as conn,
+        httpx.Client(timeout=SUBMIT_TIMEOUT_S) as client,
+    ):
         for run_id in args.run_ids:
             LOG.info("=== verifying run=%s ===", run_id)
             rows = _fetch_scores(conn, run_id)
@@ -132,29 +177,43 @@ def main(argv: list[str] | None = None) -> int:
                     LOG.warning("skip %s: poc_b64 decode failed (%s)", task_id, exc)
                     total_skipped += 1
                     continue
+                if task_id not in mask_map:
+                    LOG.warning("skip %s: not in mask_map", task_id)
+                    total_skipped += 1
+                    continue
+
+                masked_id = mask_map[task_id]
+                agent_id = uuid4().hex
+                checksum = sha256(
+                    f"{masked_id}{agent_id}{args.salt}".encode()
+                ).hexdigest()
 
                 if args.dry_run:
                     LOG.info(
-                        "dry-run %s: would POST %d bytes to %s",
+                        "dry-run %s (masked=%s): would POST %d bytes to %s",
                         task_id,
+                        masked_id,
                         len(poc_bytes),
-                        args.server,
+                        submit_url,
                     )
                     total_attempted += 1
                     continue
 
-                result = _verify_single_task(
-                    task_id=task_id,
-                    poc_bytes=poc_bytes,
-                    server=args.server,
-                    data_dir=args.data_dir,
-                    mask_map=args.mask_map,
-                    cybergym_pkg_root=args.cybergym_pkg_root,
-                    difficulty=args.difficulty,
-                )
                 total_attempted += 1
+                result = _post_poc(
+                    client=client,
+                    submit_url=submit_url,
+                    masked_task_id=masked_id,
+                    agent_id=agent_id,
+                    checksum=checksum,
+                    require_flag=args.require_flag,
+                    poc_bytes=poc_bytes,
+                    poc_filename=f"{task_id.replace(':', '_')}.poc",
+                )
                 if result is None:
-                    LOG.warning("verify failed for %s (server/SDK error)", task_id)
+                    LOG.warning(
+                        "verify failed for %s (server / network error)", task_id
+                    )
                     continue
                 verified, server_payload = result
                 _update_score(conn, task_db_id, payload, verified, server_payload)
@@ -172,6 +231,33 @@ def main(argv: list[str] | None = None) -> int:
         total_skipped,
     )
     return 0
+
+
+def _load_mask_map(args: argparse.Namespace) -> dict[str, str] | None:
+    """Load mask_map.json from GitHub / URL / local path."""
+
+    if args.mask_map_source == "path":
+        if args.mask_map_path is None:
+            LOG.error("--mask-map-source=path requires --mask-map-path")
+            return None
+        try:
+            return json.loads(args.mask_map_path.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            LOG.error("failed to read %s: %s", args.mask_map_path, exc)
+            return None
+
+    url = (
+        DEFAULT_MASK_MAP_URL if args.mask_map_source == "github" else args.mask_map_url
+    )
+    try:
+        import httpx
+
+        resp = httpx.get(url, timeout=60.0)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as exc:  # noqa: BLE001
+        LOG.error("failed to fetch mask_map.json from %s: %s", url, exc)
+        return None
 
 
 def _fetch_scores(conn: Any, run_id: str) -> list[tuple[int, str, Any]]:
@@ -219,127 +305,55 @@ def _update_score(
     cur.close()
 
 
-def _verify_single_task(
+def _post_poc(
     *,
-    task_id: str,
+    client: Any,
+    submit_url: str,
+    masked_task_id: str,
+    agent_id: str,
+    checksum: str,
+    require_flag: bool,
     poc_bytes: bytes,
-    server: str,
-    data_dir: Path,
-    mask_map: Path,
-    cybergym_pkg_root: Path | None,
-    difficulty: str,
+    poc_filename: str,
 ) -> tuple[bool, dict[str, Any]] | None:
-    """Regenerate ``submit.sh`` for ``task_id`` and POST ``poc_bytes`` to it.
+    """Send the PoC to the cybergym server's ``/submit-vul`` endpoint.
 
-    Returns ``(verified_match, server_payload)``. ``verified_match`` is
-    True when the server's primary ``exit_code`` is 0 (the PoC ran on
-    the vulnerable build without erroring). Returns ``None`` on any
-    SDK / network error so the caller leaves the score untouched.
+    Returns ``(verified, server_payload)`` or ``None`` on transport
+    failure. The server's primary ``exit_code`` field is the source of
+    truth: 0 == the binary ran on the vulnerable build (i.e. the PoC
+    is shaped correctly), non-zero == server rejected the submission.
     """
 
-    with tempfile.TemporaryDirectory(prefix="cybergym-verify-") as td:
-        td_path = Path(td)
-        try:
-            _gen_task(
-                task_id=task_id,
-                out_dir=td_path,
-                data_dir=data_dir,
-                mask_map=mask_map,
-                cybergym_pkg_root=cybergym_pkg_root,
-                difficulty=difficulty,
-                server=server,
-            )
-        except RuntimeError as exc:
-            LOG.warning("gen_task failed for %s: %s", task_id, exc)
-            return None
-
-        submit_sh = td_path / "submit.sh"
-        if not submit_sh.exists():
-            LOG.warning("gen_task produced no submit.sh for %s", task_id)
-            return None
-        submit_sh.chmod(0o755)
-
-        poc_path = td_path / "poc"
-        poc_path.write_bytes(poc_bytes)
-
-        completed = subprocess.run(
-            ["bash", str(submit_sh), str(poc_path)],
-            capture_output=True,
-            text=True,
-            timeout=600,
-            check=False,
+    metadata = {
+        "task_id": masked_task_id,
+        "agent_id": agent_id,
+        "checksum": checksum,
+        "require_flag": bool(require_flag),
+    }
+    files = {
+        "file": (poc_filename, poc_bytes, "application/octet-stream"),
+    }
+    data = {"metadata": json.dumps(metadata)}
+    try:
+        resp = client.post(submit_url, data=data, files=files)
+    except Exception:  # noqa: BLE001
+        LOG.exception("POST to %s failed", submit_url)
+        return None
+    payload: dict[str, Any] = {}
+    try:
+        payload = resp.json()
+    except Exception:  # noqa: BLE001
+        payload = {"raw": resp.text[:600]}
+    payload["http_status"] = resp.status_code
+    if resp.status_code >= 500:
+        LOG.warning(
+            "server returned %s for masked=%s; treating as transient",
+            resp.status_code,
+            masked_task_id,
         )
-        if completed.returncode != 0:
-            LOG.warning(
-                "submit.sh exited non-zero (%s) for %s: %s",
-                completed.returncode,
-                task_id,
-                (completed.stderr or "").strip()[:200],
-            )
-
-        payload: dict[str, Any] = {
-            "stdout_tail": (completed.stdout or "")[-1000:],
-            "stderr_tail": (completed.stderr or "")[-400:],
-            "script_exit_code": completed.returncode,
-        }
-        try:
-            last_line = (completed.stdout or "").strip().splitlines()[-1]
-            parsed = json.loads(last_line)
-            payload.update(parsed)
-        except (IndexError, json.JSONDecodeError):
-            pass
-
-        verified = bool(payload.get("exit_code") == 0)
-        return verified, payload
-
-
-def _gen_task(
-    *,
-    task_id: str,
-    out_dir: Path,
-    data_dir: Path,
-    mask_map: Path,
-    cybergym_pkg_root: Path | None,
-    difficulty: str,
-    server: str,
-) -> None:
-    cmd = [
-        sys.executable,
-        "-m",
-        "cybergym.task.gen_task",
-        "--task-id",
-        task_id,
-        "--out-dir",
-        str(out_dir),
-        "--data-dir",
-        str(data_dir),
-        "--server",
-        server,
-        "--mask-map",
-        str(mask_map),
-        "--difficulty",
-        difficulty,
-    ]
-    env = os.environ.copy()
-    if cybergym_pkg_root is not None:
-        existing = env.get("PYTHONPATH", "")
-        env["PYTHONPATH"] = (
-            f"{cybergym_pkg_root / 'src'}{os.pathsep}{existing}"
-            if existing
-            else str(cybergym_pkg_root / "src")
-        )
-    completed = subprocess.run(
-        cmd,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=600,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError(
-            f"gen_task exit={completed.returncode} stderr={completed.stderr[:200]}"
-        )
+        return None
+    verified = bool(payload.get("exit_code") == 0)
+    return verified, payload
 
 
 if __name__ == "__main__":
