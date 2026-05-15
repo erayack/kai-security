@@ -34,7 +34,7 @@ import urllib.parse
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -472,6 +472,43 @@ class TaskStore:
                 conn.commit()
             finally:
                 cur.close()
+
+    def reclaim_stale_claims(self, max_age_seconds: int) -> int:
+        """Return any ``running`` tasks claimed more than ``max_age_seconds`` ago
+        to the ``pending`` pool.
+
+        Workers that crash or are killed mid-task leave their row in the
+        ``running`` state forever — there is no daemon process otherwise
+        watching them. A worker calls this periodically so that orphan
+        claims become eligible for re-claim.
+        """
+
+        if max_age_seconds <= 0:
+            return 0
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+        with self._connect() as conn:
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    self._sql(
+                        "UPDATE bench_tasks SET status = %s, worker_id = NULL, "
+                        "claimed_at = NULL "
+                        "WHERE status = %s AND claimed_at IS NOT NULL "
+                        "AND claimed_at < %s"
+                    ),
+                    self._sqlite_params(
+                        (
+                            STATUS_PENDING,
+                            STATUS_RUNNING,
+                            self._sqlite_dt(cutoff),
+                        )
+                    ),
+                )
+                count = cur.rowcount or 0
+                conn.commit()
+            finally:
+                cur.close()
+        return count
 
     def list_runs(
         self,

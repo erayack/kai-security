@@ -1,3 +1,20 @@
+<!--
+NOTE TO REVIEWERS: this document lives in the repo only for the duration
+of the review phase. Once the eval harness PR is merged it should be
+deleted — the numbers it carries are a snapshot of one specific run and
+will go stale fast.
+
+Status of follow-ups called out in the "Recommendations" section below:
+  - LLM-as-judge soft scorers for bountybench + evmbench: IMPLEMENTED
+    on this branch (see the `evaluation/adapters/{bountybench,evmbench}/
+    judge.py` modules and the `judge_mode: "llm"` adapter-config flag).
+  - Offline CyberGym verifier loop: IMPLEMENTED on this branch
+    (see `scripts/cybergym_verify.py`).
+  - Stale-claim reclaim: IMPLEMENTED on this branch (see
+    `evaluation/store.py:reclaim_stale_claims` and the periodic call
+    in `evaluation/worker.py`).
+-->
+
 # Overnight benchmark run — 2026-05-15
 
 First end-to-end run of the new `evaluation/` harness on Railway across

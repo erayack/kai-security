@@ -211,15 +211,41 @@ class Worker:
                 "failed to record failure for task=%s", claimed.task_ref.task_id
             )
 
-    def _start_heartbeat(self, interval: float = 60.0) -> None:
-        """Spawn a daemon thread that logs the in-flight task every ``interval`` s."""
+    def _start_heartbeat(
+        self,
+        interval: float = 60.0,
+        reclaim_every: int = 5,
+        reclaim_max_age_seconds: int = 7200,
+    ) -> None:
+        """Spawn a daemon thread that logs the in-flight task and periodically
+        reclaims stale ``running`` rows back to ``pending``.
+
+        Workers killed by Railway redeploys / OOMs leave their last claim
+        in the ``running`` state forever. Every ``reclaim_every`` ticks
+        (default ~5 min when ``interval`` is 60 s) we run a SQL update
+        that releases any claim older than ``reclaim_max_age_seconds``
+        (default 2 h, comfortably past any sane per-task timeout).
+        """
 
         def loop() -> None:
             started_for: dict[int, float] = {}
+            tick = 0
             while not self._stop.is_set():
                 self._stop.wait(interval)
                 if self._stop.is_set():
                     return
+                tick += 1
+                if tick % max(reclaim_every, 1) == 0:
+                    try:
+                        n = self.store.reclaim_stale_claims(reclaim_max_age_seconds)
+                        if n:
+                            LOG.info(
+                                "reclaimed %d stale claim(s) older than %ds",
+                                n,
+                                reclaim_max_age_seconds,
+                            )
+                    except Exception:  # noqa: BLE001
+                        LOG.exception("reclaim_stale_claims failed; will retry")
                 with self._in_flight_lock:
                     claimed = self._in_flight
                 if claimed is None:

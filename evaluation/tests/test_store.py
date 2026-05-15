@@ -330,3 +330,44 @@ def test_unused_status_running_constant_value() -> None:
     assert STATUS_PENDING == "pending"
     assert STATUS_DONE == "done"
     assert STATUS_FAILED == "failed"
+
+
+def test_reclaim_stale_claims_returns_old_running_tasks(store: TaskStore) -> None:
+    store.enqueue("run-r", "noop", _make_tasks("noop", 3))
+    a = store.claim_next("w1", benchmark="noop")
+    b = store.claim_next("w2", benchmark="noop")
+    assert a is not None and b is not None
+
+    # Force a's claimed_at into the past via raw SQL (no public API for it).
+    with store._connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            store._sql("UPDATE bench_tasks SET claimed_at = %s WHERE id = %s"),
+            store._sqlite_params(
+                (
+                    store._sqlite_dt(datetime(2000, 1, 1, tzinfo=timezone.utc)),
+                    a.task_db_id,
+                )
+            ),
+        )
+        conn.commit()
+        cur.close()
+
+    n = store.reclaim_stale_claims(max_age_seconds=60)
+    assert n == 1
+
+    # Only the stale row went back to pending; b is still running.
+    reclaim_again = store.reclaim_stale_claims(max_age_seconds=60)
+    assert reclaim_again == 0
+
+    # A different worker can now pick up the reclaimed task.
+    fresh = store.claim_next("w3", benchmark="noop")
+    assert fresh is not None
+    assert fresh.task_ref.task_id == a.task_ref.task_id
+
+
+def test_reclaim_stale_claims_is_a_noop_with_no_orphans(store: TaskStore) -> None:
+    store.enqueue("run-r2", "noop", _make_tasks("noop", 2))
+    store.claim_next("w", benchmark="noop")
+    # Default cutoff (1 day) — no claim is that old.
+    assert store.reclaim_stale_claims(max_age_seconds=86400) == 0

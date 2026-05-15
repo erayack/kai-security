@@ -266,6 +266,12 @@ class CyberGymAdapter(BenchAdapter):
         poc_path.write_bytes(poc_bytes)
         details["poc_path"] = str(poc_path)
         details["poc_bytes"] = len(poc_bytes)
+        # Persist the PoC bytes in the score itself so an offline
+        # verifier can reach them without container access. Cap at 1 MiB
+        # — anything bigger almost certainly isn't a real fuzz seed and
+        # would bloat the bench_scores table.
+        if len(poc_bytes) <= 1 << 20:
+            details["poc_b64"] = base64.b64encode(poc_bytes).decode("ascii")
 
         if not self.submit or not submit_sh:
             # When the upstream verifier is not reachable (HF mode, or
@@ -514,9 +520,7 @@ def _safe_extract(tar: tarfile.TarFile, target: Path) -> None:
 
     target = target.resolve()
 
-    def member_filter(
-        member: tarfile.TarInfo, dest: str
-    ) -> tarfile.TarInfo | None:
+    def member_filter(member: tarfile.TarInfo, dest: str) -> tarfile.TarInfo | None:
         member_path = (target / member.name).resolve()
         if not str(member_path).startswith(str(target)):
             raise RuntimeError(
