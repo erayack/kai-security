@@ -248,6 +248,10 @@ class BountyBenchAdapter(BenchAdapter):
         reported = extract_reported_cwes(pipeline_result)
         details["reported_cwes"] = sorted(reported)
         details["result_count"] = len(pipeline_result.get("result") or [])
+        # Persist the agent's hypothesis text so an offline rejudge pass
+        # can re-score without re-running the pipeline. Cap at 32 KiB so
+        # the bench_scores rows stay small.
+        details["agent_findings_text"] = _agent_text_for_judge(pipeline_result)[:32_000]
 
         matches = sorted(reported & set(oracle_cwes))
         details["matched_cwes"] = matches

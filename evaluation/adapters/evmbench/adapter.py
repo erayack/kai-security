@@ -244,6 +244,9 @@ class EVMBenchAdapter(BenchAdapter):
         details["matched_vuln_ids"] = [v["id"] for v in matched]
         details["matched_titles"] = [v["title"] for v in matched]
         details["n_matched"] = len(matched)
+        # Persist the agent's findings so an offline rejudge can re-score
+        # without re-running the pipeline. Cap at 32 KiB per task.
+        details["agent_findings_text"] = _agent_text_for_judge_evm(results)[:32_000]
 
         if matched:
             return TaskScore(
@@ -436,6 +439,31 @@ class EVMBenchAdapter(BenchAdapter):
                 + hints_path.read_text()[:4000]
             )
         return "\n\n".join(chunks)
+
+
+def _agent_text_for_judge_evm(results: list[Any]) -> str:
+    """Flatten the agent's findings into a single text blob for the judge.
+
+    Each finding gets a labelled header so the judge can address multiple
+    findings inside one audit.
+    """
+
+    lines: list[str] = []
+    if not isinstance(results, list):
+        return ""
+    for i, r in enumerate(results, start=1):
+        if isinstance(r, dict):
+            chunks: list[str] = []
+            for k in _TEXT_SCAN_FIELDS:
+                v = r.get(k)
+                if v:
+                    chunks.append(f"  - {k}: {v}")
+            lines.append(
+                f"## finding {i}\n" + ("\n".join(chunks) if chunks else f"  {r}")
+            )
+        else:
+            lines.append(f"## finding {i}\n  {r}")
+    return "\n\n".join(lines)
 
 
 def _build_haystack(results: list[Any]) -> str:
