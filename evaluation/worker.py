@@ -38,6 +38,11 @@ from evaluation.store import (
     TaskStore,
 )
 
+# Cache of per-run runners so we only resolve / construct each adapter
+# once even when a worker drains dozens of tasks belonging to the same
+# custom-config run. Keyed by run_id.
+_runner_cache: dict[str, BenchmarkRunner] = {}
+
 LOG = logging.getLogger("evaluation.worker")
 
 
@@ -166,8 +171,15 @@ class Worker:
             claimed.attempts,
         )
         run_dir = self._run_dir(claimed)
+        # Honour per-run adapter config when present in bench_runs.config.
+        # ``evaluation.cli.enqueue`` stamps the full adapter_config used at
+        # enqueue time onto the run; if it differs from the worker's
+        # boot-time ``BENCHMARK_CONFIG`` (e.g. ``mode="exploit"`` or
+        # ``mode="patch"`` for bountybench) we build and cache a separate
+        # runner so this claim is processed with the correct adapter.
+        runner = self._runner_for_run(claimed.run_id)
         try:
-            score = self.runner._run_task(  # noqa: SLF001 -- internal call by design
+            score = runner._run_task(  # noqa: SLF001 -- internal call by design
                 claimed.task_ref, run_dir
             )
         finally:
@@ -186,6 +198,56 @@ class Worker:
         run_dir = self.runner.output_root / f"run_{claimed.run_id}"
         run_dir.mkdir(parents=True, exist_ok=True)
         return run_dir
+
+    def _runner_for_run(self, run_id: str) -> BenchmarkRunner:
+        """Return the runner whose adapter matches this run's stored config.
+
+        Falls back to the worker's boot-time runner when the run row
+        has no ``adapter_config`` (legacy runs) or when the lookup
+        fails. The per-run adapter is cached so subsequent claims for
+        the same run reuse it without re-resolving.
+        """
+
+        cached = _runner_cache.get(run_id)
+        if cached is not None:
+            return cached
+        try:
+            summary = self.store.get_run(run_id)
+        except Exception:  # noqa: BLE001 -- log and fall through
+            LOG.exception("get_run failed for run_id=%s; using default runner", run_id)
+            return self.runner
+        if summary is None:
+            return self.runner
+        run_cfg = summary.config or {}
+        if not isinstance(run_cfg, dict):
+            return self.runner
+        adapter_config = run_cfg.get("adapter_config")
+        if not isinstance(adapter_config, dict):
+            # Pre-fix runs didn't persist adapter_config — fall back to env.
+            return self.runner
+        try:
+            per_run_adapter = resolve_adapter(self.runner.adapter.name, adapter_config)
+        except Exception:  # noqa: BLE001
+            LOG.exception(
+                "could not resolve per-run adapter for run_id=%s; using default",
+                run_id,
+            )
+            return self.runner
+        per_run_runner = BenchmarkRunner(
+            per_run_adapter,
+            output_root=self.runner.output_root,
+            concurrency=1,
+            per_task_timeout_s=self.runner.per_task_timeout_s,
+            pipeline_args=self.runner.pipeline_args,
+            env_overrides=self.runner.env_overrides,
+        )
+        _runner_cache[run_id] = per_run_runner
+        LOG.info(
+            "per-run runner built for run_id=%s (adapter_config keys=%s)",
+            run_id,
+            sorted(adapter_config.keys()),
+        )
+        return per_run_runner
 
     def _fail_claim(self, claimed: ClaimedTask, reason: str) -> None:
         score = TaskScore(

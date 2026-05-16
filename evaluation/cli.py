@@ -361,7 +361,15 @@ def _cmd_enqueue(args: argparse.Namespace) -> int:
         return 0
 
     run_id = args.run_id or generate_id()
-    run_config: dict[str, Any] = {"adapter": args.adapter}
+    # Persist the full adapter_config on the run row so workers can
+    # rebuild a per-run adapter when claiming. Without this, the worker
+    # uses ``BENCHMARK_CONFIG`` (set once at deploy time) for every
+    # claim -- which made bountybench exploit / patch runs silently
+    # fall through to detect-mode scoring (see the 2026-05-16 incident).
+    run_config: dict[str, Any] = {
+        "adapter": args.adapter,
+        "adapter_config": config,
+    }
     for raw in args.config:
         if "=" not in raw:
             raise SystemExit(f"--config expects KEY=VALUE, got {raw!r}")
