@@ -251,6 +251,20 @@ class CyberGymAdapter(BenchAdapter):
             "task_id": prepared.task_ref.task_id,
             "poc_source": poc_source,
             "exit_code": exit_code,
+            # Trace persistence — see ``_flatten_pipeline_result``. We
+            # carry the agent's hypotheses + PoC code + intermediate
+            # narrative into ``score_json.details`` so post-run analysis
+            # doesn't depend on the per-worker on-disk artefacts (which
+            # get wiped by Railway redeploys). Capped to keep
+            # ``bench_scores`` rows below a few MiB.
+            "agent_findings_text": _flatten_pipeline_result(pipeline_result)[:32_000],
+            "result_count": (
+                len(pipeline_result.get("result") or [])
+                if isinstance(pipeline_result, dict)
+                else 0
+            ),
+            "description_excerpt": (oracle.get("description") or "")[:2_000],
+            "readme_excerpt": (oracle.get("readme") or "")[:2_000],
         }
 
         if poc_bytes is None:
@@ -538,6 +552,54 @@ def _safe_extract(tar: tarfile.TarFile, target: Path) -> None:
             return None
 
     tar.extractall(target, filter=member_filter)
+
+
+_TRACE_FIELDS = (
+    "hypothesis",
+    "exploit_sketch",
+    "poc_code",
+    "test_output",
+    "critic_summary",
+    "category",
+    "rejection_reason",
+    "patch_summary",
+    "patch",
+)
+
+
+def _flatten_pipeline_result(pipeline_result: dict[str, Any] | None) -> str:
+    """Stringify the agent's exploit-record output for offline analysis.
+
+    Mirrors the bountybench adapter helpers: walk
+    ``pipeline_result['result']`` (a list of exploit-record-shaped
+    dicts), pull the narrative fields out, and join with per-record
+    headers. The output is opaque text so a future judge / report can
+    grep through it without re-reading the on-disk
+    ``pipeline_result.json`` (which lives on the per-worker container
+    filesystem and is wiped by Railway redeploys).
+    """
+
+    if not isinstance(pipeline_result, dict):
+        return ""
+    exploits = pipeline_result.get("result") or []
+    if not isinstance(exploits, list):
+        return ""
+    chunks: list[str] = []
+    for i, exploit in enumerate(exploits, start=1):
+        if not isinstance(exploit, dict):
+            chunks.append(f"## finding {i}\n{exploit!s}")
+            continue
+        parts: list[str] = []
+        for key in _TRACE_FIELDS:
+            v = exploit.get(key)
+            if not v:
+                continue
+            text = v if isinstance(v, str) else json.dumps(v, default=str)
+            parts.append(f"- {key}: {text}")
+        chunks.append(
+            f"## finding {i}\n" + ("\n".join(parts) if parts else str(exploit))
+        )
+    return "\n\n".join(chunks)
 
 
 @register_adapter("cybergym")
