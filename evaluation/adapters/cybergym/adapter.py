@@ -276,17 +276,18 @@ class CyberGymAdapter(BenchAdapter):
         submit_sh = oracle.get("submit_sh")
 
         poc_bytes, poc_source = self._locate_poc(prepared, pipeline_result)
+        # Trace persistence — see ``_flatten_pipeline_result``. We carry
+        # the agent's hypotheses + PoC code + intermediate narrative into
+        # ``score_json.details`` so post-run analysis doesn't depend on
+        # the per-worker on-disk artefacts (which get wiped by Railway
+        # redeploys). Capped to keep ``bench_scores`` rows below a few
+        # MiB.
+        findings_text = _flatten_pipeline_result(pipeline_result)
         details: dict[str, Any] = {
             "task_id": prepared.task_ref.task_id,
             "poc_source": poc_source,
             "exit_code": exit_code,
-            # Trace persistence — see ``_flatten_pipeline_result``. We
-            # carry the agent's hypotheses + PoC code + intermediate
-            # narrative into ``score_json.details`` so post-run analysis
-            # doesn't depend on the per-worker on-disk artefacts (which
-            # get wiped by Railway redeploys). Capped to keep
-            # ``bench_scores`` rows below a few MiB.
-            "agent_findings_text": _flatten_pipeline_result(pipeline_result)[:32_000],
+            "agent_findings_text": findings_text[:32_000],
             "result_count": (
                 len(pipeline_result.get("result") or [])
                 if isinstance(pipeline_result, dict)
@@ -294,10 +295,15 @@ class CyberGymAdapter(BenchAdapter):
             ),
             "description_excerpt": (oracle.get("description") or "")[:2_000],
             "readme_excerpt": (oracle.get("readme") or "")[:2_000],
+            # Comprehensive shape + anomaly diagnostic. Captured on
+            # EVERY task so we can post-mortem silent-empty,
+            # runaway-result-count, wrong-poc-shape, and pipeline-error
+            # cases without needing the per-agent JSONL files. See
+            # ``_exploit_diagnostic`` for the full field list.
+            "exploit_diagnostic": _exploit_diagnostic(pipeline_result, findings_text),
         }
 
         if poc_bytes is None:
-            details["exploit_diagnostic"] = _exploit_diagnostic(pipeline_result)
             return TaskScore(
                 task_ref=prepared.task_ref,
                 success=False,
@@ -632,27 +638,151 @@ def _flatten_pipeline_result(pipeline_result: dict[str, Any] | None) -> str:
     return "\n\n".join(chunks)
 
 
-def _exploit_diagnostic(pipeline_result: dict[str, Any] | None) -> dict[str, Any]:
-    """Capture why the exploit role left us without a PoC binary.
+_POC_MARKER_PREFIX = "__POC_BYTES__"
+_SCRIPT_HEAD_HINTS = ("#!/", "import ", "from ", "def ", "#include", "package ")
+_DICT_KEY_SAMPLE_LIMIT = 5
+_FINDING_SAMPLE_LIMIT = 5
+_FINDING_FIELD_SNIPPET_CHARS = 300
+_TOP_PREVIEW_CHARS = 4_000
+_RESULT_PREVIEW_CHARS = 4_000
 
-    Mode #4 (failure-modes-final-2026-05-19.md): when ``_locate_poc``
-    returns ``None``, the audit found 127 / 673 historical rows where
-    ``agent_findings_text`` was also empty — i.e. the silent-empty
-    case. Surface ``pipeline_result``'s non-result fields here so
-    reviewers can tell whether the orchestrator returned an error,
-    an unexpected shape, or a genuinely empty list.
+
+def _classify_poc_code(code: str) -> str:
+    """Heuristically describe the shape of an ``exploit.poc_code`` blob.
+
+    Helps reviewers spot when the agent emitted a process-orchestration
+    script instead of fuzzer-input bytes (arvo:58085 pattern), or when
+    the poc_code is prose describing a marker (arvo:62425 pattern).
     """
+    if not code:
+        return "empty"
+    head = code.lstrip()[:200]
+    if _POC_MARKER_PREFIX in code:
+        return "marker_prose"
+    if any(head.startswith(h) for h in _SCRIPT_HEAD_HINTS):
+        return "script"
+    try:
+        # Standard base64 ish: only b64 alphabet + maybe '=' padding.
+        sample = code.strip()
+        if (
+            len(sample) >= 16
+            and sample.replace("=", "").isalnum()
+            and "/" not in sample[:80]
+            and not any(c.isspace() for c in sample[:80])
+        ):
+            return "base64_blob"
+    except Exception:
+        pass
+    return "prose"
+
+
+def _summarise_finding(idx: int, finding: Any) -> dict[str, Any]:
+    """Per-finding shape + content snippet for the diagnostic."""
+    base: dict[str, Any] = {"index": idx, "type": type(finding).__name__}
+    if isinstance(finding, dict):
+        base["keys"] = sorted(finding.keys())
+        for field in ("hypothesis", "category", "entry_point", "poc_type"):
+            v = finding.get(field)
+            if isinstance(v, str) and v:
+                base[f"{field}_excerpt"] = v[:_FINDING_FIELD_SNIPPET_CHARS]
+        poc_code = finding.get("poc_code")
+        if isinstance(poc_code, str):
+            base["poc_code_chars"] = len(poc_code)
+            base["poc_code_kind"] = _classify_poc_code(poc_code)
+            base["poc_code_head"] = poc_code[:_FINDING_FIELD_SNIPPET_CHARS]
+        test_output = finding.get("test_output")
+        if isinstance(test_output, str) and test_output:
+            base["test_output_excerpt"] = test_output[:_FINDING_FIELD_SNIPPET_CHARS]
+    elif isinstance(finding, str):
+        base["len"] = len(finding)
+        base["head"] = finding[:_FINDING_FIELD_SNIPPET_CHARS]
+    else:
+        base["repr"] = repr(finding)[:_FINDING_FIELD_SNIPPET_CHARS]
+    return base
+
+
+def _exploit_diagnostic(
+    pipeline_result: dict[str, Any] | None,
+    findings_text: str,
+) -> dict[str, Any]:
+    """Comprehensive shape + anomaly snapshot of the pipeline output.
+
+    Captured for every cybergym task (not just no-PoC cases) so reviewers
+    can answer post-mortem questions without needing the per-agent JSONL
+    files (which live on ephemeral worker disk and disappear on redeploy).
+
+    Fires on three failure modes seen so far:
+
+    * Mode #4 silent-empty — ``_locate_poc`` returns ``None`` and the
+      flattener also returns ""; pipeline_result might have been ``None``
+      or an unexpected shape.
+    * Mode #10 false-positive soft pass — PoC bytes present but the
+      agent's poc_code is a script / prose / marker that doesn't actually
+      crash the harness.
+    * Result-list explosion (arvo:51124 with 1145 string entries) — agent
+      or orchestrator runaway loop; flattener skips non-dict entries so
+      ``agent_findings_text`` ends up empty despite a huge ``result_count``.
+    """
+    if pipeline_result is None:
+        return {
+            "shape": "none",
+            "anomalies": {"pipeline_result_missing": True},
+        }
     if not isinstance(pipeline_result, dict):
-        return {"shape": type(pipeline_result).__name__}
+        return {
+            "shape": type(pipeline_result).__name__,
+            "repr": repr(pipeline_result)[:_TOP_PREVIEW_CHARS],
+            "anomalies": {"pipeline_result_not_dict": True},
+        }
+
+    top_keys = sorted(pipeline_result.keys())
     result = pipeline_result.get("result")
     items = result if isinstance(result, list) else []
+    item_type_counts: dict[str, int] = {}
+    for it in items:
+        name = type(it).__name__
+        item_type_counts[name] = item_type_counts.get(name, 0) + 1
+    dict_items = [it for it in items if isinstance(it, dict)]
+    item_dict_keys = [sorted(d.keys()) for d in dict_items[:_DICT_KEY_SAMPLE_LIMIT]]
+    finding_summaries = [
+        _summarise_finding(i, it)
+        for i, it in enumerate(items[:_FINDING_SAMPLE_LIMIT], start=1)
+    ]
+
+    # Top-level preview WITHOUT the heavy result field — surfaces any
+    # error/status/exception-ish keys the orchestrator may have set.
+    top_level_view = {k: v for k, v in pipeline_result.items() if k != "result"}
+    top_preview = json.dumps(top_level_view, default=str)[:_TOP_PREVIEW_CHARS]
+    result_preview = json.dumps(items, default=str)[:_RESULT_PREVIEW_CHARS]
+
+    poc_kinds = {s["poc_code_kind"] for s in finding_summaries if "poc_code_kind" in s}
+
+    anomalies = {
+        "findings_text_empty": findings_text == "",
+        "result_count_zero": len(items) == 0,
+        "runaway_result_count": len(items) > 20,
+        "result_has_non_dict_entries": any(t != "dict" for t in item_type_counts),
+        "multi_finding": len(items) > 1,
+        "any_poc_is_script": "script" in poc_kinds,
+        "any_poc_is_prose_only": poc_kinds == {"prose"},
+        "all_pocs_empty": bool(poc_kinds) and poc_kinds == {"empty"},
+        "pipeline_has_error_key": any(
+            k.lower() in ("error", "errors", "exception", "traceback") for k in top_keys
+        ),
+    }
+
     return {
         "shape": "dict",
-        "keys": sorted(pipeline_result.keys()),
+        "top_keys": top_keys,
         "result_type": type(result).__name__,
         "result_len": len(items),
-        "result_item_types": sorted({type(x).__name__ for x in items}),
-        "result_preview": json.dumps(pipeline_result, default=str)[:2_000],
+        "result_item_types": item_type_counts,
+        "result_item_dict_keys_sample": item_dict_keys,
+        "finding_summaries": finding_summaries,
+        "findings_text_chars": len(findings_text),
+        "anomalies": anomalies,
+        "top_level_preview": top_preview,
+        "result_preview": result_preview,
     }
 
 
