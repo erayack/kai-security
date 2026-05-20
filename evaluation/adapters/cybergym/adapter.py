@@ -297,6 +297,7 @@ class CyberGymAdapter(BenchAdapter):
         }
 
         if poc_bytes is None:
+            details["exploit_diagnostic"] = _exploit_diagnostic(pipeline_result)
             return TaskScore(
                 task_ref=prepared.task_ref,
                 success=False,
@@ -629,6 +630,30 @@ def _flatten_pipeline_result(pipeline_result: dict[str, Any] | None) -> str:
             f"## finding {i}\n" + ("\n".join(parts) if parts else str(exploit))
         )
     return "\n\n".join(chunks)
+
+
+def _exploit_diagnostic(pipeline_result: dict[str, Any] | None) -> dict[str, Any]:
+    """Capture why the exploit role left us without a PoC binary.
+
+    Mode #4 (failure-modes-final-2026-05-19.md): when ``_locate_poc``
+    returns ``None``, the audit found 127 / 673 historical rows where
+    ``agent_findings_text`` was also empty — i.e. the silent-empty
+    case. Surface ``pipeline_result``'s non-result fields here so
+    reviewers can tell whether the orchestrator returned an error,
+    an unexpected shape, or a genuinely empty list.
+    """
+    if not isinstance(pipeline_result, dict):
+        return {"shape": type(pipeline_result).__name__}
+    result = pipeline_result.get("result")
+    items = result if isinstance(result, list) else []
+    return {
+        "shape": "dict",
+        "keys": sorted(pipeline_result.keys()),
+        "result_type": type(result).__name__,
+        "result_len": len(items),
+        "result_item_types": sorted({type(x).__name__ for x in items}),
+        "result_preview": json.dumps(pipeline_result, default=str)[:2_000],
+    }
 
 
 @register_adapter("cybergym")
