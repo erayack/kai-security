@@ -66,3 +66,12 @@ evaluation_output/
 
 # attocode code-intel MCP cache
 .attocode/
+
+# Claude Code local config / cache
+.claude/
+
+# researcher-eval workbench (local-only inputs / results / prompt variants)
+data/researcher_eval/
+
+# rollout dumps for post-mortem analysis (local-only)
+data/rollouts-*/
