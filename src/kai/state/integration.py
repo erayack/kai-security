@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from dataclasses import replace
 from typing import Any, Callable
 
@@ -19,6 +20,87 @@ from kai.state.hooks import (
 
 _DEFAULT_MAX_EXTEND_ITERS = 15
 _DEFAULT_EXTEND_ITERS_PER_CANDIDATE = 5
+
+# cybergym: cap analyzer + researcher calls until verifier has been called.
+# Generous enough to let real exploration land (R5 successes used up to 14
+# analyzer + 6 researcher before calling verifier), tight enough to catch
+# the runaway "all analyzer, no verifier" failure mode.
+_CYBERGYM_PRE_VERIFIER_CAP = 8
+
+
+def _apply_cybergym_spawn_gate(spawn_wrappers: dict[str, Any]) -> None:
+    """Wrap analyzer/researcher/verifier factories with a per-task gate.
+
+    Cybergym tasks frequently spin in analyzer + researcher loops without
+    ever calling ``spawn_verifier``. This gate caps each of
+    ``spawn_analyzer`` and ``spawn_researcher`` at
+    :data:`_CYBERGYM_PRE_VERIFIER_CAP` calls until ``spawn_verifier`` has
+    been invoked at least once. Once verifier has been called the gate
+    becomes a no-op for the remainder of the task.
+
+    Operates by composing on top of whatever factories were already
+    registered in *spawn_wrappers*; mutates the mapping in place.
+    """
+
+    counts = {"analyzer": 0, "researcher": 0}
+    verifier_called = [False]
+    lock = threading.Lock()
+
+    def _gate(name: str, inner_fn: Any) -> Any:
+        def gated(*args: Any, **kwargs: Any) -> Any:
+            with lock:
+                if (
+                    not verifier_called[0]
+                    and counts[name] >= _CYBERGYM_PRE_VERIFIER_CAP
+                ):
+                    return (
+                        f"BLOCKED: spawn_{name} hit the "
+                        f"{_CYBERGYM_PRE_VERIFIER_CAP}-call cybergym cap "
+                        "before spawn_verifier was called. Call "
+                        "spawn_verifier(payload=<your best raw PoC bytes>) "
+                        "now, then iterate on the bytes based on the "
+                        "verifier's feedback."
+                    )
+                counts[name] += 1
+            return inner_fn(*args, **kwargs)
+
+        return gated
+
+    def _mark_verifier(inner_fn: Any) -> Any:
+        def marked(*args: Any, **kwargs: Any) -> Any:
+            with lock:
+                verifier_called[0] = True
+            return inner_fn(*args, **kwargs)
+
+        return marked
+
+    original_analyzer = spawn_wrappers.get("spawn_analyzer")
+    if original_analyzer is not None:
+
+        def analyzer_factory(original_fn: Any) -> Any:
+            inner = original_analyzer(original_fn)
+            return _gate("analyzer", inner)
+
+        spawn_wrappers["spawn_analyzer"] = analyzer_factory
+
+    original_researcher = spawn_wrappers.get("spawn_researcher")
+    if original_researcher is not None:
+
+        def researcher_factory(original_fn: Any) -> Any:
+            inner = original_researcher(original_fn)
+            return _gate("researcher", inner)
+
+        spawn_wrappers["spawn_researcher"] = researcher_factory
+
+    original_verifier = spawn_wrappers.get("spawn_verifier")
+    if original_verifier is not None:
+
+        def verifier_factory(original_fn: Any) -> Any:
+            inner = original_verifier(original_fn)
+            return _mark_verifier(inner)
+
+        spawn_wrappers["spawn_verifier"] = verifier_factory
+
 
 # Processor signature before binding: (state_manager, run_id, kwargs, raw) -> str
 ResultProcessor = Callable[[StateManager, str, dict[str, Any], str], str]
@@ -204,8 +286,8 @@ def inject_state_manager(
         )
         extras["on_early_stop"] = make_on_early_stop_hook(state_manager, run_id)
         _recipe = recipe
-        spawn_wrappers["spawn_verifier"] = (
-            lambda original_fn: make_verifier_spawn_wrapper(
+        spawn_wrappers["spawn_verifier"] = lambda original_fn: (
+            make_verifier_spawn_wrapper(
                 original_fn,
                 state_manager,
                 run_id,
@@ -218,6 +300,8 @@ def inject_state_manager(
         spawn_wrappers["spawn_fixer"] = lambda original_fn: make_fixer_spawn_wrapper(
             original_fn, state_manager, run_id, recipe=_recipe
         )
+        if os.environ.get("KAI_BENCHMARK") == "cybergym":
+            _apply_cybergym_spawn_gate(spawn_wrappers)
         extras["spawn_wrappers"] = spawn_wrappers
 
     return replace(

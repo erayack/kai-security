@@ -128,6 +128,7 @@ class BenchmarkRunner:
             env = os.environ.copy()
             env.update(self.env_overrides)
             env.setdefault("KAI_LOG_STRUCTURED", "1")
+            env["KAI_BENCHMARK"] = self.adapter.name
 
             start = time.monotonic()
             try:
