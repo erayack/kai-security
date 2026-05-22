@@ -694,10 +694,23 @@ def run_pipeline(
         return result
     except BaseException:
         if sm is not None and rid is not None:
+            # Roll up counts of exploits/fixes recorded so far so the
+            # final run.json reflects partial progress even when the
+            # pipeline raises before the success path runs. Otherwise
+            # a timeout or mid-run crash leaves `total_exploits: 0`
+            # despite verified findings already in exploits.json.
+            try:
+                partial_exploits = sm.get_exploits(rid)
+                partial_fixes = sm.get_fixes(rid)
+            except Exception:
+                partial_exploits = []
+                partial_fixes = []
             sm.update_run(
                 rid,
                 status="failed",
                 finished_at=datetime.now(timezone.utc).isoformat(),
+                total_exploits=len(partial_exploits),
+                total_fixes=len(partial_fixes),
             )
         raise
     finally:
