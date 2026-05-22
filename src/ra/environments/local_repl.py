@@ -10,7 +10,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
-from typing import Any, ClassVar
+from typing import Any
 
 from ra.core.comms_utils import LMRequest, send_lm_request, send_lm_request_batched
 from ra.core.types import REPLResult, RLMChatCompletion, SpawnRecord
@@ -148,16 +148,6 @@ class LocalREPL(NonIsolatedEnv):
     Local REPL environment with persistent Python namespace.
     Executes code in a sandboxed namespace with access to context data.
     """
-
-    # Process-wide lock guarding ``_temp_cwd``. ``os.chdir`` mutates the
-    # process global cwd, so concurrent LocalREPL instances (e.g. batched
-    # ``spawn_analyzers`` running in threads) would otherwise race: thread
-    # A chdirs into its temp_dir, thread B chdirs into ITS temp_dir, and
-    # thread A's ``read_file()`` now resolves against thread B's
-    # workspace. The lock serialises the chdir → exec → chdir-back
-    # critical section. LLM-call wait dominates exec time, so the
-    # serialisation cost is small relative to the correctness win.
-    _cwd_lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __init__(
         self,
@@ -440,20 +430,16 @@ class LocalREPL(NonIsolatedEnv):
 
         Uses ``self.original_cwd`` (captured at init) instead of
         ``os.getcwd()`` so the restore is immune to other threads
-        deleting the process CWD via cleanup. Holds the class-level
-        ``_cwd_lock`` for the entire chdir → exec → chdir-back window
-        so concurrent LocalREPL instances cannot race on the
-        process-global cwd.
+        deleting the process CWD via cleanup.
         """
-        with LocalREPL._cwd_lock:
+        try:
+            os.chdir(self.temp_dir)
+            yield
+        finally:
             try:
-                os.chdir(self.temp_dir)
-                yield
-            finally:
-                try:
-                    os.chdir(self.original_cwd)
-                except (FileNotFoundError, OSError):
-                    pass  # original_cwd was deleted; stay in temp_dir
+                os.chdir(self.original_cwd)
+            except (FileNotFoundError, OSError):
+                pass  # original_cwd was deleted; stay in temp_dir
 
     @staticmethod
     def _split_last_expr(code: str) -> tuple[str, str | None]:
