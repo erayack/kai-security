@@ -113,6 +113,36 @@ _SAFE_BUILTINS = {
 }
 
 
+_CONTEXT_FILE_EXTENSIONS: tuple[str, ...] = (
+    ".json",
+    ".txt",
+    ".b64",
+    ".bin",
+    ".pkl",
+)
+
+
+def _looks_like_context_file_refs(value: list[Any]) -> bool:
+    """Return True if ``value`` is a non-empty list of strings whose
+    elements all look like serialised context-file names (e.g.
+    ``['context_0.json']``).
+
+    Used by :py:meth:`LocalREPL._final_var` to guard against the
+    super-iter failure mode where a model packs all its work into one
+    mega-iteration and emits ``FINAL_VAR(my_var)`` against a variable
+    that ended up referencing the on-disk context-spill filenames
+    instead of structured findings.
+    """
+    if not value or not isinstance(value, list):
+        return False
+    if not all(isinstance(item, str) for item in value):
+        return False
+    return all(
+        item.endswith(_CONTEXT_FILE_EXTENSIONS) or item.startswith("context_")
+        for item in value
+    )
+
+
 class LocalREPL(NonIsolatedEnv):
     """
     Local REPL environment with persistent Python namespace.
@@ -214,6 +244,22 @@ class LocalREPL(NonIsolatedEnv):
                         return f"Error: Variable '{variable_name}' not found"
                 else:
                     return f"Error: Variable '{variable_name}' not found"
+
+        if isinstance(value, list) and _looks_like_context_file_refs(value):
+            # Super-iter failure mode: the model packs all work into a
+            # single mega-iteration and FINAL_VARs a variable whose
+            # value is a stale list of context-file references like
+            # ``['context_0.json']`` instead of structured findings.
+            # Returning this as the final answer leaks filenames into
+            # downstream scoring. Reject and emit an empty list so the
+            # adapter records `no_poc_binary` rather than treating the
+            # filenames as exploits. Documented from cybergym R6
+            # arvo:1065, R7 arvo:1065, R11 arvo:23044.
+            sys.stderr.write(
+                f"FINAL_VAR: ignoring file-reference list {value!r} "
+                "(treating as empty result)\n"
+            )
+            return "[]"
 
         if isinstance(value, (dict, list)):
             return json.dumps(value)
