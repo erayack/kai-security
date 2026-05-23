@@ -11,6 +11,7 @@ master/
 docs/*
 !docs/open-source-hygiene.md
 !docs/railway-deploy.md
+!docs/cybergym-r15-bootstrap-fix-2026-05-23.md
 bounties/*
 # Virtual environments
 .venv
