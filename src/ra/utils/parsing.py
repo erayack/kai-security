@@ -123,6 +123,9 @@ def format_iteration(
             "content": f"Code executed:\n```python\n{code}\n```\n\nREPL output:\n{result}",
         }
         messages.append(execution_message)
+
+    if iteration.truncation_notice:
+        messages.append({"role": "user", "content": iteration.truncation_notice})
     return messages
 
 

@@ -249,6 +249,15 @@ class RLMIteration:
     code_blocks: list[CodeBlock]
     final_answer: str | None = None
     iteration_time: float | None = None
+    # Number of code blocks that were dropped before execution due to
+    # a per-iteration cap (wall-clock or block-count). ``executed_blocks``
+    # is len(code_blocks); ``dropped_blocks`` reflects what the model
+    # emitted but the harness refused to run.
+    dropped_blocks: int = 0
+    # When set, a harness-authored notice that ``format_iteration``
+    # injects as a user-role message after the executed code blocks so
+    # the model sees what was capped/dropped in the next iteration.
+    truncation_notice: str | None = None
 
     def to_dict(self):
         return {
@@ -257,6 +266,8 @@ class RLMIteration:
             "code_blocks": [code_block.to_dict() for code_block in self.code_blocks],
             "final_answer": self.final_answer,
             "iteration_time": self.iteration_time,
+            "dropped_blocks": self.dropped_blocks,
+            "truncation_notice": self.truncation_notice,
         }
 
 

@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 import time
 from contextlib import contextmanager
@@ -31,6 +32,78 @@ from ra.utils.prompts import (
     build_user_prompt,
 )
 from ra.utils.rlm_utils import filter_sensitive_keys
+
+_DEFAULT_ITER_WALL_CAP_S = 600.0
+_DEFAULT_MAX_BLOCKS_PER_ITER = 6
+
+
+def _read_iter_wall_cap() -> float:
+    """Read ``KAI_ITER_WALL_CAP`` (seconds) from env; 0 disables the cap."""
+    raw = os.environ.get("KAI_ITER_WALL_CAP")
+    if raw is None or raw == "":
+        return _DEFAULT_ITER_WALL_CAP_S
+    try:
+        value = float(raw)
+    except ValueError:
+        return _DEFAULT_ITER_WALL_CAP_S
+    return max(0.0, value)
+
+
+def _read_max_blocks_per_iter() -> int:
+    """Read ``KAI_MAX_BLOCKS_PER_ITER`` from env; 0 disables the cap."""
+    raw = os.environ.get("KAI_MAX_BLOCKS_PER_ITER")
+    if raw is None or raw == "":
+        return _DEFAULT_MAX_BLOCKS_PER_ITER
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_MAX_BLOCKS_PER_ITER
+    return max(0, value)
+
+
+def _format_truncation_notice(
+    *,
+    iteration_num: int,
+    iteration_time: float,
+    wall_cap: float,
+    max_blocks: int,
+    total_emitted: int,
+    executed: int,
+    wall_capped_at: int | None,
+    block_capped_at: int | None,
+) -> str | None:
+    """Return a harness notice when a per-iter cap dropped any code blocks.
+
+    The notice is appended to the next iteration's user-role prompt by
+    :func:`ra.utils.parsing.format_iteration` so the model knows
+    exactly what was capped and how to adapt.
+    """
+    dropped = total_emitted - executed
+    if dropped <= 0 and wall_capped_at is None and block_capped_at is None:
+        return None
+    parts = [
+        f"[harness notice] Iteration {iteration_num} executed "
+        f"{executed} of the {total_emitted} code blocks you emitted; "
+        f"the remaining {dropped} were dropped before execution."
+    ]
+    if block_capped_at is not None:
+        parts.append(
+            f"Reason: per-iteration block cap (KAI_MAX_BLOCKS_PER_ITER={max_blocks})."
+        )
+    if wall_capped_at is not None:
+        parts.append(
+            f"Reason: wall-clock cap of {wall_cap:.0f}s reached "
+            f"after {iteration_time:.0f}s "
+            f"(KAI_ITER_WALL_CAP={wall_cap:.0f})."
+        )
+    parts.append(
+        "Emit a SHORTER response next iteration. Pick ONE concrete "
+        "action: read a file, spawn ONE sub-agent, run ONE focused "
+        "llm_query, or write the PoC. Do not chain multiple sub-agent "
+        "spawns in a single iteration. After you see the result, "
+        "decide the next single action."
+    )
+    return "\n".join(parts)
 
 
 class RLM:
@@ -477,6 +550,19 @@ class RLM:
         """
         Perform a single iteration of the RLM, including prompting the model
         and code execution + tool execution.
+
+        Per-iteration caps (both default-on, both env-overridable):
+        * ``KAI_ITER_WALL_CAP`` (default 600s): wall-clock budget for the
+          for-loop over code blocks. When tripped, the remaining blocks
+          are dropped and surfaced to the model in iteration N+1's
+          prompt.
+        * ``KAI_MAX_BLOCKS_PER_ITER`` (default 6): hard cap on how many
+          of the model's emitted code blocks the harness will execute
+          in a single iteration. Dropped blocks are surfaced the same way.
+
+        Both caps were introduced after R5–R16 showed the model
+        collapsing the whole pipeline into a single 30+ code-block
+        iteration that consumed the entire wall-clock budget.
         """
         iter_start = time.perf_counter()
         response = lm_handler.completion(prompt)  # type: ignore[arg-type]
@@ -487,9 +573,24 @@ class RLM:
         self.verbose.print_completion(response, llm_time)
 
         code_block_strs = find_code_blocks(response)
-        code_blocks = []
+        wall_cap = _read_iter_wall_cap()
+        max_blocks = _read_max_blocks_per_iter()
 
-        for code_block_str in code_block_strs:
+        total_emitted = len(code_block_strs)
+        if max_blocks > 0 and total_emitted > max_blocks:
+            block_capped_at = max_blocks
+            executable = code_block_strs[:max_blocks]
+        else:
+            block_capped_at = None
+            executable = code_block_strs
+
+        code_blocks: list[CodeBlock] = []
+        wall_capped_at: int | None = None
+        for idx, code_block_str in enumerate(executable):
+            elapsed = time.perf_counter() - iter_start
+            if wall_cap > 0 and elapsed >= wall_cap:
+                wall_capped_at = idx
+                break
             self.verbose.print_pre_execution(code_block_str)
             code_result: REPLResult = environment.execute_code(code_block_str)
             cb = CodeBlock(code=code_block_str, result=code_result)
@@ -504,11 +605,26 @@ class RLM:
                 )
 
         iteration_time = time.perf_counter() - iter_start
+        executed = len(code_blocks)
+        dropped = total_emitted - executed
+        truncation_notice = _format_truncation_notice(
+            iteration_num=iteration_num,
+            iteration_time=iteration_time,
+            wall_cap=wall_cap,
+            max_blocks=max_blocks,
+            total_emitted=total_emitted,
+            executed=executed,
+            wall_capped_at=wall_capped_at,
+            block_capped_at=block_capped_at,
+        )
+
         return RLMIteration(
             prompt=prompt,
             response=response,
             code_blocks=code_blocks,
             iteration_time=iteration_time,
+            dropped_blocks=dropped,
+            truncation_notice=truncation_notice,
         )
 
     def _default_answer(
