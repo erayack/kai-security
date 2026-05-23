@@ -96,9 +96,7 @@ class OpenAIClient(BaseLM):
         if not model:
             raise ValueError("Model name is required for OpenAI client.")
 
-        extra_body = {}
-        if self.client.base_url == DEFAULT_PRIME_INTELLECT_BASE_URL:
-            extra_body["usage"] = {"include": True}
+        extra_body = self._build_extra_body()
 
         response = self.client.chat.completions.create(
             model=model,
@@ -126,9 +124,7 @@ class OpenAIClient(BaseLM):
         if not model:
             raise ValueError("Model name is required for OpenAI client.")
 
-        extra_body = {}
-        if self.client.base_url == DEFAULT_PRIME_INTELLECT_BASE_URL:
-            extra_body["usage"] = {"include": True}
+        extra_body = self._build_extra_body()
 
         async with openai.AsyncOpenAI(
             **self._async_client_kwargs,
@@ -140,6 +136,23 @@ class OpenAIClient(BaseLM):
             )
         self._track_cost(response, model)
         return response.choices[0].message.content
+
+    def _build_extra_body(self) -> dict[str, Any]:
+        """Per-call ``extra_body`` for chat completions.
+
+        Disables OpenRouter's response cache so two cybergym tasks
+        with similar analyzer/researcher prompts cannot receive the
+        same cached completion (cross-task contamination has been
+        observed where C-target tasks received Solidity content
+        from a prior EVM-bench task).
+        """
+        extra_body: dict[str, Any] = {}
+        base_url = str(self.client.base_url or "")
+        if base_url == DEFAULT_PRIME_INTELLECT_BASE_URL:
+            extra_body["usage"] = {"include": True}
+        if "openrouter" in base_url.lower():
+            extra_body["cache"] = False
+        return extra_body
 
     def _track_cost(self, response: ChatCompletion, model: str):
         self.model_call_counts[model] += 1
