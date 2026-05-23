@@ -10,7 +10,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, ClassVar
 
 from ra.core.comms_utils import LMRequest, send_lm_request, send_lm_request_batched
 from ra.core.types import REPLResult, RLMChatCompletion, SpawnRecord
@@ -148,6 +148,21 @@ class LocalREPL(NonIsolatedEnv):
     Local REPL environment with persistent Python namespace.
     Executes code in a sandboxed namespace with access to context data.
     """
+
+    # Process-wide lock used by ``_temp_cwd`` ONLY when
+    # ``KAI_BENCHMARK=cybergym`` is set. ``os.chdir`` mutates the
+    # global cwd, so concurrent LocalREPL instances (e.g. batched
+    # spawn_analyzers in threads) would otherwise race: thread A
+    # chdirs into A.temp_dir, thread B chdirs into B.temp_dir, and
+    # A's ``read_file()`` resolves against B's workspace. Cybergym
+    # cares about correctness (PoC bytes depend on reading the
+    # right source files); evmbench / bountybench tolerate the race
+    # because they don't synthesize byte-exact inputs. Empirically
+    # holding this lock unconditionally regressed evmbench from
+    # 5/5 PASS to 0/5 (serialised exec starved the concurrent
+    # analyzer/researcher pipeline), so the lock is now opt-in via
+    # the cybergym env tag.
+    _cwd_lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __init__(
         self,
@@ -430,16 +445,28 @@ class LocalREPL(NonIsolatedEnv):
 
         Uses ``self.original_cwd`` (captured at init) instead of
         ``os.getcwd()`` so the restore is immune to other threads
-        deleting the process CWD via cleanup.
+        deleting the process CWD via cleanup. Acquires the
+        class-level ``_cwd_lock`` when ``KAI_BENCHMARK=cybergym``
+        is set, serialising the chdir → exec → chdir-back window
+        across all LocalREPL instances in the process. Other
+        benchmarks skip the lock to keep concurrent sub-agent
+        spawns parallel (see the docstring on ``_cwd_lock``).
         """
+        use_lock = os.environ.get("KAI_BENCHMARK") == "cybergym"
+        if use_lock:
+            LocalREPL._cwd_lock.acquire()
         try:
-            os.chdir(self.temp_dir)
-            yield
-        finally:
             try:
-                os.chdir(self.original_cwd)
-            except (FileNotFoundError, OSError):
-                pass  # original_cwd was deleted; stay in temp_dir
+                os.chdir(self.temp_dir)
+                yield
+            finally:
+                try:
+                    os.chdir(self.original_cwd)
+                except (FileNotFoundError, OSError):
+                    pass  # original_cwd was deleted; stay in temp_dir
+        finally:
+            if use_lock:
+                LocalREPL._cwd_lock.release()
 
     @staticmethod
     def _split_last_expr(code: str) -> tuple[str, str | None]:
