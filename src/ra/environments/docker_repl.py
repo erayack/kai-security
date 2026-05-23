@@ -680,14 +680,19 @@ class DockerREPL(NonIsolatedEnv):
     # Execution
     # =================================================================
 
-    def execute_code(self, code: str) -> REPLResult:
+    def execute_code(self, code: str, max_time: float | None = None) -> REPLResult:
         """Execute code in the Docker container.
 
         Mirrors LocalREPL behaviour: auto-prints trailing
         expressions, preserves variables on error/timeout, and
-        collects spawn records from tools.
+        collects spawn records from tools. ``max_time`` clamps the
+        per-call subprocess timeout below ``_exec_timeout`` so the
+        RLM can enforce a per-iteration wall-clock budget.
         """
         start = time.perf_counter()
+        effective_timeout = self._exec_timeout
+        if max_time is not None and max_time > 0:
+            effective_timeout = min(effective_timeout, max(1, int(max_time)))
 
         with self._calls_lock:
             self.pending_calls.clear()
@@ -734,7 +739,7 @@ class DockerREPL(NonIsolatedEnv):
                 ],
                 capture_output=True,
                 text=True,
-                timeout=self._exec_timeout,
+                timeout=effective_timeout,
             )
             stdout_raw = result.stdout
             stderr_raw = result.stderr
@@ -765,7 +770,7 @@ class DockerREPL(NonIsolatedEnv):
 
         if timed_out:
             error_msg = (
-                f"[error] TimeoutError: execution exceeded {self._exec_timeout}s limit"
+                f"[error] TimeoutError: execution exceeded {effective_timeout}s limit"
             )
             return REPLResult(
                 stdout=stdout_raw,

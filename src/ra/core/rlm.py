@@ -592,7 +592,14 @@ class RLM:
                 wall_capped_at = idx
                 break
             self.verbose.print_pre_execution(code_block_str)
-            code_result: REPLResult = environment.execute_code(code_block_str)
+            # Clamp this block's exec timeout to the remaining wall budget
+            # so a single long-running block can't blow past the cap.
+            block_max_time: float | None = None
+            if wall_cap > 0:
+                block_max_time = max(1.0, wall_cap - elapsed)
+            code_result: REPLResult = environment.execute_code(
+                code_block_str, max_time=block_max_time
+            )
             cb = CodeBlock(code=code_block_str, result=code_result)
             code_blocks.append(cb)
             self.verbose.print_code_execution(cb)

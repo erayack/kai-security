@@ -180,7 +180,7 @@ def test_completion_turn_block_cap_drops_excess(
             return "fake response with 8 blocks"
 
     class _FakeEnv:
-        def execute_code(self, code):  # type: ignore[no-untyped-def]
+        def execute_code(self, code, max_time=None):  # type: ignore[no-untyped-def]
             return REPLResult(stdout="ok", stderr="", locals={}, exception_name=None)
 
     class _FakeVerbose:
@@ -216,6 +216,57 @@ def test_completion_turn_block_cap_drops_excess(
     assert "KAI_MAX_BLOCKS_PER_ITER=3" in iteration.truncation_notice
 
 
+def test_execute_code_max_time_clamps_local_repl(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """``LocalREPL.execute_code(max_time=N)`` honours the per-call cap.
+
+    Regression for the codex finding that the wall-clock check before
+    each block was useless when a single block could still run for
+    KAI_EXEC_TIMEOUT seconds.
+    """
+    from ra.environments.local_repl import LocalREPL
+
+    env = LocalREPL.__new__(LocalREPL)
+    env._exec_timeout = 60  # default per-block cap
+    env._pending_llm_calls = []
+    env._tools = {}
+    env.globals = {"__builtins__": __builtins__}
+    env.locals = {}
+
+    # Stub the parts of LocalREPL.execute_code that we don't need.
+    monkeypatch.setattr(
+        env, "_split_last_expr", lambda code: (code, None), raising=False
+    )
+    monkeypatch.setattr(env, "_find_assignment_targets", lambda code: [], raising=False)
+    monkeypatch.setattr(env, "_writeback_locals", lambda *a, **kw: None, raising=False)
+
+    import contextlib
+    import io
+
+    @contextlib.contextmanager
+    def _fake_capture():
+        yield io.StringIO(), io.StringIO()
+
+    @contextlib.contextmanager
+    def _fake_temp_cwd():
+        yield
+
+    monkeypatch.setattr(env, "_capture_output", _fake_capture, raising=False)
+    monkeypatch.setattr(env, "_temp_cwd", _fake_temp_cwd, raising=False)
+
+    start = time.perf_counter()
+    result = env.execute_code("import time; time.sleep(5)", max_time=1)
+    elapsed = time.perf_counter() - start
+
+    # max_time=1 clamps the inner worker.join to 1s; the call
+    # returns the TimeoutError quickly instead of waiting 5s or 60s.
+    assert elapsed < 3.5
+    assert result.exception_name == "TimeoutError"
+    assert "1s limit" in result.stderr
+
+
 def test_completion_turn_wall_cap_aborts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -236,7 +287,7 @@ def test_completion_turn_wall_cap_aborts(
             return "slow response"
 
     class _SlowEnv:
-        def execute_code(self, code):  # type: ignore[no-untyped-def]
+        def execute_code(self, code, max_time=None):  # type: ignore[no-untyped-def]
             time.sleep(0.6)
             return REPLResult(stdout="ok", stderr="", locals={}, exception_name=None)
 
@@ -272,3 +323,74 @@ def test_completion_turn_wall_cap_aborts(
     assert len(iteration.code_blocks) < 5
     assert iteration.truncation_notice is not None
     assert "wall-clock cap" in iteration.truncation_notice
+
+
+def test_rollout_hook_persists_dropped_blocks(tmp_path) -> None:
+    """``make_rollout_on_iteration_hook`` must serialize the new fields."""
+    import json
+
+    from kai.state.hooks import make_rollout_on_iteration_hook
+    from kai.state.local import LocalStateManager
+
+    mgr = LocalStateManager(state_dir=str(tmp_path))
+    hook = make_rollout_on_iteration_hook(
+        mgr, run_id="r", agent_name="exploit", depth=0
+    )
+    iteration = RLMIteration(
+        prompt="root",
+        response="capped iter",
+        code_blocks=[],
+        dropped_blocks=5,
+        truncation_notice="[harness notice] dropped 5 blocks",
+        iteration_time=601.2,
+    )
+    hook(iteration, 3)
+    rollout_files = list(tmp_path.rglob("exploit.jsonl"))
+    assert rollout_files, "rollout jsonl was not created"
+    contents = rollout_files[0].read_text().strip().splitlines()
+    iter_records = [
+        json.loads(line) for line in contents if json.loads(line).get("iteration") == 3
+    ]
+    assert iter_records, "iteration record missing from rollout jsonl"
+    rec = iter_records[0]
+    assert rec["dropped_blocks"] == 5
+    assert "dropped 5 blocks" in rec["truncation_notice"]
+    assert rec["iteration_time"] == pytest.approx(601.2)
+
+
+def test_status_hook_fires_on_capped_iter(tmp_path) -> None:
+    """Status hook must NOT skip when iteration was harness-capped."""
+    from kai.state.hooks import make_on_iteration_hook
+    from kai.state.local import LocalStateManager
+
+    mgr = LocalStateManager(state_dir=str(tmp_path))
+    hook = make_on_iteration_hook(mgr, run_id="r", agent_name="exploit")
+    iteration = RLMIteration(
+        prompt="root",
+        response="wall capped before any block executed",
+        code_blocks=[],
+        dropped_blocks=8,
+        truncation_notice="[harness notice] wall-clock cap",
+        iteration_time=605.0,
+    )
+    hook(iteration, 5)
+    updates = list(mgr.get_status_updates("r"))
+    assert any(u.iteration_num == 5 for u in updates), (
+        "capped iteration with zero blocks was silently dropped from status_updates"
+    )
+    capped = next(u for u in updates if u.iteration_num == 5)
+    assert capped.dropped_blocks == 8
+    assert capped.truncation_notice is not None
+
+
+def test_status_hook_skips_truly_empty_iter(tmp_path) -> None:
+    """Status hook still skips iterations with no work and no cap."""
+    from kai.state.hooks import make_on_iteration_hook
+    from kai.state.local import LocalStateManager
+
+    mgr = LocalStateManager(state_dir=str(tmp_path))
+    hook = make_on_iteration_hook(mgr, run_id="r", agent_name="exploit")
+    iteration = RLMIteration(prompt="root", response="", code_blocks=[])
+    hook(iteration, 7)
+    updates = list(mgr.get_status_updates("r"))
+    assert not any(u.iteration_num == 7 for u in updates)

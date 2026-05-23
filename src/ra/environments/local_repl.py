@@ -612,19 +612,26 @@ class LocalREPL(NonIsolatedEnv):
         changed = sorted(k for k in before_keys & after_keys if before[k] != after[k])
         return tuple(added), tuple(changed), tuple(removed)
 
-    def execute_code(self, code: str) -> REPLResult:
+    def execute_code(self, code: str, max_time: float | None = None) -> REPLResult:
         """Execute code in the persistent namespace and return result.
 
         If the last statement is a bare expression, its return value
         is auto-printed (like interactive Python / Jupyter).
 
         Execution is guarded by ``_exec_timeout`` (default 1200 s).
+        When ``max_time`` is provided, the effective timeout is
+        ``min(_exec_timeout, max_time)`` — the RLM uses this to
+        enforce a per-iteration wall-clock budget so no single code
+        block can blow past the iteration cap.
         On timeout the result contains a ``TimeoutError`` on stderr.
 
         On error or timeout, variables assigned before the failure are
         preserved and any unassigned targets receive the error string.
         """
         start_time = time.perf_counter()
+        effective_timeout = self._exec_timeout
+        if max_time is not None and max_time > 0:
+            effective_timeout = min(effective_timeout, max(1, int(max_time)))
 
         # Clear pending LLM calls from previous execution
         self._pending_llm_calls = []
@@ -677,7 +684,7 @@ class LocalREPL(NonIsolatedEnv):
 
             worker = threading.Thread(target=_run, daemon=True)
             worker.start()
-            worker.join(timeout=self._exec_timeout)
+            worker.join(timeout=effective_timeout)
 
             exception_name: str | None = None
             has_error = False
@@ -689,7 +696,7 @@ class LocalREPL(NonIsolatedEnv):
                 stdout = stdout_buf.getvalue()
                 error_msg = (
                     f"[error] TimeoutError: execution exceeded "
-                    f"{self._exec_timeout}s limit"
+                    f"{effective_timeout}s limit"
                 )
                 stderr = stderr_buf.getvalue() + f"\n{error_msg}"
                 # Snapshot: thread may still be running

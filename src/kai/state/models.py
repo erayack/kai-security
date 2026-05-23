@@ -157,6 +157,12 @@ class StatusUpdate:
     spawn_agent: str | None = None
     spawn_kwargs: dict[str, Any] | None = None
     spawn_result: str | None = None
+    # Number of code blocks the harness dropped before execution due to
+    # KAI_MAX_BLOCKS_PER_ITER / KAI_ITER_WALL_CAP. Zero when the iter
+    # ran cleanly. Surfaced here so post-mortem can spot capped runs
+    # even when zero blocks ultimately executed.
+    dropped_blocks: int = 0
+    truncation_notice: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict."""
@@ -170,6 +176,8 @@ class StatusUpdate:
             "spawn_agent": self.spawn_agent,
             "spawn_kwargs": self.spawn_kwargs,
             "spawn_result": self.spawn_result,
+            "dropped_blocks": self.dropped_blocks,
+            "truncation_notice": self.truncation_notice,
         }
 
     @classmethod
@@ -185,6 +193,8 @@ class StatusUpdate:
             spawn_agent=data.get("spawn_agent"),
             spawn_kwargs=data.get("spawn_kwargs"),
             spawn_result=data.get("spawn_result"),
+            dropped_blocks=data.get("dropped_blocks", 0),
+            truncation_notice=data.get("truncation_notice"),
         )
 
 

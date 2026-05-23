@@ -72,7 +72,15 @@ def make_on_iteration_hook(
     """
 
     def _on_iteration(iteration: RLMIteration, iteration_num: int) -> None:
-        if not iteration.code_blocks:
+        # Skip only when an iteration is empty AND the harness did not
+        # cap it. A wall-cap that fires before block 0 leaves
+        # ``code_blocks=[]`` but ``dropped_blocks > 0``; that case
+        # MUST be persisted so post-mortem can see the cap fire.
+        if (
+            not iteration.code_blocks
+            and not iteration.dropped_blocks
+            and not iteration.truncation_notice
+        ):
             return
         try:
             # Collect all spawn records across code blocks
@@ -93,6 +101,8 @@ def make_on_iteration_hook(
                 spawn_agent=first.agent_name if first else None,
                 spawn_kwargs=first.kwargs if first else None,
                 spawn_result=first.result if first else None,
+                dropped_blocks=iteration.dropped_blocks,
+                truncation_notice=iteration.truncation_notice,
             )
             state_manager.add_status_update(update)
         except Exception:
@@ -187,15 +197,25 @@ def make_rollout_on_iteration_hook(
             for cb in iteration.code_blocks:
                 code_blocks.append({"code": cb.code, "output": cb.result.stdout})
 
+            iter_payload: dict[str, object] = {
+                "spawn_id": sid,
+                "timestamp": ts,
+                "response": iteration.response,
+                "code_blocks": code_blocks,
+            }
+            # Surface the harness-cap markers added by rlm._completion_turn
+            # so post-mortem rollout analysis can see which iterations
+            # were truncated and why.
+            if iteration.dropped_blocks:
+                iter_payload["dropped_blocks"] = iteration.dropped_blocks
+            if iteration.truncation_notice:
+                iter_payload["truncation_notice"] = iteration.truncation_notice
+            if iteration.iteration_time is not None:
+                iter_payload["iteration_time"] = iteration.iteration_time
             state_manager.save_rollout_iteration(
                 run_id,
                 agent_name,
-                {
-                    "spawn_id": sid,
-                    "timestamp": ts,
-                    "response": iteration.response,
-                    "code_blocks": code_blocks,
-                },
+                iter_payload,
                 iteration_num,
             )
 

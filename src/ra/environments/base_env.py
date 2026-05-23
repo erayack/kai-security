@@ -25,7 +25,16 @@ class BaseEnv(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def execute_code(self, code: str) -> REPLResult:
+    def execute_code(self, code: str, max_time: float | None = None) -> REPLResult:
+        """Execute ``code`` in the REPL.
+
+        ``max_time`` (seconds) caps this single call. When set the
+        implementation must clamp its own per-call timeout to no more
+        than ``max_time``; passing ``None`` (default) uses the
+        environment's configured ``_exec_timeout``. Callers use
+        ``max_time`` to enforce a wall-clock budget shared across
+        multiple consecutive blocks within one RLM iteration.
+        """
         raise NotImplementedError
 
 
@@ -47,7 +56,16 @@ class IsolatedEnv(BaseEnv, ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def execute_code(self, code: str) -> REPLResult:
+    def execute_code(self, code: str, max_time: float | None = None) -> REPLResult:
+        """Execute ``code`` in the REPL.
+
+        ``max_time`` (seconds) caps this single call. When set the
+        implementation must clamp its own per-call timeout to no more
+        than ``max_time``; passing ``None`` (default) uses the
+        environment's configured ``_exec_timeout``. Callers use
+        ``max_time`` to enforce a wall-clock budget shared across
+        multiple consecutive blocks within one RLM iteration.
+        """
         raise NotImplementedError
 
 
@@ -70,7 +88,16 @@ class NonIsolatedEnv(BaseEnv, ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def execute_code(self, code: str) -> REPLResult:
+    def execute_code(self, code: str, max_time: float | None = None) -> REPLResult:
+        """Execute ``code`` in the REPL.
+
+        ``max_time`` (seconds) caps this single call. When set the
+        implementation must clamp its own per-call timeout to no more
+        than ``max_time``; passing ``None`` (default) uses the
+        environment's configured ``_exec_timeout``. Callers use
+        ``max_time`` to enforce a wall-clock budget shared across
+        multiple consecutive blocks within one RLM iteration.
+        """
         raise NotImplementedError
 
 
