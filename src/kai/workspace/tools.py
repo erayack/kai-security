@@ -7,12 +7,28 @@ import re
 import subprocess
 from typing import Any
 
+from kai.state import cybergym_gate
 from kai.utils.path_isolation import assert_task_isolation
+
+
+def _cybergym_file_read_gate() -> str | None:
+    """Return BLOCKED message when the cybergym pre-verifier file-read cap
+    is exceeded; ``None`` otherwise.
+
+    Activates only when ``KAI_BENCHMARK=cybergym`` and the gate state
+    has been initialised (i.e. inside an exploit pipeline subprocess).
+    """
+    if os.environ.get("KAI_BENCHMARK") != "cybergym":
+        return None
+    return cybergym_gate.check_and_count_file_read()
 
 
 def read_file(path: str) -> str:
     """Read a file."""
     assert_task_isolation(path)
+    blocked = _cybergym_file_read_gate()
+    if blocked is not None:
+        return blocked
     with open(path) as f:
         return f.read()
 
@@ -20,6 +36,9 @@ def read_file(path: str) -> str:
 def list_dir(path: str, recursive: bool = False) -> list[str]:
     """List a directory. Use recursive=True to walk the tree."""
     assert_task_isolation(path)
+    blocked = _cybergym_file_read_gate()
+    if blocked is not None:
+        return [blocked]
     if not recursive:
         return sorted(os.listdir(path))
 
@@ -36,6 +55,9 @@ def list_dir(path: str, recursive: bool = False) -> list[str]:
 def search_files(pattern: str, path: str) -> list[str]:
     """Grep for a regex pattern under path. Returns 'file:lineno: line' strings."""
     assert_task_isolation(path)
+    blocked = _cybergym_file_read_gate()
+    if blocked is not None:
+        return [blocked]
     compiled = re.compile(pattern)
     results: list[str] = []
     for root, _dirs, files in os.walk(path):

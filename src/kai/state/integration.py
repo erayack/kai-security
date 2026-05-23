@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import os
-import threading
 from dataclasses import replace
 from typing import Any, Callable
 
 from ra.agents.config import RecursiveAgentConfig
 from ra.core.types import RLMIteration
 
+from kai.state import cybergym_gate
 from kai.state.base import StateManager
 from kai.state.hooks import (
     make_on_early_stop_hook,
@@ -21,55 +21,34 @@ from kai.state.hooks import (
 _DEFAULT_MAX_EXTEND_ITERS = 15
 _DEFAULT_EXTEND_ITERS_PER_CANDIDATE = 5
 
-# cybergym: cap analyzer + researcher calls until verifier has been called.
-# Generous enough to let real exploration land (R5 successes used up to 14
-# analyzer + 6 researcher before calling verifier), tight enough to catch
-# the runaway "all analyzer, no verifier" failure mode.
-_CYBERGYM_PRE_VERIFIER_CAP = 8
-
 
 def _apply_cybergym_spawn_gate(spawn_wrappers: dict[str, Any]) -> None:
     """Wrap analyzer/researcher/verifier factories with a per-task gate.
 
-    Cybergym tasks frequently spin in analyzer + researcher loops without
-    ever calling ``spawn_verifier``. This gate caps each of
-    ``spawn_analyzer`` and ``spawn_researcher`` at
-    :data:`_CYBERGYM_PRE_VERIFIER_CAP` calls until ``spawn_verifier`` has
-    been invoked at least once. Once verifier has been called the gate
-    becomes a no-op for the remainder of the task.
-
-    Operates by composing on top of whatever factories were already
-    registered in *spawn_wrappers*; mutates the mapping in place.
+    Cybergym tasks frequently spin in analyzer + researcher loops (or,
+    after R18, in REPL ``read_file`` loops) without ever calling
+    ``spawn_verifier``. This gate caps each of ``spawn_analyzer`` and
+    ``spawn_researcher`` at a fixed number of calls until
+    ``spawn_verifier`` has been invoked at least once. The shared state
+    lives in :mod:`kai.state.cybergym_gate` so the file-tool wrappers in
+    :mod:`kai.workspace.tools` can apply the SAME cap to direct REPL
+    file reads — closing the bypass route the R18 model used.
     """
 
-    counts = {"analyzer": 0, "researcher": 0}
-    verifier_called = [False]
-    lock = threading.Lock()
+    cybergym_gate.init()
 
     def _gate(name: str, inner_fn: Any) -> Any:
         def gated(*args: Any, **kwargs: Any) -> Any:
-            with lock:
-                if (
-                    not verifier_called[0]
-                    and counts[name] >= _CYBERGYM_PRE_VERIFIER_CAP
-                ):
-                    return (
-                        f"BLOCKED: spawn_{name} hit the "
-                        f"{_CYBERGYM_PRE_VERIFIER_CAP}-call cybergym cap "
-                        "before spawn_verifier was called. Call "
-                        "spawn_verifier(payload=<your best raw PoC bytes>) "
-                        "now, then iterate on the bytes based on the "
-                        "verifier's feedback."
-                    )
-                counts[name] += 1
+            blocked = cybergym_gate.check_and_count_spawn(name)
+            if blocked is not None:
+                return blocked
             return inner_fn(*args, **kwargs)
 
         return gated
 
     def _mark_verifier(inner_fn: Any) -> Any:
         def marked(*args: Any, **kwargs: Any) -> Any:
-            with lock:
-                verifier_called[0] = True
+            cybergym_gate.mark_verifier_called()
             return inner_fn(*args, **kwargs)
 
         return marked

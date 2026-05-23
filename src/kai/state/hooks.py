@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from datetime import datetime, timezone
 from typing import Callable
@@ -11,6 +12,7 @@ from kai import generate_id
 
 from ra.core.types import RLMIteration, SpawnRecord
 
+from kai.state import cybergym_gate
 from kai.state.base import StateManager
 from kai.state.models import StatusUpdate
 
@@ -72,6 +74,17 @@ def make_on_iteration_hook(
     """
 
     def _on_iteration(iteration: RLMIteration, iteration_num: int) -> None:
+        # Cybergym escalating-reminder injection: when the root exploit
+        # agent passes iter 4 without calling spawn_verifier, append a
+        # harness reminder to iteration.truncation_notice so the next
+        # iteration's prompt nudges the model toward the verifier.
+        if agent_name == "exploit" and os.environ.get("KAI_BENCHMARK") == "cybergym":
+            reminder = cybergym_gate.reminder_text(iteration_num)
+            if reminder is not None:
+                existing = iteration.truncation_notice or ""
+                iteration.truncation_notice = (
+                    f"{existing}\n\n{reminder}".strip() if existing else reminder
+                )
         # Skip only when an iteration is empty AND the harness did not
         # cap it. A wall-cap that fires before block 0 leaves
         # ``code_blocks=[]`` but ``dropped_blocks > 0``; that case
