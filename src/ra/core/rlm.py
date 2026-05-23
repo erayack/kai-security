@@ -61,6 +61,27 @@ def _read_max_blocks_per_iter() -> int:
     return max(0, value)
 
 
+def _resolve_final_answer(
+    *,
+    iteration: RLMIteration,
+    environment: BaseEnv,
+) -> str | None:
+    """Resolve a final answer for ``iteration``.
+
+    When the harness truncated the iteration (per-iter wall-clock or
+    block-count cap fired), suppress final-answer detection: the
+    model's FINAL_VAR / FINAL marker almost always sits at the end of
+    its response, and the code blocks that BUILD the referenced
+    variable were dropped. Honouring the marker exits the loop with an
+    empty / partial result. Returning ``None`` here lets the loop
+    advance to iter N+1, where the model sees the truncation notice
+    and re-emits the final answer after retrying the truncated work.
+    """
+    if iteration.truncation_notice:
+        return None
+    return find_final_answer(iteration.response, environment=environment)
+
+
 def _format_truncation_notice(
     *,
     iteration_num: int,
@@ -426,8 +447,8 @@ class RLM:
                         child_usage = child_usage.merge(call.usage_summary)
 
                 # Check if RLM is done and has a final answer.
-                final_answer = find_final_answer(
-                    iteration.response, environment=environment
+                final_answer = _resolve_final_answer(
+                    iteration=iteration, environment=environment
                 )
                 iteration.final_answer = final_answer
 

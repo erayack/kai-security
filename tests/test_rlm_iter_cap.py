@@ -383,6 +383,67 @@ def test_status_hook_fires_on_capped_iter(tmp_path) -> None:
     assert capped.truncation_notice is not None
 
 
+def test_resolve_final_answer_suppressed_on_truncation() -> None:
+    """R17 regression: truncated iters must NOT terminate the loop.
+
+    When the per-iter cap drops code blocks, the model's
+    ``FINAL_VAR(verified_exploits)`` marker sits at the END of its
+    response while the building code was truncated. Honouring the
+    marker would exit the loop early with an empty result, which is
+    exactly what killed R17 arvo:16634 after iter 1.
+    """
+    from ra.core.rlm import _resolve_final_answer
+
+    response_with_marker = (
+        "All the work I planned to do:\n"
+        "```repl\nstep1 = 'a'\n```\n"
+        "```repl\nresult = step1 + 'b' + 'c'\n```\n"
+        "FINAL_VAR(result)\n"
+    )
+    iteration = RLMIteration(
+        prompt="root",
+        response=response_with_marker,
+        code_blocks=[],
+        dropped_blocks=1,
+        truncation_notice="[harness notice] dropped 1 block",
+    )
+
+    class _StubEnv:
+        def get_var(self, name):  # type: ignore[no-untyped-def]
+            return None
+
+    assert _resolve_final_answer(iteration=iteration, environment=_StubEnv()) is None
+
+
+def test_resolve_final_answer_honours_clean_iter() -> None:
+    """When NO truncation happened, find_final_answer is invoked."""
+    from ra.core import rlm as rlm_module
+
+    iteration = RLMIteration(
+        prompt="root",
+        response="```repl\nresult = 'abc'\n```\nFINAL_VAR(result)\n",
+        code_blocks=[],
+    )
+    calls: list[object] = []
+
+    def _fake_find(text: str, environment: object) -> str:  # type: ignore[no-untyped-def]
+        calls.append(environment)
+        return "abc"
+
+    rlm_module.find_final_answer = _fake_find  # type: ignore[assignment]
+    try:
+        answer = rlm_module._resolve_final_answer(
+            iteration=iteration, environment=object()
+        )
+    finally:
+        # Restore the real function so other tests aren't affected.
+        from ra.utils.parsing import find_final_answer as real_find
+
+        rlm_module.find_final_answer = real_find  # type: ignore[assignment]
+    assert answer == "abc"
+    assert calls, "find_final_answer was not called on a clean iteration"
+
+
 def test_status_hook_skips_truly_empty_iter(tmp_path) -> None:
     """Status hook still skips iterations with no work and no cap."""
     from kai.state.hooks import make_on_iteration_hook
