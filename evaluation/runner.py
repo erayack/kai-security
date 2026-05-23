@@ -129,6 +129,7 @@ class BenchmarkRunner:
             env.update(self.env_overrides)
             env.setdefault("KAI_LOG_STRUCTURED", "1")
             env["KAI_BENCHMARK"] = self.adapter.name
+            env["KAI_TASK_ID"] = task.task_id
 
             start = time.monotonic()
             try:

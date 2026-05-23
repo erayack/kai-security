@@ -7,15 +7,19 @@ import re
 import subprocess
 from typing import Any
 
+from kai.utils.path_isolation import assert_task_isolation
+
 
 def read_file(path: str) -> str:
     """Read a file."""
+    assert_task_isolation(path)
     with open(path) as f:
         return f.read()
 
 
 def list_dir(path: str, recursive: bool = False) -> list[str]:
     """List a directory. Use recursive=True to walk the tree."""
+    assert_task_isolation(path)
     if not recursive:
         return sorted(os.listdir(path))
 
@@ -31,11 +35,16 @@ def list_dir(path: str, recursive: bool = False) -> list[str]:
 
 def search_files(pattern: str, path: str) -> list[str]:
     """Grep for a regex pattern under path. Returns 'file:lineno: line' strings."""
+    assert_task_isolation(path)
     compiled = re.compile(pattern)
     results: list[str] = []
     for root, _dirs, files in os.walk(path):
         for fname in sorted(files):
             fpath = os.path.join(root, fname)
+            try:
+                assert_task_isolation(fpath)
+            except PermissionError:
+                continue
             try:
                 with open(fpath, errors="replace") as f:
                     for lineno, line in enumerate(f, 1):
@@ -48,6 +57,7 @@ def search_files(pattern: str, path: str) -> list[str]:
 
 def write_file(path: str, content: str) -> str:
     """Write content to a file, creating parent dirs as needed."""
+    assert_task_isolation(path)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w") as f:
         f.write(content)
@@ -56,6 +66,9 @@ def write_file(path: str, content: str) -> str:
 
 def run_shell(command: str, cwd: str | None = None) -> dict[str, Any]:
     """Run a shell command. Returns {stdout, stderr, returncode}."""
+    if cwd is not None:
+        assert_task_isolation(cwd)
+    _assert_shell_isolation(command)
     result = subprocess.run(
         command,
         shell=True,
@@ -69,3 +82,29 @@ def run_shell(command: str, cwd: str | None = None) -> dict[str, Any]:
         "stderr": result.stderr,
         "returncode": result.returncode,
     }
+
+
+_CYBERGYM_OUTPUT_RE = re.compile(
+    r"output/bench/cybergym/run_[^/\s]+/(?P<task>[^/\s'\"\\)]+)"
+)
+
+
+def _assert_shell_isolation(command: str) -> None:
+    """Reject shell commands that reference a sibling task's output dir.
+
+    Best-effort textual guard — a determined agent could still
+    exfiltrate via globbing, symlinks, or absolute paths constructed
+    at runtime. Catches the obvious ``cat``/``find``/``grep`` cases.
+    """
+    if os.environ.get("KAI_BENCHMARK") != "cybergym":
+        return
+    task_id = os.environ.get("KAI_TASK_ID")
+    if not task_id:
+        return
+    for match in _CYBERGYM_OUTPUT_RE.finditer(command):
+        if match.group("task") != task_id:
+            raise PermissionError(
+                f"cybergym isolation: shell command references sibling "
+                f"task '{match.group('task')}' (current task: "
+                f"'{task_id}'). Blocked."
+            )

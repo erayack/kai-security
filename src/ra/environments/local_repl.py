@@ -1,8 +1,10 @@
 import ast
+import builtins as _builtins
 import copy
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -82,6 +84,7 @@ _SAFE_BUILTINS = {
     "staticmethod": staticmethod,
     "classmethod": classmethod,
     "__import__": __import__,
+    # ``open`` is replaced below with a per-call task-isolation wrapper.
     "open": open,
     # Exceptions
     "Exception": Exception,
@@ -111,6 +114,49 @@ _SAFE_BUILTINS = {
     "globals": None,
     "locals": None,
 }
+
+
+_CYBERGYM_SIBLING_OUTPUT_RE = re.compile(
+    r"(?:^|/)output/bench/cybergym/run_[^/]+/(?P<task>[^/]+)"
+)
+
+
+def _assert_repl_task_isolation(path: str | os.PathLike[str]) -> None:
+    """Reject REPL access to a sibling cybergym task's output directory.
+
+    Only enforces when both ``KAI_BENCHMARK=cybergym`` and
+    ``KAI_TASK_ID`` are set (i.e. inside an evaluation pipeline
+    subprocess). Outside that context it is a no-op.
+    """
+    if os.environ.get("KAI_BENCHMARK") != "cybergym":
+        return
+    task_id = os.environ.get("KAI_TASK_ID")
+    if not task_id:
+        return
+    resolved = os.path.abspath(os.fspath(path))
+    match = _CYBERGYM_SIBLING_OUTPUT_RE.search(resolved)
+    if match is None or match.group("task") == task_id:
+        return
+    raise PermissionError(
+        f"cybergym isolation: REPL access to sibling task "
+        f"'{match.group('task')}' is blocked (current task: "
+        f"'{task_id}')."
+    )
+
+
+def _guarded_open(
+    file: Any,
+    mode: str = "r",
+    *args: Any,
+    **kwargs: Any,
+) -> Any:
+    """``open`` wrapper that enforces cybergym sibling-task isolation."""
+    if isinstance(file, (str, os.PathLike)):
+        _assert_repl_task_isolation(file)
+    return _builtins.open(file, mode, *args, **kwargs)
+
+
+_SAFE_BUILTINS["open"] = _guarded_open
 
 
 _CONTEXT_FILE_EXTENSIONS: tuple[str, ...] = (
