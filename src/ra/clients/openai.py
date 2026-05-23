@@ -1,7 +1,13 @@
+import asyncio
+import json
+import logging
 import os
+import random
+import time
 from collections import defaultdict
 from typing import Any
 
+import httpx
 import openai
 from dotenv import load_dotenv
 from openai.types.chat import ChatCompletion
@@ -10,6 +16,130 @@ from ra.clients.base_lm import BaseLM
 from ra.core.types import ModelUsageSummary, UsageSummary
 
 load_dotenv()
+
+_log = logging.getLogger(__name__)
+
+# Exceptions that warrant a retry. Network blips, malformed payloads from
+# the proxy (we saw OpenRouter return a body that failed JSON parsing on
+# cybergym R18 arvo:48736 — a single LLM call burned the task), rate
+# limits, and 5xx errors are all transient. Hard 4xx errors (auth, bad
+# request, model-not-found) are NOT retried.
+_RETRYABLE_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    json.JSONDecodeError,
+    openai.APIConnectionError,
+    openai.APITimeoutError,
+    openai.RateLimitError,
+    openai.InternalServerError,
+    httpx.RequestError,
+    httpx.RemoteProtocolError,
+    httpx.ReadError,
+)
+
+# Status codes (when an APIStatusError surfaces) that should be retried.
+# 429 is rate-limit; 5xx are server-side blips.
+_RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
+
+_DEFAULT_MAX_RETRIES = int(os.environ.get("KAI_LLM_MAX_RETRIES", "4"))
+_DEFAULT_BASE_BACKOFF_S = float(os.environ.get("KAI_LLM_BACKOFF_S", "1.5"))
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    if isinstance(exc, _RETRYABLE_EXCEPTIONS):
+        return True
+    if isinstance(exc, openai.APIStatusError):
+        status = getattr(exc, "status_code", None)
+        if isinstance(status, int) and status in _RETRYABLE_STATUS_CODES:
+            return True
+    return False
+
+
+def _sleep_for_retry(attempt: int) -> float:
+    """Exponential backoff with jitter; attempt is 1-indexed."""
+    base = _DEFAULT_BASE_BACKOFF_S * (2 ** (attempt - 1))
+    jitter = random.uniform(0, base * 0.25)
+    return base + jitter
+
+
+def _call_with_retry(call_fn, *, model: str, log_prefix: str) -> Any:  # type: ignore[no-untyped-def]
+    """Call ``call_fn`` synchronously with retry on transient errors."""
+    attempt = 0
+    last_exc: BaseException | None = None
+    while attempt < _DEFAULT_MAX_RETRIES:
+        attempt += 1
+        try:
+            return call_fn()
+        except BaseException as exc:
+            last_exc = exc
+            if not _is_retryable(exc):
+                raise
+            if attempt >= _DEFAULT_MAX_RETRIES:
+                break
+            delay = _sleep_for_retry(attempt)
+            _log.warning(
+                "%s transient LLM failure (%s) on attempt %d/%d; "
+                "retrying in %.1fs (model=%s)",
+                log_prefix,
+                type(exc).__name__,
+                attempt,
+                _DEFAULT_MAX_RETRIES,
+                delay,
+                model,
+            )
+            time.sleep(delay)
+    assert last_exc is not None
+    raise last_exc
+
+
+async def _acall_with_retry(coro_factory, *, model: str, log_prefix: str) -> Any:  # type: ignore[no-untyped-def]
+    """Async variant of ``_call_with_retry``."""
+    attempt = 0
+    last_exc: BaseException | None = None
+    while attempt < _DEFAULT_MAX_RETRIES:
+        attempt += 1
+        try:
+            return await coro_factory()
+        except BaseException as exc:
+            last_exc = exc
+            if not _is_retryable(exc):
+                raise
+            if attempt >= _DEFAULT_MAX_RETRIES:
+                break
+            delay = _sleep_for_retry(attempt)
+            _log.warning(
+                "%s transient LLM failure (%s) on attempt %d/%d; "
+                "retrying in %.1fs (model=%s)",
+                log_prefix,
+                type(exc).__name__,
+                attempt,
+                _DEFAULT_MAX_RETRIES,
+                delay,
+                model,
+            )
+            await asyncio.sleep(delay)
+    assert last_exc is not None
+    raise last_exc
+
+
+def _extract_text(response: Any) -> str:
+    """Pull the message text out of a chat-completions response, raising
+    a retryable error when the payload is structurally bad."""
+    try:
+        choices = response.choices
+    except AttributeError as exc:
+        raise openai.APIError(
+            "response has no .choices field", request=None, body=None
+        ) from exc
+    if not choices:
+        raise openai.APIError("response.choices is empty", request=None, body=None)
+    content = getattr(choices[0].message, "content", None)
+    if content is None or content == "":
+        raise openai.APIError(
+            "response.choices[0].message.content is empty",
+            request=None,
+            body=None,
+        )
+    return content
+
 
 # Load API keys from environment variables
 DEFAULT_OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("OPEN_AI_API_KEY")
@@ -98,13 +228,18 @@ class OpenAIClient(BaseLM):
 
         extra_body = self._build_extra_body()
 
-        response = self.client.chat.completions.create(
-            model=model,
-            messages=messages,  # type: ignore[arg-type]
-            extra_body=extra_body,
+        def _do_call() -> ChatCompletion:
+            return self.client.chat.completions.create(
+                model=model,
+                messages=messages,  # type: ignore[arg-type]
+                extra_body=extra_body,
+            )
+
+        response = _call_with_retry(
+            _do_call, model=model, log_prefix="sync completion:"
         )
         self._track_cost(response, model)
-        return response.choices[0].message.content
+        return _extract_text(response)
 
     async def acompletion(
         self,
@@ -129,13 +264,19 @@ class OpenAIClient(BaseLM):
         async with openai.AsyncOpenAI(
             **self._async_client_kwargs,
         ) as client:
-            response = await client.chat.completions.create(
-                model=model,
-                messages=messages,  # type: ignore[arg-type]
-                extra_body=extra_body,
+
+            async def _do_call():  # type: ignore[no-untyped-def]
+                return await client.chat.completions.create(
+                    model=model,
+                    messages=messages,  # type: ignore[arg-type]
+                    extra_body=extra_body,
+                )
+
+            response = await _acall_with_retry(
+                _do_call, model=model, log_prefix="async completion:"
             )
         self._track_cost(response, model)
-        return response.choices[0].message.content
+        return _extract_text(response)
 
     def _build_extra_body(self) -> dict[str, Any]:
         """Per-call ``extra_body`` for chat completions.

@@ -412,30 +412,59 @@ class RLM:
 
                 self.verbose.print_waiting(i + 1)
 
-                try:
-                    iteration: RLMIteration = self._completion_turn(
-                        prompt=current_prompt,
-                        lm_handler=lm_handler,
-                        environment=environment,
-                        iteration_num=i + 1,
-                    )
-                except Exception as exc:
-                    if isinstance(exc, RecursiveAgentError):
-                        exc.enrich(
-                            agent_name=self.name,
-                            depth=self.depth,
+                # Belt-and-suspenders: the OpenAI client already retries
+                # transient LLM failures (network, malformed JSON, 5xx,
+                # rate limit). If THAT still fails, retry the whole
+                # iteration up to 2 more times with backoff before
+                # bailing out of the task entirely. A single brittle
+                # blip should never kill an in-flight benchmark task.
+                iteration: RLMIteration | None = None
+                outer_attempts = int(os.environ.get("KAI_ITER_RETRY_MAX", "3"))
+                outer_backoff = float(os.environ.get("KAI_ITER_RETRY_BACKOFF_S", "5"))
+                last_exc: Exception | None = None
+                for outer_attempt in range(1, outer_attempts + 1):
+                    try:
+                        iteration = self._completion_turn(
+                            prompt=current_prompt,
+                            lm_handler=lm_handler,
+                            environment=environment,
                             iteration_num=i + 1,
-                            model=(
-                                self.backend_kwargs.get("model_name")
-                                if self.backend_kwargs
-                                else None
-                            ),
                         )
+                        last_exc = None
+                        break
+                    except Exception as exc:
+                        last_exc = exc
+                        if isinstance(exc, RecursiveAgentError):
+                            exc.enrich(
+                                agent_name=self.name,
+                                depth=self.depth,
+                                iteration_num=i + 1,
+                                model=(
+                                    self.backend_kwargs.get("model_name")
+                                    if self.backend_kwargs
+                                    else None
+                                ),
+                            )
+                        if outer_attempt >= outer_attempts:
+                            break
+                        delay = outer_backoff * outer_attempt
+                        logging.getLogger(__name__).warning(
+                            "iteration %d completion failed (%s); "
+                            "retrying in %.1fs (outer attempt %d/%d)",
+                            i + 1,
+                            type(exc).__name__,
+                            delay,
+                            outer_attempt,
+                            outer_attempts,
+                        )
+                        time.sleep(delay)
+                if iteration is None:
                     logging.getLogger(__name__).error(
-                        "LLM call failed on iteration %d: %s — "
-                        "falling through to default answer",
+                        "LLM call failed on iteration %d after %d attempts: %s "
+                        "— falling through to default answer",
                         i + 1,
-                        exc,
+                        outer_attempts,
+                        last_exc,
                     )
                     break
 
