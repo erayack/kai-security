@@ -24,16 +24,25 @@ _log = logging.getLogger(__name__)
 # cybergym R18 arvo:48736 — a single LLM call burned the task), rate
 # limits, and 5xx errors are all transient. Hard 4xx errors (auth, bad
 # request, model-not-found) are NOT retried.
-_RETRYABLE_EXCEPTIONS: tuple[type[BaseException], ...] = (
-    json.JSONDecodeError,
-    openai.APIConnectionError,
-    openai.APITimeoutError,
-    openai.RateLimitError,
-    openai.InternalServerError,
-    httpx.RequestError,
-    httpx.RemoteProtocolError,
-    httpx.ReadError,
-)
+def _build_retryable_tuple() -> tuple[type[BaseException], ...]:
+    """Assemble the retryable-exception tuple at import time.
+
+    Kept as a builder so the ``_TransientLLMError`` class (defined
+    below) can be appended without ordering games.
+    """
+    return (
+        json.JSONDecodeError,
+        openai.APIConnectionError,
+        openai.APITimeoutError,
+        openai.RateLimitError,
+        openai.InternalServerError,
+        httpx.RequestError,
+        httpx.RemoteProtocolError,
+        httpx.ReadError,
+    )
+
+
+_RETRYABLE_EXCEPTIONS: tuple[type[BaseException], ...] = _build_retryable_tuple()
 
 # Status codes (when an APIStatusError surfaces) that should be retried.
 # 429 is rate-limit; 5xx are server-side blips.
@@ -43,7 +52,16 @@ _DEFAULT_MAX_RETRIES = int(os.environ.get("KAI_LLM_MAX_RETRIES", "4"))
 _DEFAULT_BASE_BACKOFF_S = float(os.environ.get("KAI_LLM_BACKOFF_S", "1.5"))
 
 
+class _TransientLLMError(RuntimeError):
+    """Raised by ``_extract_text`` when the LLM response is structurally
+    malformed (no choices, empty content) so the retry layer can treat
+    it as transient without forging an ``openai.APIError`` (which
+    requires a real ``httpx.Request``)."""
+
+
 def _is_retryable(exc: BaseException) -> bool:
+    if isinstance(exc, _TransientLLMError):
+        return True
     if isinstance(exc, _RETRYABLE_EXCEPTIONS):
         return True
     if isinstance(exc, openai.APIStatusError):
@@ -60,7 +78,7 @@ def _sleep_for_retry(attempt: int) -> float:
     return base + jitter
 
 
-def _call_with_retry(call_fn, *, model: str, log_prefix: str) -> Any:  # type: ignore[no-untyped-def]
+def _call_with_retry(call_fn, *, model: str, log_prefix: str) -> Any:
     """Call ``call_fn`` synchronously with retry on transient errors."""
     attempt = 0
     last_exc: BaseException | None = None
@@ -90,7 +108,7 @@ def _call_with_retry(call_fn, *, model: str, log_prefix: str) -> Any:  # type: i
     raise last_exc
 
 
-async def _acall_with_retry(coro_factory, *, model: str, log_prefix: str) -> Any:  # type: ignore[no-untyped-def]
+async def _acall_with_retry(coro_factory, *, model: str, log_prefix: str) -> Any:
     """Async variant of ``_call_with_retry``."""
     attempt = 0
     last_exc: BaseException | None = None
@@ -122,21 +140,19 @@ async def _acall_with_retry(coro_factory, *, model: str, log_prefix: str) -> Any
 
 def _extract_text(response: Any) -> str:
     """Pull the message text out of a chat-completions response, raising
-    a retryable error when the payload is structurally bad."""
+    ``_TransientLLMError`` when the payload is structurally bad so the
+    retry layer can treat it as transient.
+    """
     try:
         choices = response.choices
     except AttributeError as exc:
-        raise openai.APIError(
-            "response has no .choices field", request=None, body=None
-        ) from exc
+        raise _TransientLLMError("response has no .choices field") from exc
     if not choices:
-        raise openai.APIError("response.choices is empty", request=None, body=None)
+        raise _TransientLLMError("response.choices is empty")
     content = getattr(choices[0].message, "content", None)
     if content is None or content == "":
-        raise openai.APIError(
-            "response.choices[0].message.content is empty",
-            request=None,
-            body=None,
+        raise _TransientLLMError(
+            "response.choices[0].message.content is empty"
         )
     return content
 
@@ -265,7 +281,7 @@ class OpenAIClient(BaseLM):
             **self._async_client_kwargs,
         ) as client:
 
-            async def _do_call():  # type: ignore[no-untyped-def]
+            async def _do_call() -> ChatCompletion:
                 return await client.chat.completions.create(
                     model=model,
                     messages=messages,  # type: ignore[arg-type]

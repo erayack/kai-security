@@ -113,15 +113,19 @@ def test_extract_text_empty_content_raises() -> None:
     response = MagicMock()
     response.choices = [MagicMock()]
     response.choices[0].message.content = ""
-    with pytest.raises(openai.APIError):
+    with pytest.raises(openai_module._TransientLLMError):
         openai_module._extract_text(response)
 
 
 def test_extract_text_no_choices_raises() -> None:
     response = MagicMock()
     response.choices = []
-    with pytest.raises(openai.APIError):
+    with pytest.raises(openai_module._TransientLLMError):
         openai_module._extract_text(response)
+
+
+def test_transient_llm_error_is_retryable() -> None:
+    assert openai_module._is_retryable(openai_module._TransientLLMError("x"))
 
 
 def test_extract_text_happy_path() -> None:
