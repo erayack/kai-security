@@ -292,6 +292,7 @@ class RLM:
         with self._spawn_completion_context(prompt) as (lm_handler, environment):
             message_history = self._setup_prompt(prompt)
             child_usage = UsageSummary(model_usage_summaries={})
+            emitted_iterations = 0
 
             effective_max = self.max_iterations
             i = 0
@@ -371,6 +372,7 @@ class RLM:
                 # if later code (logger, formatting) raises.
                 if self.on_iteration:
                     self.on_iteration(iteration, i + 1)
+                    emitted_iterations += 1
 
                 # If logger is used, log the iteration.
                 if self.logger:
@@ -433,6 +435,19 @@ class RLM:
                 message_history, lm_handler, environment=environment
             )
             usage = lm_handler.get_usage_summary().merge(child_usage)
+            if self.on_iteration and emitted_iterations == 0:
+                # If the first model turn fails before any real iteration is
+                # emitted, persist a synthetic terminal iteration so rollout
+                # hooks still create the per-agent JSONL file.
+                self.on_iteration(
+                    RLMIteration(
+                        prompt=prompt,
+                        response=final_answer,
+                        code_blocks=[],
+                        final_answer=final_answer,
+                    ),
+                    1,
+                )
             self.verbose.print_final_answer(final_answer)
             self.verbose.print_summary(
                 effective_max, time_end - time_start, usage.to_dict()

@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
+from contextlib import contextmanager
 from typing import Any
+from unittest.mock import patch
 
+from ra.agents.agent import RecursiveAgent
 from ra.agents.config import RecursiveAgentConfig
+from ra.core.rlm import RLM
+from ra.core.types import CodeBlock, REPLResult, RLMIteration
+from ra.core.types import UsageSummary
 
 from kai.state.integration import inject_state_manager
+from kai.state.hooks import make_rollout_on_iteration_hook
 from kai.state.local import LocalStateManager
 
 
@@ -146,3 +154,180 @@ class TestInjectStateManager:
 
         injected = inject_state_manager(config, mgr, "run-1")
         assert "spawn_fixer" in injected.spawn_wrappers
+
+    def test_bootstrap_verifier_spawn_writes_rollout(self) -> None:
+        """Bootstrap verifier spawns should persist verifier.jsonl."""
+        mgr = LocalStateManager(state_dir=tempfile.mkdtemp())
+        verifier = _make_config(name="verifier")
+        config = RecursiveAgentConfig(
+            name="root",
+            system_prompt="Agent root. spawn_verifier exploits",
+            agents=[verifier],
+        )
+        injected = inject_state_manager(
+            config,
+            mgr,
+            "run-1",
+            save_rollouts=True,
+        )
+
+        def _fake_completion(
+            self: RecursiveAgent,
+            data: str | dict[str, Any],
+        ) -> str:
+            del data
+            assert self.config.on_iteration is not None
+            self.config.on_iteration(
+                RLMIteration(
+                    prompt="verify",
+                    response="checking",
+                    code_blocks=[
+                        CodeBlock(
+                            code="print('verify')",
+                            result=REPLResult(
+                                stdout="verify",
+                                stderr="",
+                                locals={},
+                                spawn_records=[],
+                            ),
+                        )
+                    ],
+                    final_answer='{"confirmed": true}',
+                ),
+                1,
+            )
+            return '{"confirmed": true}'
+
+        with patch.object(RecursiveAgent, "completion", new=_fake_completion):
+            root_agent = RecursiveAgent(injected)
+            spawn_verifier = root_agent._build_tools()["spawn_verifier"]
+            result = spawn_verifier(
+                hypothesis="h",
+                file="target.c",
+                function="do_work",
+                poc_code="__POC_BYTES__b64=AA==",
+            )
+
+        assert json.loads(result)["confirmed"] is True
+        rollout_path = mgr._run_dir("run-1") / "rollouts" / "verifier.jsonl"
+        assert rollout_path.exists()
+        entries = [json.loads(line) for line in rollout_path.read_text().splitlines()]
+        assert [entry["type"] for entry in entries] == [
+            "metadata",
+            "iteration",
+            "result",
+        ]
+        assert entries[0]["agent"] == "verifier"
+
+    def test_failed_spawn_still_writes_rollout(self) -> None:
+        """Spawn errors before iteration should still create rollout JSONL."""
+        mgr = LocalStateManager(state_dir=tempfile.mkdtemp())
+        verifier = _make_config(name="verifier")
+        config = RecursiveAgentConfig(
+            name="root",
+            system_prompt="Agent root. spawn_verifier exploits",
+            agents=[verifier],
+        )
+        injected = inject_state_manager(
+            config,
+            mgr,
+            "run-1",
+            save_rollouts=True,
+        )
+
+        def _boom(
+            self: RecursiveAgent,
+            data: str | dict[str, Any],
+        ) -> str:
+            del self, data
+            raise RuntimeError("boom")
+
+        with patch.object(RecursiveAgent, "completion", new=_boom):
+            root_agent = RecursiveAgent(injected)
+            spawn_verifier = root_agent._build_tools()["spawn_verifier"]
+            result = spawn_verifier(
+                hypothesis="h",
+                file="target.c",
+                function="do_work",
+                poc_code="__POC_BYTES__b64=AA==",
+            )
+
+        assert result == "[spawn_verifier error] RuntimeError: boom"
+        rollout_path = mgr._run_dir("run-1") / "rollouts" / "verifier.jsonl"
+        assert rollout_path.exists()
+        entries = [json.loads(line) for line in rollout_path.read_text().splitlines()]
+        assert [entry["type"] for entry in entries] == [
+            "metadata",
+            "iteration",
+            "result",
+        ]
+        assert entries[1]["response"] == "[spawn_verifier error] RuntimeError: boom"
+
+    def test_default_answer_after_internal_error_still_writes_rollout(self) -> None:
+        """Internal RLM fallback should still open the rollout file."""
+        mgr = LocalStateManager(state_dir=tempfile.mkdtemp())
+        rollout_hook = make_rollout_on_iteration_hook(
+            mgr,
+            "run-1",
+            "verifier",
+        )
+        rlm = RLM(
+            name="verifier",
+            on_iteration=rollout_hook,
+            max_iterations=1,
+            backend_kwargs={"model_name": "test-model"},
+        )
+
+        class _FakeLMHandler:
+            def get_usage_summary(self) -> UsageSummary:
+                return UsageSummary(model_usage_summaries={})
+
+        class _FakeEnv:
+            pass
+
+        @contextmanager
+        def _fake_spawn_context(
+            self: RLM,
+            prompt: str | dict[str, Any],
+        ) -> Any:
+            del self, prompt
+            yield _FakeLMHandler(), _FakeEnv()
+
+        def _boom(
+            self: RLM,
+            prompt: str | dict[str, Any] | list[dict[str, Any]],
+            lm_handler: object,
+            environment: object,
+            iteration_num: int = 0,
+        ) -> RLMIteration:
+            del self, prompt, lm_handler, environment, iteration_num
+            raise RuntimeError("boom")
+
+        def _default_answer(
+            self: RLM,
+            message_history: list[dict[str, Any]],
+            lm_handler: object,
+            *,
+            environment: object,
+        ) -> str:
+            del self, message_history, lm_handler, environment
+            return '{"confirmed": false}'
+
+        with (
+            patch.object(RLM, "_spawn_completion_context", _fake_spawn_context),
+            patch.object(RLM, "_setup_prompt", return_value=[]),
+            patch.object(RLM, "_completion_turn", new=_boom),
+            patch.object(RLM, "_default_answer", new=_default_answer),
+        ):
+            result = rlm.completion({"hypothesis": "h"})
+
+        assert result.response == '{"confirmed": false}'
+        rollout_path = mgr._run_dir("run-1") / "rollouts" / "verifier.jsonl"
+        assert rollout_path.exists()
+        entries = [json.loads(line) for line in rollout_path.read_text().splitlines()]
+        assert [entry["type"] for entry in entries] == [
+            "metadata",
+            "iteration",
+            "result",
+        ]
+        assert entries[1]["response"] == '{"confirmed": false}'

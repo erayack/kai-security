@@ -8,7 +8,7 @@ from dataclasses import replace
 from typing import Any, Callable
 
 from ra.agents.config import RecursiveAgentConfig
-from ra.core.types import SpawnRecord
+from ra.core.types import RLMIteration, SpawnRecord
 
 
 class _SpawnWrapper:
@@ -57,6 +57,32 @@ class _SpawnWrapper:
 
 
 log = logging.getLogger(__name__)
+
+
+def _emit_failed_spawn_iteration(
+    config: RecursiveAgentConfig,
+    prompt: dict[str, Any],
+    error_msg: str,
+) -> None:
+    """Emit a synthetic first iteration when a spawn fails too early.
+
+    Rollout JSONL is normally created by ``config.on_iteration`` during the
+    child's first RLM loop iteration. If the child crashes before that point,
+    the parent still records a ``SpawnRecord`` but the child gets no rollout
+    file. Emitting one synthetic final iteration closes that gap without
+    affecting successful spawns.
+    """
+    if config.on_iteration is None:
+        return
+    config.on_iteration(
+        RLMIteration(
+            prompt=dict(prompt),
+            response=error_msg,
+            code_blocks=[],
+            final_answer=error_msg,
+        ),
+        1,
+    )
 
 
 def _make_spawn_fn(
@@ -143,6 +169,10 @@ def _make_spawn_fn(
             return result_str
         except Exception as exc:
             error_msg = f"[spawn_{config.name} error] {type(exc).__name__}: {exc}"
+            try:
+                _emit_failed_spawn_iteration(indexed_config, kwargs, error_msg)
+            except Exception:
+                _log_error(f"failed to persist rollout for {config.name}")
             records.append(
                 SpawnRecord(
                     agent_name=config.name,
