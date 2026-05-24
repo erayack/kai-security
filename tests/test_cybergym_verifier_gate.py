@@ -215,3 +215,125 @@ def test_mark_critic_called_flips_flag() -> None:
     assert not cybergym_gate.critic_was_called()
     cybergym_gate.mark_critic_called()
     assert cybergym_gate.critic_was_called()
+
+
+def test_post_verifier_stall_blocks_file_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After a verified/soft record exists and before critic, file reads
+    burn the shared post-verifier stall budget."""
+    monkeypatch.setenv("KAI_POST_VERIFIER_STALL_CAP", "2")
+    cybergym_gate.init()
+    cybergym_gate.mark_verifier_called()
+    cybergym_gate.mark_has_verified_record()
+    assert cybergym_gate.check_and_count_file_read() is None
+    assert cybergym_gate.check_and_count_file_read() is None
+    msg = cybergym_gate.check_and_count_file_read()
+    assert msg is not None
+    assert "BLOCKED" in msg
+    assert "spawn_critic" in msg
+
+
+def test_post_verifier_stall_budget_is_shared(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """analyzer + researcher + file reads share the same stall budget."""
+    monkeypatch.setenv("KAI_POST_VERIFIER_STALL_CAP", "2")
+    cybergym_gate.init()
+    cybergym_gate.mark_verifier_called()
+    cybergym_gate.mark_has_verified_record()
+    assert cybergym_gate.check_and_count_spawn("analyzer") is None
+    assert cybergym_gate.check_and_count_spawn("researcher") is None
+    # Cap exhausted: next file read AND next spawn both block.
+    msg_file = cybergym_gate.check_and_count_file_read()
+    assert msg_file is not None and "spawn_critic" in msg_file
+    msg_spawn = cybergym_gate.check_and_count_spawn("analyzer")
+    assert msg_spawn is not None and "spawn_critic" in msg_spawn
+
+
+def test_post_verifier_stall_no_op_without_verified_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No post-verifier cap until a verified/soft record actually exists."""
+    monkeypatch.setenv("KAI_POST_VERIFIER_STALL_CAP", "1")
+    cybergym_gate.init()
+    cybergym_gate.mark_verifier_called()
+    # verifier called, but no verified record → free file reads.
+    for _ in range(10):
+        assert cybergym_gate.check_and_count_file_read() is None
+
+
+def test_post_verifier_stall_no_op_after_critic_called(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Once critic ran, the post-verifier stall budget is disabled."""
+    monkeypatch.setenv("KAI_POST_VERIFIER_STALL_CAP", "1")
+    cybergym_gate.init()
+    cybergym_gate.mark_verifier_called()
+    cybergym_gate.mark_has_verified_record()
+    cybergym_gate.mark_critic_called()
+    for _ in range(10):
+        assert cybergym_gate.check_and_count_file_read() is None
+        assert cybergym_gate.check_and_count_spawn("analyzer") is None
+        assert cybergym_gate.check_and_count_spawn("researcher") is None
+
+
+def test_post_verifier_stall_does_not_count_spawn_verifier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """spawn_verifier is productive work; it must not burn the budget.
+
+    Re-verifying with mutated bytes is the EXACT path we want the
+    model to take after a soft_verified verdict.
+    """
+    monkeypatch.setenv("KAI_POST_VERIFIER_STALL_CAP", "1")
+    cybergym_gate.init()
+    cybergym_gate.mark_verifier_called()
+    cybergym_gate.mark_has_verified_record()
+    # check_and_count_spawn skips agents not in spawn_counts
+    # ("verifier" is not tracked there) so it must always return None.
+    for _ in range(10):
+        assert cybergym_gate.check_and_count_spawn("verifier") is None
+    # Stall budget intact: one file read passes, second blocks.
+    assert cybergym_gate.check_and_count_file_read() is None
+    msg = cybergym_gate.check_and_count_file_read()
+    assert msg is not None and "spawn_critic" in msg
+
+
+def test_pre_verifier_caps_still_fire_with_post_verifier_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: adding the new fields/order must not break the
+    existing pre-verifier file-read cap.
+    """
+    monkeypatch.setenv("KAI_PRE_VERIFIER_FILE_READS", "2")
+    cybergym_gate.init()
+    assert cybergym_gate.check_and_count_file_read() is None
+    assert cybergym_gate.check_and_count_file_read() is None
+    msg = cybergym_gate.check_and_count_file_read()
+    assert msg is not None
+    assert "BLOCKED" in msg
+    assert "spawn_verifier" in msg
+
+
+def test_workspace_tools_post_verifier_stall(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """End-to-end: workspace file tools observe the post-verifier cap."""
+    monkeypatch.setenv("KAI_BENCHMARK", "cybergym")
+    monkeypatch.setenv("KAI_POST_VERIFIER_STALL_CAP", "1")
+    monkeypatch.delenv("KAI_TASK_ID", raising=False)
+    cybergym_gate.init()
+    cybergym_gate.mark_verifier_called()
+    cybergym_gate.mark_has_verified_record()
+
+    from kai.workspace.tools import read_file
+
+    sample = tmp_path / "a.txt"
+    sample.write_text("hello\n")
+    # First read passes; second hits BLOCKED.
+    assert read_file(str(sample)) == "hello\n"
+    second = read_file(str(sample))
+    assert "BLOCKED" in second
+    assert "spawn_critic" in second

@@ -89,6 +89,11 @@ def make_on_iteration_hook(
                 v_count = len(verified) + len(soft)
             except Exception:
                 v_count = 0
+            # Activate the post-verifier anti-stall budget so the
+            # file-read + analyzer/researcher wrappers can force a
+            # spawn_critic call.
+            if v_count > 0:
+                cybergym_gate.mark_has_verified_record()
             critic_called = cybergym_gate.critic_was_called()
 
             verifier_reminder = cybergym_gate.reminder_text(iteration_num)

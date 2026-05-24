@@ -42,11 +42,14 @@ class CybergymGateState:
 
     spawn_cap: int
     file_read_cap: int
+    post_verifier_stall_cap: int
     spawn_counts: dict[str, int] = field(
         default_factory=lambda: {"analyzer": 0, "researcher": 0}
     )
     file_reads: int = 0
+    post_verifier_stalls: int = 0
     verifier_called: bool = False
+    has_verified_record: bool = False
     critic_called: bool = False
     lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -71,12 +74,16 @@ def init() -> CybergymGateState:
     Caps:
     * ``KAI_PRE_VERIFIER_CAP`` — per-sub-agent spawn cap (default 8).
     * ``KAI_PRE_VERIFIER_FILE_READS`` — total file-read cap (default 12).
+    * ``KAI_POST_VERIFIER_STALL_CAP`` — combined analyzer/researcher/file-
+      read cap once a verified or soft_verified record exists but
+      ``spawn_critic`` has not been called yet (default 5).
     """
     global _state
     with _state_lock:
         _state = CybergymGateState(
             spawn_cap=_read_int_env("KAI_PRE_VERIFIER_CAP", 8),
             file_read_cap=_read_int_env("KAI_PRE_VERIFIER_FILE_READS", 12),
+            post_verifier_stall_cap=_read_int_env("KAI_POST_VERIFIER_STALL_CAP", 5),
         )
     return _state
 
@@ -122,12 +129,56 @@ def critic_was_called() -> bool:
     return state.critic_called
 
 
+def mark_has_verified_record() -> None:
+    """Flip the verified-record flag.
+
+    Called from :func:`kai.state.hooks.make_on_iteration_hook` once at
+    least one verified or soft_verified ``ExploitRecord`` exists.
+    Idempotent — safe to call from every iteration after the first
+    record lands. Activates the post-verifier anti-stall budget in
+    :func:`check_and_count_spawn` / :func:`check_and_count_file_read`.
+    """
+    state = _state
+    if state is None:
+        return
+    with state.lock:
+        state.has_verified_record = True
+
+
+def _post_verifier_stall_block(
+    state: CybergymGateState,
+) -> str | None:
+    """Return BLOCKED message when the post-verifier stall cap is hit.
+
+    Caller MUST hold ``state.lock``. Returns ``None`` when the cap has
+    not yet been exhausted; otherwise the explicit critic-required
+    notice.
+    """
+    if state.post_verifier_stalls >= state.post_verifier_stall_cap:
+        return (
+            "BLOCKED: post-verifier cybergym stall cap reached "
+            f"({state.post_verifier_stall_cap} non-critic "
+            "file/analyzer/researcher actions after a "
+            "verified/soft_verified exploit). You must call "
+            "spawn_critic before further exploration. Required "
+            "next action: spawn_critic(exploit_index=0) on your "
+            "strongest verified candidate. After critic returns, "
+            "you may continue exploration or re-emit "
+            "FINAL_VAR(verified_exploits)."
+        )
+    return None
+
+
 def check_and_count_spawn(agent_name: str) -> str | None:
     """Increment spawn counter for ``agent_name``; return BLOCKED message
-    when the cap is exceeded before verifier.
+    when either the pre-verifier per-agent cap OR the post-verifier
+    stall cap is exceeded.
 
-    Returns ``None`` if the call may proceed (cap not yet hit OR
-    verifier already called).
+    Returns ``None`` if the call may proceed.
+
+    Ordering note: the post-verifier check runs BEFORE the
+    ``verifier_called`` early-return so the stall budget can fire
+    even after verifier has already been called.
     """
     state = _state
     if state is None:
@@ -135,6 +186,15 @@ def check_and_count_spawn(agent_name: str) -> str | None:
     if agent_name not in state.spawn_counts:
         return None
     with state.lock:
+        # Post-verifier anti-stall path: once we have a verified or
+        # soft_verified record AND spawn_critic has not been called,
+        # analyzer/researcher spawns burn the shared stall budget.
+        if state.has_verified_record and not state.critic_called:
+            blocked = _post_verifier_stall_block(state)
+            if blocked is not None:
+                return blocked
+            state.post_verifier_stalls += 1
+            return None
         if state.verifier_called:
             return None
         if state.spawn_counts[agent_name] >= state.spawn_cap:
@@ -151,17 +211,30 @@ def check_and_count_spawn(agent_name: str) -> str | None:
 
 
 def check_and_count_file_read() -> str | None:
-    """Increment file-read counter; return BLOCKED message when the
-    cap is exceeded before verifier.
+    """Increment file-read counter; return BLOCKED message when either
+    the pre-verifier cap OR the post-verifier stall cap is exceeded.
 
     Called from the file-tool wrappers (``read_file``, ``search_files``,
-    ``list_dir`` in :mod:`kai.workspace.tools`) so the model cannot
+    ``list_dir`` in :mod:`kai.workspace.tools``) so the model cannot
     substitute REPL file reads for sub-agent spawns indefinitely.
+
+    Ordering note: the post-verifier check runs BEFORE the
+    ``verifier_called`` early-return so file reads still trip the
+    stall budget after verifier was called.
     """
     state = _state
     if state is None:
         return None
     with state.lock:
+        # Post-verifier anti-stall path: once we have a verified or
+        # soft_verified record AND spawn_critic has not been called,
+        # file reads burn the shared stall budget.
+        if state.has_verified_record and not state.critic_called:
+            blocked = _post_verifier_stall_block(state)
+            if blocked is not None:
+                return blocked
+            state.post_verifier_stalls += 1
+            return None
         if state.verifier_called:
             return None
         if state.file_reads >= state.file_read_cap:
