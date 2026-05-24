@@ -426,6 +426,19 @@ def build_worker_from_env() -> Worker:
     if not adapter_name:
         raise SystemExit("BENCHMARK_ADAPTER env var is required")
 
+    # Diagnostic: surface key env-var presence at worker startup so we can
+    # tell from `railway logs` whether the cybergym harness tool will be
+    # injected into the verifier sub-agent (which happens at
+    # kai.definitions.exploit.config import time inside the pipeline
+    # subprocess — see _verifier_tools()).
+    LOG.info(
+        "env presence at worker startup: KAI_CYBERGYM_HARNESS_URL=%s "
+        "KAI_BENCHMARK=%s BENCHMARK_ADAPTER=%s",
+        "set" if os.environ.get("KAI_CYBERGYM_HARNESS_URL") else "MISSING",
+        os.environ.get("KAI_BENCHMARK") or "<unset>",
+        adapter_name,
+    )
+
     adapter_config = _parse_json_env("BENCHMARK_CONFIG") or {}
     if not isinstance(adapter_config, dict):
         raise SystemExit("BENCHMARK_CONFIG must be a JSON object")
