@@ -81,25 +81,48 @@ def make_on_iteration_hook(
         # the next iteration's prompt nudges the model.
         if agent_name == "exploit" and os.environ.get("KAI_BENCHMARK") == "cybergym":
             notes: list[str] = []
-            verifier_reminder = cybergym_gate.reminder_text(iteration_num)
-            if verifier_reminder is not None:
-                notes.append(verifier_reminder)
-            # Critic reminder: trigger when at least one verified/soft
-            # record exists and the model hasn't called spawn_critic
-            # yet. Count records via the state manager.
+            # Snapshot verified-record counts ONCE for both the
+            # reminder and the structural critic-gate below.
             try:
                 verified = state_manager.get_exploits(run_id, status="verified")
                 soft = state_manager.get_exploits(run_id, status="soft_verified")
                 v_count = len(verified) + len(soft)
             except Exception:
                 v_count = 0
+            critic_called = cybergym_gate.critic_was_called()
+
+            verifier_reminder = cybergym_gate.reminder_text(iteration_num)
+            if verifier_reminder is not None:
+                notes.append(verifier_reminder)
             critic_reminder = cybergym_gate.critic_reminder_text(
                 iteration_num,
                 verified_or_soft_count=v_count,
-                critic_called=cybergym_gate.critic_was_called(),
+                critic_called=critic_called,
             )
             if critic_reminder is not None:
                 notes.append(critic_reminder)
+
+            # Structural critic gate: when the model tries to emit
+            # FINAL_VAR(verified_exploits) but at least one
+            # verified/soft_verified record exists AND spawn_critic
+            # was never called, REJECT the final_answer and inject a
+            # forcing notice. Without this the model ignores the
+            # critic-reminder text (observed across R23's iters 8-14
+            # on arvo:1065: 7 ignored reminders, 0 critic calls).
+            if iteration.final_answer is not None and v_count > 0 and not critic_called:
+                iteration.final_answer = None
+                notes.append(
+                    "[harness BLOCKED] FINAL_VAR rejected — you have "
+                    f"{v_count} verified/soft_verified record(s) but "
+                    "spawn_critic was NEVER called. The cybergym "
+                    "harness requires at least one spawn_critic call "
+                    "before accepting FINAL_VAR(verified_exploits). "
+                    "Required next action: "
+                    "spawn_critic(exploit_index=0) on your strongest "
+                    "verified candidate. After critic returns you may "
+                    "re-emit FINAL_VAR(verified_exploits)."
+                )
+
             if notes:
                 existing = iteration.truncation_notice or ""
                 combined = "\n\n".join([existing] + notes if existing else notes)

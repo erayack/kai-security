@@ -177,6 +177,118 @@ def test_check_exploit_status_blocks_rejected_under_cybergym(
     assert "rejected" in result
 
 
+def test_critic_gate_blocks_final_answer_when_no_critic(
+    manager: LocalStateManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The on_iteration hook MUST reject FINAL_VAR when a
+    verified/soft_verified record exists and spawn_critic was never
+    called.
+
+    Regression for R23's failure mode: model emitted FINAL_VAR(verified_exploits)
+    after 7 ignored critic-reminders. Without this structural gate the
+    pipeline would happily exit with no critic ever invoked.
+    """
+    from kai.state import cybergym_gate
+    from kai.state.hooks import make_on_iteration_hook
+    from ra.core.types import RLMIteration
+
+    monkeypatch.setenv("KAI_BENCHMARK", "cybergym")
+    cybergym_gate.reset()
+    cybergym_gate.init()
+    # Seed a soft_verified record so the gate has work to do.
+    _seed(manager, "r", status="soft_verified")
+
+    hook = make_on_iteration_hook(manager, run_id="r", agent_name="exploit")
+    iteration = RLMIteration(
+        prompt="root",
+        response="FINAL_VAR(verified_exploits)",
+        code_blocks=[],
+        final_answer="[{'hypothesis': '...'}]",
+    )
+    hook(iteration, 14)
+
+    # Structural gate fires: final_answer is cleared so the iteration
+    # loop continues.
+    assert iteration.final_answer is None
+    # And the model receives a forcing notice in its next prompt.
+    assert iteration.truncation_notice is not None
+    assert "FINAL_VAR rejected" in iteration.truncation_notice
+    assert "spawn_critic(exploit_index=0)" in iteration.truncation_notice
+
+
+def test_critic_gate_allows_final_answer_after_critic_called(
+    manager: LocalStateManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Once spawn_critic has been called, the gate becomes a no-op."""
+    from kai.state import cybergym_gate
+    from kai.state.hooks import make_on_iteration_hook
+    from ra.core.types import RLMIteration
+
+    monkeypatch.setenv("KAI_BENCHMARK", "cybergym")
+    cybergym_gate.reset()
+    cybergym_gate.init()
+    cybergym_gate.mark_critic_called()
+    _seed(manager, "r", status="soft_verified")
+
+    hook = make_on_iteration_hook(manager, run_id="r", agent_name="exploit")
+    iteration = RLMIteration(
+        prompt="root",
+        response="FINAL_VAR(verified_exploits)",
+        code_blocks=[],
+        final_answer="[{'hypothesis': '...'}]",
+    )
+    hook(iteration, 20)
+    assert iteration.final_answer == "[{'hypothesis': '...'}]"
+
+
+def test_critic_gate_no_op_outside_cybergym(
+    manager: LocalStateManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The structural gate fires only under KAI_BENCHMARK=cybergym."""
+    from kai.state import cybergym_gate
+    from kai.state.hooks import make_on_iteration_hook
+    from ra.core.types import RLMIteration
+
+    monkeypatch.delenv("KAI_BENCHMARK", raising=False)
+    cybergym_gate.reset()
+    _seed(manager, "r", status="verified")
+
+    hook = make_on_iteration_hook(manager, run_id="r", agent_name="exploit")
+    iteration = RLMIteration(
+        prompt="root",
+        response="FINAL_VAR(verified_exploits)",
+        code_blocks=[],
+        final_answer="[{'hypothesis': '...'}]",
+    )
+    hook(iteration, 14)
+    assert iteration.final_answer == "[{'hypothesis': '...'}]"
+
+
+def test_critic_gate_no_op_without_verified_record(
+    manager: LocalStateManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Gate only fires when there's something to critique."""
+    from kai.state import cybergym_gate
+    from kai.state.hooks import make_on_iteration_hook
+    from ra.core.types import RLMIteration
+
+    monkeypatch.setenv("KAI_BENCHMARK", "cybergym")
+    cybergym_gate.reset()
+    cybergym_gate.init()
+    # Only candidate / rejected records — nothing verified yet.
+    _seed(manager, "r", status="candidate")
+
+    hook = make_on_iteration_hook(manager, run_id="r", agent_name="exploit")
+    iteration = RLMIteration(
+        prompt="root",
+        response="FINAL_VAR(verified_exploits)",
+        code_blocks=[],
+        final_answer="[]",
+    )
+    hook(iteration, 14)
+    assert iteration.final_answer == "[]"
+
+
 def test_cybergym_kwargs_poc_fallback(
     manager: LocalStateManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
