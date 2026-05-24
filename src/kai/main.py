@@ -828,10 +828,16 @@ def _run_exploit_loop(
         # Save intermediate so no work is lost
         _save_result(result, None)
 
-        # Launch chain assembler if verified exploits exist
+        # Launch chain assembler if verified exploits exist. For
+        # cybergym, also accept ``soft_verified`` candidates (the
+        # in-pipeline verifier cannot reach the strict harness server,
+        # so promising-looking PoCs land in soft_verified instead of
+        # verified — chain_assembler should still polish them).
         if state_manager is not None and run_id is not None:
             verified = state_manager.get_exploits(run_id, status="verified")
             verified += state_manager.get_exploits(run_id, status="verified_and_fixed")
+            if os.environ.get("KAI_BENCHMARK") == "cybergym":
+                verified += state_manager.get_exploits(run_id, status="soft_verified")
             if verified:
                 chain_thread = threading.Thread(
                     target=_run_chain_assembler,
