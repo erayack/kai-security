@@ -952,8 +952,25 @@ def _run_chain_assembler(
     verified = state_manager.get_exploits(
         run_id, status="verified"
     ) + state_manager.get_exploits(run_id, status="verified_and_fixed")
+    # Cybergym: the in-pipeline verifier cannot reach the strict harness
+    # server, so promising PoCs land at status="soft_verified" instead
+    # of "verified". Without this branch the inner guard silently drops
+    # the chain_assembler stage on every cybergym run (chain_assembler
+    # rollout missing across R19-R26 even though the outer guard in
+    # _run_exploit_loop did kick off the thread).
+    if os.environ.get("KAI_BENCHMARK") == "cybergym":
+        verified += state_manager.get_exploits(run_id, status="soft_verified")
     if not verified:
+        log.info(
+            "chain_assembler: no verified/soft_verified records for run %s, skipping",
+            run_id,
+        )
         return None
+    log.info(
+        "chain_assembler: starting on %d verified record(s) for run %s",
+        len(verified),
+        run_id,
+    )
 
     candidates = state_manager.get_exploits(run_id, status="candidate")
     failed = state_manager.get_exploits(run_id, status="failed")
