@@ -130,6 +130,21 @@ class BenchmarkRunner:
             env.setdefault("KAI_LOG_STRUCTURED", "1")
             env["KAI_BENCHMARK"] = self.adapter.name
             env["KAI_TASK_ID"] = task.task_id
+            # Explicit pass-through for cybergym in-pipeline strict-harness
+            # tool. R28 finished 0/4 strict with zero ngrok POSTs because
+            # the verifier sub-agent never saw `submit_to_cybergym_harness`
+            # in its tools dict — KAI_CYBERGYM_HARNESS_URL is read at
+            # kai.definitions.exploit.config import time inside this
+            # subprocess. os.environ.copy() should already include it, but
+            # explicit is better than implicit here.
+            for _name in (
+                "KAI_CYBERGYM_HARNESS_URL",
+                "KAI_CYBERGYM_MASK_MAP_URL",
+                "KAI_CYBERGYM_SALT",
+            ):
+                _val = os.environ.get(_name)
+                if _val is not None:
+                    env[_name] = _val
 
             start = time.monotonic()
             try:

@@ -52,7 +52,9 @@ while IFS=$'\t' read -r uuid task; do
   tmp="$(mktemp -t pull_per_replica)"
   if ! railway ssh --service "$SERVICE" --deployment-instance "$uuid" -- \
         "hostname && cd /app/output/bench/cybergym 2>/dev/null && \
-         find . -path '*/state/*' -type f 2>/dev/null | \
+         { find . -path '*/state/*' -type f 2>/dev/null; \
+           find . -name 'stderr.log' -type f 2>/dev/null; \
+           find . -name 'stdout.log' -type f 2>/dev/null; } | \
          tar czf - -h -T - 2>/dev/null | base64" 2>/dev/null > "$tmp"; then
     echo "[$task] ssh FAILED uuid=$uuid"
     rm -f "$tmp"
