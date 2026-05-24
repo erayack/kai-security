@@ -831,6 +831,109 @@ def _maybe_run_post_pipeline_critic(
             )
 
 
+def _maybe_run_post_pipeline_fixer(
+    recipe: WorkspaceRecipe,
+    *,
+    state_manager: StateManager,
+    run_id: str,
+    verbose: bool = False,
+    log_structured: bool = False,
+    save_rollouts: bool = False,
+    rollout_agents: set[str] | None = None,
+) -> None:
+    """Force a fixer run after pipeline exit when none happened in-loop.
+
+    Cybergym-only mirror of :func:`_maybe_run_post_pipeline_critic`.
+    The root exploit agent currently does not call ``spawn_fixer`` on
+    its soft_verified records (across R19-R26 fixer.jsonl is missing
+    from every cybergym task). This stage runs the fixer agent
+    synchronously after the critic stage so ``fix_attempts.json`` and
+    ``fixes.json`` are produced, matching the April-2026 reference
+    rollout shape.
+
+    Picks the first verified or soft_verified record that does not yet
+    have a fix attempt recorded against it. ``process_fixer_result``
+    persists the attempt (and the FixRecord on success). The exploit
+    status is restored to the prior verified/soft_verified marker if
+    the fixer did not succeed, so downstream chain_assembler still
+    sees the record.
+
+    No-op when outside cybergym, when no eligible record exists, or
+    when a fix attempt is already recorded.
+    """
+    if os.environ.get("KAI_BENCHMARK") != "cybergym":
+        return
+
+    verified = state_manager.get_exploits(run_id, status="verified")
+    soft = state_manager.get_exploits(run_id, status="soft_verified")
+    candidates = verified + soft
+    if not candidates:
+        return
+
+    target = None
+    for cand in candidates:
+        prior = state_manager.get_fix_attempts(run_id, cand.exploit_id)
+        if not prior:
+            target = cand
+            break
+    if target is None:
+        return
+
+    log.info(
+        "post-pipeline fixer: invoking on exploit_id=%s status=%s "
+        "(model did not call spawn_fixer in-loop)",
+        target.exploit_id,
+        target.status,
+    )
+
+    from kai.definitions.exploit.config import fixer_config
+    from kai.definitions.exploit.parsers import process_fixer_result
+
+    cfg = inject_workspace(
+        fixer_config,
+        recipe,
+        verbose=verbose,
+        log_structured=log_structured or None,
+    )
+    cfg = inject_state_manager(
+        cfg,
+        state_manager,
+        run_id,
+        save_rollouts=save_rollouts,
+        rollout_agents=rollout_agents,
+        _depth=1,
+    )
+
+    context = {
+        "exploit_id": target.exploit_id,
+        "hypothesis": target.hypothesis,
+        "file": target.file,
+        "function": target.function,
+        "poc_code": target.poc_code or "",
+    }
+
+    prior_status = target.status
+    try:
+        agent = RecursiveAgent(cfg)
+        result = agent.completion(context)
+        process_fixer_result(
+            state_manager,
+            run_id,
+            {"exploit_id": target.exploit_id},
+            result.response,
+        )
+    except Exception:
+        log.exception("post-pipeline fixer failed for %s", target.exploit_id)
+        try:
+            state_manager.update_exploit(run_id, target.exploit_id, status=prior_status)
+        except Exception:
+            log.exception(
+                "post-pipeline fixer: could not restore %s to %s",
+                target.exploit_id,
+                prior_status,
+            )
+
+
 def _run_chain_assembler(
     recipe: WorkspaceRecipe,
     *,
@@ -941,6 +1044,21 @@ def _run_exploit_loop(
         # Synchronous so chain_assembler (below) sees the enrichment.
         if state_manager is not None and run_id is not None:
             _maybe_run_post_pipeline_critic(
+                recipe,
+                state_manager=state_manager,
+                run_id=run_id,
+                verbose=verbose,
+                log_structured=log_structured,
+                save_rollouts=save_rollouts,
+                rollout_agents=rollout_agents,
+            )
+
+        # Cybergym: same shape — model rarely calls spawn_fixer on
+        # soft_verified records, so the fixer rollout / fix_attempts /
+        # fixes JSONs are missing from the run. Force a fixer pass to
+        # match the healthy-reference rollout structure.
+        if state_manager is not None and run_id is not None:
+            _maybe_run_post_pipeline_fixer(
                 recipe,
                 state_manager=state_manager,
                 run_id=run_id,
