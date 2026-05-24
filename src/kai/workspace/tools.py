@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -130,3 +131,197 @@ def _assert_shell_isolation(command: str) -> None:
                 f"task '{match.group('task')}' (current task: "
                 f"'{task_id}'). Blocked."
             )
+
+
+# ---------------------------------------------------------------------------
+# Cybergym strict-harness submission (in-pipeline real-crash feedback)
+# ---------------------------------------------------------------------------
+#
+# When the worker reaches the in-pipeline verifier sub-agent, it has no
+# way today to actually run the fuzzer binary — the cybergym Docker
+# harness can't ship to Railway (no Docker-in-Docker). This tool lets
+# the verifier POST candidate PoC bytes to a real cybergym server
+# (typically the user's laptop, tunneled via ngrok) and read back the
+# crash signal.
+#
+# Activates only when KAI_BENCHMARK=cybergym AND
+# KAI_CYBERGYM_HARNESS_URL is set. Otherwise returns a clear error so
+# the verifier knows the tool is unavailable.
+
+_CYBERGYM_DEFAULT_MASK_MAP_URL = (
+    "https://raw.githubusercontent.com/sunblaze-ucb/cybergym/main/mask_map.json"
+)
+_CYBERGYM_DEFAULT_SALT = "CyberGym"
+_CYBERGYM_SUBMIT_TIMEOUT_S = 600
+_cybergym_mask_map_cache: dict[str, str] | None = None
+
+
+def _load_cybergym_mask_map() -> dict[str, str] | None:
+    """Lazy-fetch the mask_map.json from GitHub (or KAI_CYBERGYM_MASK_MAP_URL).
+
+    Cached in module state for the lifetime of the process.
+    """
+    global _cybergym_mask_map_cache
+    if _cybergym_mask_map_cache is not None:
+        return _cybergym_mask_map_cache
+    url = os.environ.get("KAI_CYBERGYM_MASK_MAP_URL", _CYBERGYM_DEFAULT_MASK_MAP_URL)
+    try:
+        import httpx
+
+        resp = httpx.get(url, timeout=60.0)
+        resp.raise_for_status()
+        _cybergym_mask_map_cache = resp.json()
+    except Exception:
+        return None
+    return _cybergym_mask_map_cache
+
+
+def submit_to_cybergym_harness(poc_b64: str) -> dict[str, Any]:
+    """Submit PoC bytes to the cybergym strict-harness server.
+
+    Reads:
+        ``KAI_CYBERGYM_HARNESS_URL`` (required) — base URL of the
+        cybergym submission server (e.g. an ngrok tunnel to the
+        user's laptop running ``python -m cybergym.server``).
+        ``KAI_TASK_ID`` (required) — task id like ``arvo:1065``.
+        ``KAI_CYBERGYM_SALT`` (optional, default ``CyberGym``) —
+        checksum salt; must match the server's DEFAULT_SALT.
+
+    Returns dict with keys:
+        ``verified`` (bool) — True when the harness reported a crash
+            (server ``exit_code != 0``). Source of truth for whether
+            the bytes actually trigger the bug.
+        ``exit_code`` (int) — server's exit_code field. 77 = MSan,
+            134 = ASan/SIGABRT, 139 = SIGSEGV, 0 = clean run.
+        ``output`` (str) — server stdout/stderr excerpt (truncated to
+            4 KiB for prompt budget).
+        ``http_status`` (int) — HTTP response status.
+        ``error`` (str | None) — populated on tool-side failure
+            (missing env vars, transport error, missing mask map).
+
+    Tool is a no-op outside cybergym (returns an error explaining the
+    KAI_BENCHMARK guard so the model knows not to retry).
+    """
+    if os.environ.get("KAI_BENCHMARK") != "cybergym":
+        return {
+            "verified": False,
+            "exit_code": -1,
+            "output": "",
+            "http_status": 0,
+            "error": (
+                "submit_to_cybergym_harness only available when KAI_BENCHMARK=cybergym."
+            ),
+        }
+    harness_url = os.environ.get("KAI_CYBERGYM_HARNESS_URL", "").rstrip("/")
+    if not harness_url:
+        return {
+            "verified": False,
+            "exit_code": -1,
+            "output": "",
+            "http_status": 0,
+            "error": (
+                "KAI_CYBERGYM_HARNESS_URL not set on this worker; the "
+                "real harness is not reachable. Fall back to the "
+                "in-pipeline soft-verify path."
+            ),
+        }
+    task_id = os.environ.get("KAI_TASK_ID", "")
+    if not task_id:
+        return {
+            "verified": False,
+            "exit_code": -1,
+            "output": "",
+            "http_status": 0,
+            "error": "KAI_TASK_ID not set on this worker.",
+        }
+
+    import base64
+    from hashlib import sha256
+    from uuid import uuid4
+
+    try:
+        poc_bytes = base64.b64decode(poc_b64, validate=True)
+    except Exception as exc:
+        return {
+            "verified": False,
+            "exit_code": -1,
+            "output": "",
+            "http_status": 0,
+            "error": f"poc_b64 decode failed: {exc}",
+        }
+
+    mask_map = _load_cybergym_mask_map()
+    if mask_map is None:
+        return {
+            "verified": False,
+            "exit_code": -1,
+            "output": "",
+            "http_status": 0,
+            "error": "failed to load cybergym mask_map.json",
+        }
+    if task_id not in mask_map:
+        return {
+            "verified": False,
+            "exit_code": -1,
+            "output": "",
+            "http_status": 0,
+            "error": f"task_id {task_id!r} not present in mask_map",
+        }
+
+    masked_id = mask_map[task_id]
+    agent_id = uuid4().hex
+    salt = os.environ.get("KAI_CYBERGYM_SALT", _CYBERGYM_DEFAULT_SALT)
+    checksum = sha256(f"{masked_id}{agent_id}{salt}".encode()).hexdigest()
+    metadata = {
+        "task_id": masked_id,
+        "agent_id": agent_id,
+        "checksum": checksum,
+        "require_flag": False,
+    }
+    submit_url = f"{harness_url}/submit-vul"
+    try:
+        import httpx
+    except ImportError:
+        return {
+            "verified": False,
+            "exit_code": -1,
+            "output": "",
+            "http_status": 0,
+            "error": "httpx not installed on worker",
+        }
+    try:
+        with httpx.Client(timeout=_CYBERGYM_SUBMIT_TIMEOUT_S) as client:
+            resp = client.post(
+                submit_url,
+                data={"metadata": json.dumps(metadata)},
+                files={
+                    "file": (
+                        f"{task_id.replace(':', '_')}.poc",
+                        poc_bytes,
+                        "application/octet-stream",
+                    )
+                },
+            )
+    except Exception as exc:
+        return {
+            "verified": False,
+            "exit_code": -1,
+            "output": "",
+            "http_status": 0,
+            "error": f"POST to {submit_url} failed: {exc}",
+        }
+    try:
+        payload = resp.json()
+    except Exception:
+        payload = {"raw": resp.text[:600]}
+    exit_code = int(payload.get("exit_code", -1)) if isinstance(payload, dict) else -1
+    output = ""
+    if isinstance(payload, dict):
+        output = str(payload.get("output") or payload.get("raw") or "")[:4096]
+    return {
+        "verified": exit_code != 0,
+        "exit_code": exit_code,
+        "output": output,
+        "http_status": resp.status_code,
+        "error": None,
+    }
