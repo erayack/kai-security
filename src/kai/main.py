@@ -723,6 +723,114 @@ def run_pipeline(
             )
 
 
+def _maybe_run_post_pipeline_critic(
+    recipe: WorkspaceRecipe,
+    *,
+    state_manager: StateManager,
+    run_id: str,
+    verbose: bool = False,
+    log_structured: bool = False,
+    save_rollouts: bool = False,
+    rollout_agents: set[str] | None = None,
+) -> None:
+    """Force a critic run after pipeline exit when none happened in-loop.
+
+    Cybergym-only. The in-pipeline verifier cannot reach the strict
+    harness server (it runs on the user's laptop, not Railway), so
+    promising PoCs land at ``status="soft_verified"`` instead of
+    ``verified``. Across R19-R25 the root exploit agent has repeatedly
+    failed to call ``spawn_critic`` even with escalating reminders and
+    structural FINAL_VAR rejection (it loops on ``spawn_verifier``
+    instead). This guarantees ``critic.jsonl`` exists in the rollouts
+    whenever there is something to critique, by invoking the critic
+    agent directly on the first verified or soft_verified record.
+
+    Mirrors :func:`_run_chain_assembler`. Synchronous (~1-3 min) so it
+    finishes before chain_assembler kicks off — the critic enrichment
+    fields the chain assembler later reads land on the record first.
+    No-op when the model already called critic, or when no critiquable
+    record exists, or outside cybergym.
+    """
+    from kai.state import cybergym_gate
+
+    if os.environ.get("KAI_BENCHMARK") != "cybergym":
+        return
+    if cybergym_gate.critic_was_called():
+        return
+
+    verified = state_manager.get_exploits(run_id, status="verified")
+    soft = state_manager.get_exploits(run_id, status="soft_verified")
+    candidates = verified + soft
+    if not candidates:
+        return
+
+    target = candidates[0]
+    log.info(
+        "post-pipeline critic: invoking on exploit_id=%s status=%s "
+        "(model did not call spawn_critic in-loop)",
+        target.exploit_id,
+        target.status,
+    )
+
+    from kai.definitions.exploit.config import critic_config
+    from kai.definitions.exploit.parsers import process_critic_result
+
+    cfg = inject_workspace(
+        critic_config,
+        recipe,
+        verbose=verbose,
+        log_structured=log_structured or None,
+    )
+    cfg = inject_state_manager(
+        cfg,
+        state_manager,
+        run_id,
+        save_rollouts=save_rollouts,
+        rollout_agents=rollout_agents,
+        _depth=1,
+    )
+
+    context = {
+        "exploit_id": target.exploit_id,
+        "hypothesis": target.hypothesis,
+        "file": target.file,
+        "function": target.function,
+        "poc_code": target.poc_code or "",
+    }
+
+    prior_status = target.status
+    try:
+        state_manager.update_exploit(run_id, target.exploit_id, status="critiquing")
+    except Exception:
+        log.exception(
+            "post-pipeline critic: could not mark %s critiquing",
+            target.exploit_id,
+        )
+        return
+
+    try:
+        agent = RecursiveAgent(cfg)
+        result = agent.completion(context)
+        process_critic_result(
+            state_manager,
+            run_id,
+            {"exploit_id": target.exploit_id},
+            result.response,
+        )
+        cybergym_gate.mark_critic_called()
+    except Exception:
+        log.exception("post-pipeline critic failed for %s", target.exploit_id)
+    finally:
+        try:
+            state_manager.update_exploit(run_id, target.exploit_id, status=prior_status)
+        except Exception:
+            log.exception(
+                "post-pipeline critic: could not restore %s to %s",
+                target.exploit_id,
+                prior_status,
+            )
+
+
 def _run_chain_assembler(
     recipe: WorkspaceRecipe,
     *,
@@ -827,6 +935,20 @@ def _run_exploit_loop(
 
         # Save intermediate so no work is lost
         _save_result(result, None)
+
+        # Cybergym: if the model never called spawn_critic in-loop but
+        # we have a soft_verified record, force the critic stage now.
+        # Synchronous so chain_assembler (below) sees the enrichment.
+        if state_manager is not None and run_id is not None:
+            _maybe_run_post_pipeline_critic(
+                recipe,
+                state_manager=state_manager,
+                run_id=run_id,
+                verbose=verbose,
+                log_structured=log_structured,
+                save_rollouts=save_rollouts,
+                rollout_agents=rollout_agents,
+            )
 
         # Launch chain assembler if verified exploits exist. For
         # cybergym, also accept ``soft_verified`` candidates (the
