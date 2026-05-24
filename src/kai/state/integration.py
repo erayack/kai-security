@@ -80,6 +80,22 @@ def _apply_cybergym_spawn_gate(spawn_wrappers: dict[str, Any]) -> None:
 
         spawn_wrappers["spawn_verifier"] = verifier_factory
 
+    def _mark_critic(inner_fn: Any) -> Any:
+        def marked(*args: Any, **kwargs: Any) -> Any:
+            cybergym_gate.mark_critic_called()
+            return inner_fn(*args, **kwargs)
+
+        return marked
+
+    original_critic = spawn_wrappers.get("spawn_critic")
+    if original_critic is not None:
+
+        def critic_factory(original_fn: Any) -> Any:
+            inner = original_critic(original_fn)
+            return _mark_critic(inner)
+
+        spawn_wrappers["spawn_critic"] = critic_factory
+
 
 # Processor signature before binding: (state_manager, run_id, kwargs, raw) -> str
 ResultProcessor = Callable[[StateManager, str, dict[str, Any], str], str]

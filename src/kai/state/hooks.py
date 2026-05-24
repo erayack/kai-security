@@ -75,16 +75,35 @@ def make_on_iteration_hook(
 
     def _on_iteration(iteration: RLMIteration, iteration_num: int) -> None:
         # Cybergym escalating-reminder injection: when the root exploit
-        # agent passes iter 4 without calling spawn_verifier, append a
-        # harness reminder to iteration.truncation_notice so the next
-        # iteration's prompt nudges the model toward the verifier.
+        # agent passes iter 4 without calling spawn_verifier, OR has a
+        # verified/soft_verified record + iter > 8 without spawn_critic,
+        # append a harness reminder to iteration.truncation_notice so
+        # the next iteration's prompt nudges the model.
         if agent_name == "exploit" and os.environ.get("KAI_BENCHMARK") == "cybergym":
-            reminder = cybergym_gate.reminder_text(iteration_num)
-            if reminder is not None:
+            notes: list[str] = []
+            verifier_reminder = cybergym_gate.reminder_text(iteration_num)
+            if verifier_reminder is not None:
+                notes.append(verifier_reminder)
+            # Critic reminder: trigger when at least one verified/soft
+            # record exists and the model hasn't called spawn_critic
+            # yet. Count records via the state manager.
+            try:
+                verified = state_manager.get_exploits(run_id, status="verified")
+                soft = state_manager.get_exploits(run_id, status="soft_verified")
+                v_count = len(verified) + len(soft)
+            except Exception:
+                v_count = 0
+            critic_reminder = cybergym_gate.critic_reminder_text(
+                iteration_num,
+                verified_or_soft_count=v_count,
+                critic_called=cybergym_gate.critic_was_called(),
+            )
+            if critic_reminder is not None:
+                notes.append(critic_reminder)
+            if notes:
                 existing = iteration.truncation_notice or ""
-                iteration.truncation_notice = (
-                    f"{existing}\n\n{reminder}".strip() if existing else reminder
-                )
+                combined = "\n\n".join([existing] + notes if existing else notes)
+                iteration.truncation_notice = combined.strip()
         # Skip only when an iteration is empty AND the harness did not
         # cap it. A wall-cap that fires before block 0 leaves
         # ``code_blocks=[]`` but ``dropped_blocks > 0``; that case

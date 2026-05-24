@@ -19,6 +19,7 @@ load_dotenv()
 
 _log = logging.getLogger(__name__)
 
+
 # Exceptions that warrant a retry. Network blips, malformed payloads from
 # the proxy (we saw OpenRouter return a body that failed JSON parsing on
 # cybergym R18 arvo:48736 — a single LLM call burned the task), rate
@@ -50,6 +51,13 @@ _RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
 
 _DEFAULT_MAX_RETRIES = int(os.environ.get("KAI_LLM_MAX_RETRIES", "4"))
 _DEFAULT_BASE_BACKOFF_S = float(os.environ.get("KAI_LLM_BACKOFF_S", "1.5"))
+# Per-request timeout passed to the OpenAI SDK. Keeps a single
+# completion from blowing past the per-iteration wall-clock cap.
+# Default chosen ~10% under KAI_ITER_WALL_CAP (600s) so at least
+# 60s remains for code block execution after the LLM returns.
+_DEFAULT_LLM_REQUEST_TIMEOUT_S = float(
+    os.environ.get("KAI_LLM_REQUEST_TIMEOUT_S", "540")
+)
 
 
 class _TransientLLMError(RuntimeError):
@@ -151,9 +159,7 @@ def _extract_text(response: Any) -> str:
         raise _TransientLLMError("response.choices is empty")
     content = getattr(choices[0].message, "content", None)
     if content is None or content == "":
-        raise _TransientLLMError(
-            "response.choices[0].message.content is empty"
-        )
+        raise _TransientLLMError("response.choices[0].message.content is empty")
     return content
 
 
@@ -249,6 +255,7 @@ class OpenAIClient(BaseLM):
                 model=model,
                 messages=messages,  # type: ignore[arg-type]
                 extra_body=extra_body,
+                timeout=_DEFAULT_LLM_REQUEST_TIMEOUT_S,
             )
 
         response = _call_with_retry(
@@ -286,6 +293,7 @@ class OpenAIClient(BaseLM):
                     model=model,
                     messages=messages,  # type: ignore[arg-type]
                     extra_body=extra_body,
+                    timeout=_DEFAULT_LLM_REQUEST_TIMEOUT_S,
                 )
 
             response = await _acall_with_retry(

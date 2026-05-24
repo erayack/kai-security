@@ -150,3 +150,68 @@ def test_workspace_tools_uncapped_outside_cybergym(
     sample.write_text("hello\n")
     for _ in range(5):
         assert read_file(str(sample)) == "hello\n"
+
+
+def test_critic_reminder_silent_before_verified() -> None:
+    cybergym_gate.init()
+    assert (
+        cybergym_gate.critic_reminder_text(
+            10, verified_or_soft_count=0, critic_called=False
+        )
+        is None
+    )
+
+
+def test_critic_reminder_silent_before_iter_8() -> None:
+    cybergym_gate.init()
+    assert (
+        cybergym_gate.critic_reminder_text(
+            7, verified_or_soft_count=1, critic_called=False
+        )
+        is None
+    )
+
+
+def test_critic_reminder_fires_at_iter_8() -> None:
+    cybergym_gate.init()
+    msg = cybergym_gate.critic_reminder_text(
+        8, verified_or_soft_count=1, critic_called=False
+    )
+    assert msg is not None
+    assert "harness REMINDER" in msg
+    assert "spawn_critic" in msg
+
+
+def test_critic_reminder_warns_at_iter_11() -> None:
+    cybergym_gate.init()
+    msg = cybergym_gate.critic_reminder_text(
+        11, verified_or_soft_count=1, critic_called=False
+    )
+    assert msg is not None
+    assert "harness WARNING" in msg
+
+
+def test_critic_reminder_forces_at_iter_14() -> None:
+    cybergym_gate.init()
+    msg = cybergym_gate.critic_reminder_text(
+        14, verified_or_soft_count=1, critic_called=False
+    )
+    assert msg is not None
+    assert "harness FORCED" in msg
+
+
+def test_critic_reminder_silent_after_critic_called() -> None:
+    cybergym_gate.init()
+    assert (
+        cybergym_gate.critic_reminder_text(
+            20, verified_or_soft_count=3, critic_called=True
+        )
+        is None
+    )
+
+
+def test_mark_critic_called_flips_flag() -> None:
+    cybergym_gate.init()
+    assert not cybergym_gate.critic_was_called()
+    cybergym_gate.mark_critic_called()
+    assert cybergym_gate.critic_was_called()

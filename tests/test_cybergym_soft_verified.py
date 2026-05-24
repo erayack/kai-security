@@ -175,3 +175,35 @@ def test_check_exploit_status_blocks_rejected_under_cybergym(
     )
     assert result is not None
     assert "rejected" in result
+
+
+def test_cybergym_kwargs_poc_fallback(
+    manager: LocalStateManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When verifier returns empty poc_code but root submitted bytes, soft_verify.
+
+    Regression for R22: the verifier sub-agent often emits poc_code=""
+    in its final verdict even when the root agent passed real bytes
+    via spawn_verifier kwargs. The earlier soft_verified check only
+    looked at the verdict, so every R22 record stayed in 'rejected'
+    despite valid root-submitted PoCs.
+    """
+    monkeypatch.setenv("KAI_BENCHMARK", "cybergym")
+    exploit_id = _seed(manager, "r")
+    verdict = {
+        "confirmed": False,
+        "hypothesis": "test hypothesis",
+        "file": "src-vul/x.c",
+        "function": "func",
+        "poc_code": "",
+    }
+    process_verifier_result(
+        manager,
+        "r",
+        {"exploit_id": exploit_id, "poc_code": "__POC_BYTES__b64=ABC="},
+        json.dumps(verdict),
+    )
+    records = list(manager.get_exploits("r"))
+    assert records[0].status == "soft_verified"
+    # Bytes were preserved from kwargs.
+    assert records[0].poc_code == "__POC_BYTES__b64=ABC="

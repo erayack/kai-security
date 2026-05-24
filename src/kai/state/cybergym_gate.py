@@ -47,6 +47,7 @@ class CybergymGateState:
     )
     file_reads: int = 0
     verifier_called: bool = False
+    critic_called: bool = False
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -103,6 +104,22 @@ def mark_verifier_called() -> None:
         return
     with state.lock:
         state.verifier_called = True
+
+
+def mark_critic_called() -> None:
+    """Flip the critic-called flag so the critic reminder stops firing."""
+    state = _state
+    if state is None:
+        return
+    with state.lock:
+        state.critic_called = True
+
+
+def critic_was_called() -> bool:
+    state = _state
+    if state is None:
+        return False
+    return state.critic_called
 
 
 def check_and_count_spawn(agent_name: str) -> str | None:
@@ -197,4 +214,36 @@ def reminder_text(iter_num: int) -> str | None:
         f"spawn_verifier yet. {body} Recommended: "
         "spawn_verifier(hypothesis='...', file='src-vul/.../...', "
         "function='...', poc_code='__POC_BYTES__b64=<base64>')."
+    )
+
+
+def critic_reminder_text(
+    iter_num: int,
+    *,
+    verified_or_soft_count: int,
+    critic_called: bool,
+) -> str | None:
+    """Return a nudge to call ``spawn_critic`` when a verified /
+    soft_verified record exists but the model hasn't critiqued it yet.
+
+    Returns ``None`` when the critic was already invoked or when no
+    verified record exists yet (i.e. nothing to critique).
+    """
+    if critic_called or verified_or_soft_count == 0:
+        return None
+    if iter_num < 8:
+        return None
+    if iter_num >= 14:
+        level = "FORCED"
+    elif iter_num >= 11:
+        level = "WARNING"
+    else:
+        level = "REMINDER"
+    return (
+        f"[harness {level}] Iteration {iter_num} — you have a verified "
+        f"(or soft_verified) finding but have NOT called spawn_critic. "
+        "The critic does adversarial review (severity, exploitability, "
+        "edge cases). Recommended: "
+        "spawn_critic(exploit_index=<your verified candidate index>). "
+        "This is a quality boost on top of the verifier's confirmation."
     )
