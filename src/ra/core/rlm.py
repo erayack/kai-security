@@ -390,9 +390,19 @@ class RLM:
 
             effective_max = self.max_iterations
             i = 0
+            # Track WHY the while loop exits so the fall-through block
+            # below (lines 555-573) can avoid making a wasted LLM call
+            # to _default_answer when the exit was a cancel (not an
+            # exhausted-iters condition). See agent.py:_spawn for the
+            # corresponding fail-fast on already-set cancel events at
+            # spawn time. Together they make the cancel path visible
+            # in stderr.log and rollouts rather than masquerading as
+            # an organic "model surrender" iter 1 response.
+            exit_reason: str | None = None
             while i < effective_max:
                 # Cooperative cancellation: parent timed out
                 if self._cancel_event is not None and self._cancel_event.is_set():
+                    exit_reason = "cancelled"
                     break
 
                 # Current prompt = message history + additional prompt suffix
@@ -466,6 +476,7 @@ class RLM:
                         outer_attempts,
                         last_exc,
                     )
+                    exit_reason = "llm_failure"
                     break
 
                 # Collect child usage from spawn calls.
@@ -552,11 +563,36 @@ class RLM:
                             self.max_iterations_limit,
                         )
 
-            # Default behavior: we run out of iterations, provide one final answer
+            # Default behavior: we run out of iterations, provide one final answer.
+            #
+            # When the loop exited via cooperative cancellation (parent's
+            # cancel_event was set), do NOT call _default_answer. That call
+            # sends "You have run out of iterations" to the LLM, the LLM
+            # responds with a "I had no information" final_result JSON, and
+            # the synthetic iter persists that JSON as if the model had
+            # produced it organically. We get a misleading rollout that
+            # masks the actual cause (parent task cancelled before sub-agent
+            # could run) AND wastes a billable LLM call. Substitute a clear
+            # ABORTED marker instead so the cancel path is loud + greppable.
             time_end = time.perf_counter()
-            final_answer = self._default_answer(
-                message_history, lm_handler, environment=environment
-            )
+            if exit_reason == "cancelled":
+                final_answer = (
+                    f"ABORTED: sub-agent '{self.name}' cancelled by parent "
+                    "before completing — cancel_event was set (likely an "
+                    "orphan worker race from a timed-out execute_code call "
+                    "in the parent REPL). No LLM call was made for the "
+                    "fallback answer."
+                )
+                logging.getLogger(__name__).warning(
+                    "%s sub-agent cancelled before iter %d completion — "
+                    "emitting ABORTED marker (no _default_answer LLM call)",
+                    self.name,
+                    i + 1,
+                )
+            else:
+                final_answer = self._default_answer(
+                    message_history, lm_handler, environment=environment
+                )
             usage = lm_handler.get_usage_summary().merge(child_usage)
             if self.on_iteration and emitted_iterations == 0:
                 # If the first model turn fails before any real iteration is

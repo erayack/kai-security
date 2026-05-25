@@ -126,8 +126,53 @@ def _make_spawn_fn(
         if current_count > 1:
             indexed_config = replace(config, name=f"{config.name}#{current_count}")
 
-        # Forward cooperative cancellation event from parent REPL
+        # Forward cooperative cancellation event from parent REPL.
+        # CRITICAL: when the parent's cancel_event is ALREADY SET at spawn
+        # time, the sub-agent's RLM loop would break on its iter-1 entry
+        # check (see ra/core/rlm.py:395-396), then fall through to
+        # _default_answer + the 7583ffe synthetic-iter rollout. That path
+        # makes ANOTHER (wasted) LLM call and writes a misleading rollout
+        # whose response looks like an organic "model surrender" but is
+        # actually the model answering "you have run out of iterations".
+        #
+        # The set-event-on-entry case happens whenever an orphan worker
+        # thread (a previous execute_code call that timed out — Python
+        # daemon threads cannot be killed) eventually reaches a spawn_X
+        # line. Empirically this was the dominant failure mode across
+        # R27-R32 cybergym runs: 24+ verifier sub-agent invocations all
+        # broke on iter 1, none called the harness tool, all wrote
+        # identical "Unable to verify... iteration limit reached" JSON.
+        #
+        # Fail fast here so the failure is visible (warning log + bypass
+        # rollout) and so we don't burn another LLM call on a dead path.
         cancel_event = getattr(_spawn, "_cancel_event", None)
+        if cancel_event is not None and cancel_event.is_set():
+            log.warning(
+                "spawn %s: parent cancel_event already set on entry — "
+                "skipping sub-agent invocation to avoid synthetic-iter "
+                "fallback (orphan worker thread from a timed-out "
+                "execute_code call reached this spawn line)",
+                config.name,
+            )
+            bypass_msg = (
+                f"BYPASS: spawn_{config.name} skipped — parent task was "
+                f"cancelled (cancel_event already set on entry). The "
+                f"sub-agent would have broken on iter 1 entry; the "
+                f"caller is likely an orphan worker from a timed-out "
+                f"parent execute_code call."
+            )
+            try:
+                _emit_failed_spawn_iteration(indexed_config, kwargs, bypass_msg)
+            except Exception:
+                _log_error(f"failed to persist bypass rollout for {config.name}")
+            records.append(
+                SpawnRecord(
+                    agent_name=config.name,
+                    kwargs=kwargs,
+                    result=bypass_msg,
+                )
+            )
+            return bypass_msg
         if cancel_event is not None:
             indexed_config = replace(
                 indexed_config,
