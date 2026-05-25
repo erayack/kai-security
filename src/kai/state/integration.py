@@ -22,6 +22,39 @@ _DEFAULT_MAX_EXTEND_ITERS = 15
 _DEFAULT_EXTEND_ITERS_PER_CANDIDATE = 5
 
 
+def _cybergym_cancel_null(bare_spawn: Any) -> Any:
+    """Return a shim that nulls ``bare_spawn._cancel_event`` for each call.
+
+    The batch spawn tools (``spawn_researchers``, ``spawn_analyzers``)
+    capture the bare ``_spawn`` reference at factory time and invoke it
+    directly, bypassing ``_apply_cybergym_spawn_gate``'s wrap of the
+    singular ``spawn_<name>`` tools. Wrapping ``original_fn`` with this
+    shim before handing it to ``make_researcher_batch`` /
+    ``make_analyzer_spawn_wrapper`` ensures every batched sub-agent
+    spawn gets the same parent-cancel decouple as the singular path.
+
+    No-op outside cybergym (returns ``bare_spawn`` unchanged).
+    """
+    if os.environ.get("KAI_BENCHMARK") != "cybergym":
+        return bare_spawn
+
+    def shim(*args: Any, **kwargs: Any) -> Any:
+        saved = getattr(bare_spawn, "_cancel_event", None)
+        try:
+            try:
+                bare_spawn._cancel_event = None
+            except AttributeError:
+                pass
+            return bare_spawn(*args, **kwargs)
+        finally:
+            try:
+                bare_spawn._cancel_event = saved
+            except AttributeError:
+                pass
+
+    return shim
+
+
 def _apply_cybergym_spawn_gate(spawn_wrappers: dict[str, Any]) -> None:
     """Wrap analyzer/researcher/verifier factories with a per-task gate.
 
@@ -293,7 +326,8 @@ def inject_state_manager(
             _analyzer_wrapped: list[Any] = []
 
             def _analyzer_factory(original_fn: Any) -> Any:
-                w = make_analyzer_spawn_wrapper(original_fn)
+                batch_input = _cybergym_cancel_null(original_fn)
+                w = make_analyzer_spawn_wrapper(batch_input)
                 _analyzer_wrapped.append(w)
                 return w
 
@@ -317,9 +351,10 @@ def inject_state_manager(
             _spawn_researchers_fn: list[Any] = []
 
             def _researcher_factory(original_fn: Any) -> Any:
+                batch_input = _cybergym_cancel_null(original_fn)
                 _researcher_original.append(original_fn)
-                _spawn_researchers_fn.append(make_researcher_batch(original_fn))
-                return original_fn  # no wrapping needed
+                _spawn_researchers_fn.append(make_researcher_batch(batch_input))
+                return original_fn  # no wrapping needed for singular path
 
             def spawn_researchers(queries: list[str]) -> list[str]:
                 """Run multiple researcher queries concurrently.

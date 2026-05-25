@@ -23,7 +23,10 @@ from typing import Any
 import pytest
 
 from kai.state import cybergym_gate
-from kai.state.integration import _apply_cybergym_spawn_gate
+from kai.state.integration import (
+    _apply_cybergym_spawn_gate,
+    _cybergym_cancel_null,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -163,6 +166,41 @@ def test_gate_wraps_all_sub_agents(monkeypatch):
         assert fake_spawns[name]._captured["cancel_event"] is None, (
             f"spawn_{name} did NOT have its cancel_event nulled"
         )
+
+
+def test_cancel_null_shim_for_batch_invocation(monkeypatch):
+    """Batch spawn tools (spawn_researchers / spawn_analyzers) capture
+    the bare _spawn at factory time and call it directly, bypassing
+    the singular-path gate. ``_cybergym_cancel_null`` is the shim used
+    in those factories to ensure each batched call still nulls the
+    parent cancel_event around the sub-agent invocation."""
+    monkeypatch.setenv("KAI_BENCHMARK", "cybergym")
+
+    bare = _make_fake_spawn("researcher")
+    parent_event = threading.Event()
+    parent_event.set()
+    bare._cancel_event = parent_event
+
+    shim = _cybergym_cancel_null(bare)
+    # Shim must be a wrapper, not the bare spawn itself.
+    assert shim is not bare
+
+    result = shim(query="what is the bug")
+    assert result == "researcher_OK"
+    # Sub-agent saw cancel_event=None at call time.
+    assert bare._captured["cancel_event"] is None
+    # Restored after the call.
+    assert bare._cancel_event is parent_event
+
+
+def test_cancel_null_shim_noop_outside_cybergym(monkeypatch):
+    """Outside cybergym, the shim is a pass-through (returns bare_spawn
+    unchanged) so other benchmarks keep normal cancel propagation."""
+    monkeypatch.delenv("KAI_BENCHMARK", raising=False)
+
+    bare = _make_fake_spawn("researcher")
+    result = _cybergym_cancel_null(bare)
+    assert result is bare
 
 
 def test_gate_handles_unsettable_cancel_event(monkeypatch):
