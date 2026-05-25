@@ -37,19 +37,68 @@ def _apply_cybergym_spawn_gate(spawn_wrappers: dict[str, Any]) -> None:
 
     cybergym_gate.init()
 
+    def _call_without_parent_cancel(inner_fn: Any, *args: Any, **kwargs: Any) -> Any:
+        """Invoke ``inner_fn`` with parent's cancel_event temporarily nulled.
+
+        Cybergym-only. The cancel_event mechanism in the shared ra/
+        core (set when the parent REPL's worker.join(effective_timeout)
+        returns with the worker still alive) is poisoning every
+        sub-agent invocation: when the model emits a code block that
+        does heavy work before calling spawn_X, the parent's per-block
+        timeout fires DURING or BEFORE the sub-agent's setup. The
+        sub-agent then breaks on iter-1 entry, falls through to
+        _default_answer, and writes a misleading "Unable to verify"
+        rollout (or, after 50094f9, an ABORTED marker).
+
+        Bumping KAI_EXEC_TIMEOUT to 3600s + KAI_ITER_WALL_CAP to 1800s
+        did NOT fix this empirically (R34 still showed ABORTED markers
+        on researcher sub-agents). The cancel_event is firing for
+        reasons orthogonal to the per-block budget — likely an orphan
+        daemon worker race that can't be eliminated from the cybergym
+        agent.py side without changing shared ra/ core.
+
+        Cybergym-specific workaround: temporarily clear
+        ``inner_fn._cancel_event`` (which is the bare ``_spawn``
+        closure built by ra.agents.agent._make_spawn_fn) before
+        calling the sub-agent, then restore it after. The sub-agent
+        runs to completion on its own time budget (max_iterations +
+        per-LLM-call timeout). Its result_processor still runs after
+        completion, so PoC bytes + critic enrichment are persisted to
+        state_manager. The parent's main thread may have moved on but
+        the sub-agent's WORK is captured in rollouts + state.
+
+        Trade-off: an in-progress sub-agent that the parent intends to
+        cancel will continue running until its own bounds (max_iters
+        ~30 * per-LLM-call 900s = ~7.5h upper bound, in practice
+        5-30 min). Acceptable for cybergym where verifier engagement
+        is more valuable than fast parent cancellation.
+        """
+        saved = getattr(inner_fn, "_cancel_event", None)
+        try:
+            try:
+                inner_fn._cancel_event = None
+            except AttributeError:
+                pass
+            return inner_fn(*args, **kwargs)
+        finally:
+            try:
+                inner_fn._cancel_event = saved
+            except AttributeError:
+                pass
+
     def _gate(name: str, inner_fn: Any) -> Any:
         def gated(*args: Any, **kwargs: Any) -> Any:
             blocked = cybergym_gate.check_and_count_spawn(name)
             if blocked is not None:
                 return blocked
-            return inner_fn(*args, **kwargs)
+            return _call_without_parent_cancel(inner_fn, *args, **kwargs)
 
         return gated
 
     def _mark_verifier(inner_fn: Any) -> Any:
         def marked(*args: Any, **kwargs: Any) -> Any:
             cybergym_gate.mark_verifier_called()
-            return inner_fn(*args, **kwargs)
+            return _call_without_parent_cancel(inner_fn, *args, **kwargs)
 
         return marked
 
@@ -83,7 +132,7 @@ def _apply_cybergym_spawn_gate(spawn_wrappers: dict[str, Any]) -> None:
     def _mark_critic(inner_fn: Any) -> Any:
         def marked(*args: Any, **kwargs: Any) -> Any:
             cybergym_gate.mark_critic_called()
-            return inner_fn(*args, **kwargs)
+            return _call_without_parent_cancel(inner_fn, *args, **kwargs)
 
         return marked
 
@@ -95,6 +144,25 @@ def _apply_cybergym_spawn_gate(spawn_wrappers: dict[str, Any]) -> None:
             return _mark_critic(inner)
 
         spawn_wrappers["spawn_critic"] = critic_factory
+
+    # Cybergym: wrap spawn_fixer too. It has no cybergym-specific
+    # marker, but it's still a sub-agent that suffers the cancel_event
+    # leak. Without this wrap, fixer spawns mid-pipeline would also
+    # abort on iter-1 entry.
+    def _wrap_fixer(inner_fn: Any) -> Any:
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            return _call_without_parent_cancel(inner_fn, *args, **kwargs)
+
+        return wrapped
+
+    original_fixer = spawn_wrappers.get("spawn_fixer")
+    if original_fixer is not None:
+
+        def fixer_factory(original_fn: Any) -> Any:
+            inner = original_fixer(original_fn)
+            return _wrap_fixer(inner)
+
+        spawn_wrappers["spawn_fixer"] = fixer_factory
 
 
 # Processor signature before binding: (state_manager, run_id, kwargs, raw) -> str
