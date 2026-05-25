@@ -37,8 +37,11 @@ def _apply_cybergym_spawn_gate(spawn_wrappers: dict[str, Any]) -> None:
 
     cybergym_gate.init()
 
-    def _call_without_parent_cancel(inner_fn: Any, *args: Any, **kwargs: Any) -> Any:
-        """Invoke ``inner_fn`` with parent's cancel_event temporarily nulled.
+    def _call_without_parent_cancel(
+        inner_fn: Any, bare_spawn: Any, *args: Any, **kwargs: Any
+    ) -> Any:
+        """Invoke ``inner_fn`` with the BARE ``_spawn``'s ``_cancel_event``
+        temporarily nulled. Restored on exit.
 
         Cybergym-only. The cancel_event mechanism in the shared ra/
         core (set when the parent REPL's worker.join(effective_timeout)
@@ -55,50 +58,55 @@ def _apply_cybergym_spawn_gate(spawn_wrappers: dict[str, Any]) -> None:
         on researcher sub-agents). The cancel_event is firing for
         reasons orthogonal to the per-block budget — likely an orphan
         daemon worker race that can't be eliminated from the cybergym
-        agent.py side without changing shared ra/ core.
+        side without changing shared ra/ core.
 
         Cybergym-specific workaround: temporarily clear
-        ``inner_fn._cancel_event`` (which is the bare ``_spawn``
-        closure built by ra.agents.agent._make_spawn_fn) before
-        calling the sub-agent, then restore it after. The sub-agent
-        runs to completion on its own time budget (max_iterations +
-        per-LLM-call timeout). Its result_processor still runs after
-        completion, so PoC bytes + critic enrichment are persisted to
-        state_manager. The parent's main thread may have moved on but
-        the sub-agent's WORK is captured in rollouts + state.
+        ``bare_spawn._cancel_event`` (the actual closure built by
+        ``ra.agents.agent._make_spawn_fn`` — the one whose attribute
+        is read at agent.py:148 before propagating into the
+        sub-agent's environment_kwargs). Setting it on intermediate
+        wrappers (spawn_hooks' ``make_<X>_spawn_wrapper`` returns plain
+        closures that do NOT forward the attribute, so an earlier
+        version of this fix was a no-op for verifier/critic/fixer).
 
-        Trade-off: an in-progress sub-agent that the parent intends to
-        cancel will continue running until its own bounds (max_iters
-        ~30 * per-LLM-call 900s = ~7.5h upper bound, in practice
-        5-30 min). Acceptable for cybergym where verifier engagement
-        is more valuable than fast parent cancellation.
+        After the call: the sub-agent ran to completion on its own
+        time budget. Its result_processor (process_verifier_result
+        etc.) already ran, persisting PoC bytes / critic enrichment
+        to state_manager.
+
+        Trade-off: in-progress sub-agents that the parent intends to
+        cancel continue running until their own bounds (max_iters ~30
+        * per-LLM-call 900s = ~7.5h upper bound, in practice 5-30
+        min). Acceptable for cybergym where sub-agent engagement is
+        more valuable than fast parent cancellation. Other benchmarks
+        retain normal cancel behavior — this gate is cybergym-only.
         """
-        saved = getattr(inner_fn, "_cancel_event", None)
+        saved = getattr(bare_spawn, "_cancel_event", None)
         try:
             try:
-                inner_fn._cancel_event = None
+                bare_spawn._cancel_event = None
             except AttributeError:
                 pass
             return inner_fn(*args, **kwargs)
         finally:
             try:
-                inner_fn._cancel_event = saved
+                bare_spawn._cancel_event = saved
             except AttributeError:
                 pass
 
-    def _gate(name: str, inner_fn: Any) -> Any:
+    def _gate(name: str, inner_fn: Any, bare_spawn: Any) -> Any:
         def gated(*args: Any, **kwargs: Any) -> Any:
             blocked = cybergym_gate.check_and_count_spawn(name)
             if blocked is not None:
                 return blocked
-            return _call_without_parent_cancel(inner_fn, *args, **kwargs)
+            return _call_without_parent_cancel(inner_fn, bare_spawn, *args, **kwargs)
 
         return gated
 
-    def _mark_verifier(inner_fn: Any) -> Any:
+    def _mark_verifier(inner_fn: Any, bare_spawn: Any) -> Any:
         def marked(*args: Any, **kwargs: Any) -> Any:
             cybergym_gate.mark_verifier_called()
-            return _call_without_parent_cancel(inner_fn, *args, **kwargs)
+            return _call_without_parent_cancel(inner_fn, bare_spawn, *args, **kwargs)
 
         return marked
 
@@ -107,7 +115,7 @@ def _apply_cybergym_spawn_gate(spawn_wrappers: dict[str, Any]) -> None:
 
         def analyzer_factory(original_fn: Any) -> Any:
             inner = original_analyzer(original_fn)
-            return _gate("analyzer", inner)
+            return _gate("analyzer", inner, original_fn)
 
         spawn_wrappers["spawn_analyzer"] = analyzer_factory
 
@@ -116,7 +124,7 @@ def _apply_cybergym_spawn_gate(spawn_wrappers: dict[str, Any]) -> None:
 
         def researcher_factory(original_fn: Any) -> Any:
             inner = original_researcher(original_fn)
-            return _gate("researcher", inner)
+            return _gate("researcher", inner, original_fn)
 
         spawn_wrappers["spawn_researcher"] = researcher_factory
 
@@ -125,14 +133,14 @@ def _apply_cybergym_spawn_gate(spawn_wrappers: dict[str, Any]) -> None:
 
         def verifier_factory(original_fn: Any) -> Any:
             inner = original_verifier(original_fn)
-            return _mark_verifier(inner)
+            return _mark_verifier(inner, original_fn)
 
         spawn_wrappers["spawn_verifier"] = verifier_factory
 
-    def _mark_critic(inner_fn: Any) -> Any:
+    def _mark_critic(inner_fn: Any, bare_spawn: Any) -> Any:
         def marked(*args: Any, **kwargs: Any) -> Any:
             cybergym_gate.mark_critic_called()
-            return _call_without_parent_cancel(inner_fn, *args, **kwargs)
+            return _call_without_parent_cancel(inner_fn, bare_spawn, *args, **kwargs)
 
         return marked
 
@@ -141,7 +149,7 @@ def _apply_cybergym_spawn_gate(spawn_wrappers: dict[str, Any]) -> None:
 
         def critic_factory(original_fn: Any) -> Any:
             inner = original_critic(original_fn)
-            return _mark_critic(inner)
+            return _mark_critic(inner, original_fn)
 
         spawn_wrappers["spawn_critic"] = critic_factory
 
@@ -149,9 +157,9 @@ def _apply_cybergym_spawn_gate(spawn_wrappers: dict[str, Any]) -> None:
     # marker, but it's still a sub-agent that suffers the cancel_event
     # leak. Without this wrap, fixer spawns mid-pipeline would also
     # abort on iter-1 entry.
-    def _wrap_fixer(inner_fn: Any) -> Any:
+    def _wrap_fixer(inner_fn: Any, bare_spawn: Any) -> Any:
         def wrapped(*args: Any, **kwargs: Any) -> Any:
-            return _call_without_parent_cancel(inner_fn, *args, **kwargs)
+            return _call_without_parent_cancel(inner_fn, bare_spawn, *args, **kwargs)
 
         return wrapped
 
@@ -160,7 +168,7 @@ def _apply_cybergym_spawn_gate(spawn_wrappers: dict[str, Any]) -> None:
 
         def fixer_factory(original_fn: Any) -> Any:
             inner = original_fixer(original_fn)
-            return _wrap_fixer(inner)
+            return _wrap_fixer(inner, original_fn)
 
         spawn_wrappers["spawn_fixer"] = fixer_factory
 

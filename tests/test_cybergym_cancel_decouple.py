@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import threading
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -60,7 +59,14 @@ def _make_factory(inner: Any) -> Any:
 
 
 def test_gate_nulls_cancel_event_before_sub_agent(monkeypatch):
-    """Pre-set cancel_event → temporarily nulled while sub-agent runs."""
+    """Pre-set cancel_event → temporarily nulled while sub-agent runs.
+
+    The null happens on the BARE _spawn (which is the factory's
+    original_fn argument and what agent.py:148 actually reads),
+    NOT on the wrapped intermediate (which a previous version of
+    the fix incorrectly targeted, making it a no-op for
+    verifier/critic/fixer paths that include spawn_hooks wrappers).
+    """
     cybergym_gate.init()
     cybergym_gate.mark_verifier_called()  # bypass the spawn cap
 
@@ -68,25 +74,37 @@ def test_gate_nulls_cancel_event_before_sub_agent(monkeypatch):
     parent_event = threading.Event()
     parent_event.set()
 
-    fake_analyzer = _make_fake_spawn("analyzer")
-    fake_analyzer._cancel_event = parent_event  # type: ignore[attr-defined]
+    bare_spawn = _make_fake_spawn("analyzer")
+    bare_spawn._cancel_event = parent_event  # type: ignore[attr-defined]
 
-    wrappers: dict[str, Any] = {"spawn_analyzer": _make_factory(fake_analyzer)}
+    # The factory in inject_state_manager is called with the bare _spawn
+    # as its argument; the factory builds the wrap chain that ultimately
+    # calls bare_spawn. We pass `bare_spawn` as `original_fn` and a
+    # MagicMock for the wrapped-chain return value to verify the call
+    # path uses bare_spawn for the cancel null.
+
+    # Use a factory that returns bare_spawn directly (simulating no
+    # spawn_hooks wrapper for simplicity in this test).
+    def factory(original_fn: Any) -> Any:
+        # original_fn IS bare_spawn here
+        return original_fn
+
+    wrappers: dict[str, Any] = {"spawn_analyzer": factory}
     _apply_cybergym_spawn_gate(wrappers)
 
-    # Build the wrapped function as inject_state_manager would
-    wrapped = wrappers["spawn_analyzer"](MagicMock())
+    # Now invoke the wrapped factory with bare_spawn as original
+    wrapped = wrappers["spawn_analyzer"](bare_spawn)
     result = wrapped(hypothesis="x", file="x.c", function="f")
 
     assert result == "analyzer_OK"
-    # The sub-agent saw _cancel_event = None at call time
-    assert fake_analyzer._captured["cancel_event"] is None
-    # After the call, the original cancel_event is restored
-    assert fake_analyzer._cancel_event is parent_event
+    # The sub-agent saw _cancel_event = None at call time (on the bare spawn)
+    assert bare_spawn._captured["cancel_event"] is None
+    # After the call, the original cancel_event is restored on bare_spawn
+    assert bare_spawn._cancel_event is parent_event
 
 
 def test_gate_restores_cancel_event_on_exception(monkeypatch):
-    """Sub-agent raises → original cancel_event still restored."""
+    """Sub-agent raises → original cancel_event still restored on bare _spawn."""
     cybergym_gate.init()
     cybergym_gate.mark_verifier_called()
 
@@ -97,10 +115,13 @@ def test_gate_restores_cancel_event_on_exception(monkeypatch):
 
     failing_spawn._cancel_event = parent_event  # type: ignore[attr-defined]
 
-    wrappers: dict[str, Any] = {"spawn_analyzer": _make_factory(failing_spawn)}
+    def factory(original_fn: Any) -> Any:
+        return original_fn
+
+    wrappers: dict[str, Any] = {"spawn_analyzer": factory}
     _apply_cybergym_spawn_gate(wrappers)
 
-    wrapped = wrappers["spawn_analyzer"](MagicMock())
+    wrapped = wrappers["spawn_analyzer"](failing_spawn)
     with pytest.raises(RuntimeError, match="sub-agent boom"):
         wrapped(hypothesis="x")
 
@@ -109,8 +130,9 @@ def test_gate_restores_cancel_event_on_exception(monkeypatch):
 
 
 def test_gate_wraps_all_sub_agents(monkeypatch):
-    """All four cybergym sub-agents (analyzer/researcher/verifier/critic +
-    fixer) get the decouple treatment."""
+    """All five cybergym sub-agents (analyzer/researcher/verifier/critic/
+    fixer) get the decouple treatment when their bare _spawn is passed
+    through the factory."""
     cybergym_gate.init()
 
     wrappers: dict[str, Any] = {}
@@ -118,7 +140,11 @@ def test_gate_wraps_all_sub_agents(monkeypatch):
     for name in ["analyzer", "researcher", "verifier", "critic", "fixer"]:
         fake = _make_fake_spawn(name)
         fake_spawns[name] = fake
-        wrappers[f"spawn_{name}"] = _make_factory(fake)
+
+        def factory(original_fn: Any) -> Any:
+            return original_fn
+
+        wrappers[f"spawn_{name}"] = factory
 
     _apply_cybergym_spawn_gate(wrappers)
 
@@ -128,19 +154,19 @@ def test_gate_wraps_all_sub_agents(monkeypatch):
     # spawn_verifier marks verifier_called → also unblocks subsequent
     # spawn caps. Call it first to allow other spawns under the cap.
     fake_spawns["verifier"]._cancel_event = parent_event
-    wrappers["spawn_verifier"](MagicMock())(hypothesis="x")
+    wrappers["spawn_verifier"](fake_spawns["verifier"])(hypothesis="x")
     assert fake_spawns["verifier"]._captured["cancel_event"] is None
 
     for name in ["analyzer", "researcher", "critic", "fixer"]:
         fake_spawns[name]._cancel_event = parent_event
-        wrappers[f"spawn_{name}"](MagicMock())(hypothesis="x")
+        wrappers[f"spawn_{name}"](fake_spawns[name])(hypothesis="x")
         assert fake_spawns[name]._captured["cancel_event"] is None, (
             f"spawn_{name} did NOT have its cancel_event nulled"
         )
 
 
 def test_gate_handles_unsettable_cancel_event(monkeypatch):
-    """If inner_fn._cancel_event setter raises AttributeError, the gate
+    """If bare_spawn._cancel_event setter raises AttributeError, the gate
     still calls inner_fn (skip the null trick, accept whatever happens
     next)."""
     cybergym_gate.init()
@@ -154,10 +180,14 @@ def test_gate_handles_unsettable_cancel_event(monkeypatch):
             return "no_attr_OK"
 
     no_attr = _NoAttrSpawn()
-    wrappers: dict[str, Any] = {"spawn_analyzer": _make_factory(no_attr)}
+
+    def factory(original_fn: Any) -> Any:
+        return original_fn
+
+    wrappers: dict[str, Any] = {"spawn_analyzer": factory}
     _apply_cybergym_spawn_gate(wrappers)
 
-    wrapped = wrappers["spawn_analyzer"](MagicMock())
+    wrapped = wrappers["spawn_analyzer"](no_attr)
     result = wrapped(hypothesis="x")
     # Doesn't crash; inner_fn still ran
     assert result == "no_attr_OK"
