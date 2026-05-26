@@ -5,9 +5,9 @@ three system-prompt variants and scores every emitted reference
 (URL / SWC / CVE) on existence. Lower hallucination_rate wins.
 
 Usage:
-    python scripts/researcher_eval.py --self-test         # smoke checks
-    python scripts/researcher_eval.py --variants v0 --limit 1
-    python scripts/researcher_eval.py                     # full run
+    uv run python -m scripts.eval.researcher_eval --self-test         # smoke checks
+    uv run python -m scripts.eval.researcher_eval --variants v0 --limit 1
+    uv run python -m scripts.eval.researcher_eval                     # full run
 
 Outputs:
     data/researcher_eval/results.csv

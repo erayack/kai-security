@@ -21,9 +21,9 @@ with each variant under test.
 
 Usage::
 
-    python scripts/cybergym_prompt_eval.py --self-test
-    python scripts/cybergym_prompt_eval.py --target critic_reminder
-    python scripts/cybergym_prompt_eval.py --target both --limit 3
+    uv run python -m scripts.eval.cybergym_prompt_eval --self-test
+    uv run python -m scripts.eval.cybergym_prompt_eval --target critic_reminder
+    uv run python -m scripts.eval.cybergym_prompt_eval --target both --limit 3
 
 Outputs::
 
