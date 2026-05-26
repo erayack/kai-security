@@ -76,3 +76,6 @@ data/researcher_eval/
 
 # rollout dumps for post-mortem analysis (local-only)
 data/rollouts-*/
+
+# cybergym prompt-eval workbench outputs (local-only)
+data/cybergym_prompt_eval/
