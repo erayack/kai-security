@@ -75,6 +75,21 @@ Then in the dashboard for `bench-worker` -> Settings -> Build:
 > Anything that looks like a secret must be set via the dashboard or
 > `railway variables set ...` -- **never** baked into the image.
 
+The full list of env vars the worker consumes — including cybergym-specific
+ones like `KAI_CYBERGYM_HARNESS_URL` (ngrok tunnel to a local cybergym Docker
+fuzzer) and runtime caps like `KAI_ITER_WALL_CAP` / `KAI_MAX_BLOCKS_PER_ITER`
+— is documented in [`.env.example`](../.env.example) at the repo root. Treat
+that file as the source of truth for "what knobs exist"; the table above
+covers only the always-required minimum.
+
+To rotate the cybergym ngrok URL (free-tier subdomains change on reconnect):
+
+```bash
+railway variables --service kai-bench-cybergym-v2 \
+  --set KAI_CYBERGYM_HARNESS_URL=https://<new-subdomain>.ngrok-free.app
+railway up --service kai-bench-cybergym-v2 --detach
+```
+
 ### 5. Deploy
 
 ```bash
