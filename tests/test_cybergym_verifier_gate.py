@@ -215,3 +215,18 @@ def test_mark_critic_called_flips_flag() -> None:
     assert not cybergym_gate.critic_was_called()
     cybergym_gate.mark_critic_called()
     assert cybergym_gate.critic_was_called()
+
+
+def test_cybergym_verifier_preamble_includes_harness_grounding() -> None:
+    """The HARNESS-GROUNDING rule is the load-bearing instruction added
+    after the R39 A/B test showed verifiers were not reading the fuzzer
+    entry file. If it disappears, the dominant R39 failure mode
+    (RIGHT_HYPOTHESIS_WRONG_BYTES, 50% of no-pass cases) is likely to
+    return. A/B numbers: v0_current 25% refs_fuzzer vs v1 100% on the
+    4 R39 failed-task replays.
+    """
+    from kai.definitions.exploit.config import _CYBERGYM_VERIFIER_PREAMBLE
+
+    assert "HARNESS-GROUNDING" in _CYBERGYM_VERIFIER_PREAMBLE
+    assert "fuzzer entry-point" in _CYBERGYM_VERIFIER_PREAMBLE
+    assert "LLVMFuzzerTestOneInput" in _CYBERGYM_VERIFIER_PREAMBLE

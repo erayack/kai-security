@@ -136,9 +136,7 @@ def main() -> int:
         print(proc.stderr, file=sys.stderr)
         return proc.returncode
 
-    print(
-        f"set {len(cg_vars)} vars on cybergym, {len(evm_vars)} vars on evmbench"
-    )
+    print(f"set {len(cg_vars)} vars on cybergym, {len(evm_vars)} vars on evmbench")
     print("railway response (last line):")
     last = [line for line in proc.stdout.splitlines() if line.strip()][-1:]
     print(last[0] if last else "<empty>")

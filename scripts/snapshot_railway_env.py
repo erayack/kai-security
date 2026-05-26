@@ -116,7 +116,7 @@ def main() -> int:
         "",
         f"**Service:** `{args.service}`",
         f"**Source:** `railway variables --service {args.service} --json`",
-        f"**Redaction policy:** see `scripts/snapshot_railway_env.py`.",
+        "**Redaction policy:** see `scripts/snapshot_railway_env.py`.",
         "",
         "| Key | Classification | Value |",
         "| --- | --- | --- |",
