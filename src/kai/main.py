@@ -1074,7 +1074,7 @@ def _run_exploit_loop(
         # soft_verified records, so the fixer rollout / fix_attempts /
         # fixes JSONs are missing from the run. Force a fixer pass to
         # match the healthy-reference rollout structure.
-        if state_manager is not None and run_id is not None:
+        if not skip_fixer and state_manager is not None and run_id is not None:
             _maybe_run_post_pipeline_fixer(
                 recipe,
                 state_manager=state_manager,

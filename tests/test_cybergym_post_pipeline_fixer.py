@@ -203,3 +203,33 @@ def test_post_pipeline_fixer_restores_status_on_failure(manager, monkeypatch):
     assert manager.get_fix_attempts("r", "e1") == []
     rec = list(manager.get_exploits("r"))[0]
     assert rec.status == "soft_verified"
+
+
+def test_exploit_loop_honours_skip_fixer_for_post_pipeline_stage(
+    manager,
+    monkeypatch,
+):
+    monkeypatch.setenv("KAI_BENCHMARK", "cybergym")
+
+    class _FakeResult:
+        response = "[]"
+        execution_time = 0.0
+        usage_summary = None
+
+    from kai.main import _run_exploit_loop
+
+    with (
+        patch("kai.main.run_exploit", return_value=_FakeResult()),
+        patch("kai.main._save_result"),
+        patch("kai.main._maybe_run_post_pipeline_critic"),
+        patch("kai.main._maybe_run_post_pipeline_fixer") as fixer,
+        patch("kai.main._maybe_run_patch_assembler", return_value=None),
+    ):
+        _run_exploit_loop(
+            recipe=None,  # type: ignore[arg-type]
+            state_manager=manager,
+            run_id="r",
+            skip_fixer=True,
+        )
+
+    fixer.assert_not_called()
