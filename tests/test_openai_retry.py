@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import openai
@@ -133,3 +134,34 @@ def test_extract_text_happy_path() -> None:
     response.choices = [MagicMock()]
     response.choices[0].message.content = "hello"
     assert openai_module._extract_text(response) == "hello"
+
+
+def _response_with_content(content: str):
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=content))],
+        usage=SimpleNamespace(prompt_tokens=1, completion_tokens=2, total_tokens=3),
+    )
+
+
+def test_completion_retries_empty_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Empty model content must be inside the retry boundary."""
+    monkeypatch.setattr(openai_module, "_DEFAULT_MAX_RETRIES", 3)
+    monkeypatch.setattr(openai_module, "_DEFAULT_BASE_BACKOFF_S", 0.01)
+
+    client = openai_module.OpenAIClient(
+        api_key="test-key",
+        model_name="test-model",
+        base_url="https://api.openai.com/v1",
+    )
+    create = MagicMock(
+        side_effect=[
+            _response_with_content(""),
+            _response_with_content("hello"),
+        ]
+    )
+    monkeypatch.setattr(client.client.chat.completions, "create", create)
+
+    assert client.completion("prompt") == "hello"
+    assert create.call_count == 2

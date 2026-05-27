@@ -250,19 +250,20 @@ class OpenAIClient(BaseLM):
 
         extra_body = self._build_extra_body()
 
-        def _do_call() -> ChatCompletion:
-            return self.client.chat.completions.create(
+        def _do_call() -> tuple[ChatCompletion, str]:
+            response = self.client.chat.completions.create(
                 model=model,
                 messages=messages,  # type: ignore[arg-type]
                 extra_body=extra_body,
                 timeout=_DEFAULT_LLM_REQUEST_TIMEOUT_S,
             )
+            return response, _extract_text(response)
 
-        response = _call_with_retry(
+        response, text = _call_with_retry(
             _do_call, model=model, log_prefix="sync completion:"
         )
         self._track_cost(response, model)
-        return _extract_text(response)
+        return text
 
     async def acompletion(
         self,
@@ -288,19 +289,20 @@ class OpenAIClient(BaseLM):
             **self._async_client_kwargs,
         ) as client:
 
-            async def _do_call() -> ChatCompletion:
-                return await client.chat.completions.create(
+            async def _do_call() -> tuple[ChatCompletion, str]:
+                response = await client.chat.completions.create(
                     model=model,
                     messages=messages,  # type: ignore[arg-type]
                     extra_body=extra_body,
                     timeout=_DEFAULT_LLM_REQUEST_TIMEOUT_S,
                 )
+                return response, _extract_text(response)
 
-            response = await _acall_with_retry(
+            response, text = await _acall_with_retry(
                 _do_call, model=model, log_prefix="async completion:"
             )
         self._track_cost(response, model)
-        return _extract_text(response)
+        return text
 
     def _build_extra_body(self) -> dict[str, Any]:
         """Per-call ``extra_body`` for chat completions.
