@@ -135,15 +135,26 @@ PATCH_INSTRUCTIONS = (
 
 
 class BountyBenchAdapter(BenchAdapter):
-    """Adapter for BountyBench DETECT mode.
+    """Adapter for BountyBench (DETECT / EXPLOIT / PATCH modes, soft scoring).
 
     Config keys (passed via ``--adapter-config`` JSON):
 
     ``bountybench_root`` (str, required): Path to the upstream
         ``bountytasks/`` directory (the one containing ``<system>/``
         folders). See ``install.md`` for setup.
-    ``mode`` (str, default ``"detect"``): Reserved for future EXPLOIT /
-        PATCH support. Only ``"detect"`` is accepted today.
+    ``mode`` (str, default ``"detect"``): one of ``"detect"`` /
+        ``"exploit"`` / ``"patch"``.
+
+        * ``detect`` — strict CWE substring match against the bounty's
+          metadata; optional LLM-judge fallback via ``judge_mode``.
+        * ``exploit`` — LLM-judge of the agent's exploit artefact
+          against the upstream reference. ``judge_mode`` forced on.
+        * ``patch`` — LLM-judge of the agent's patch artefact against
+          the upstream reference patch. ``judge_mode`` forced on.
+
+        EXPLOIT / PATCH are SOFT proxies — they do not invoke the
+        upstream Docker stack or ``verify.sh``, so scores are not
+        comparable to upstream BountyBench leaderboards.
     ``systems`` (list[str], optional): Restrict enumeration to specific
         system names (e.g. ``["lunary", "django"]``). When omitted every
         bounty under ``bountybench_root`` is yielded.

@@ -2,12 +2,29 @@
 
 BountyBench (https://github.com/bountybench/bountybench, Apache-2.0) is a
 40-task benchmark across 25 systems with three evaluation modes -
-DETECT, EXPLOIT and PATCH. The v1 integration in this repo wires up
-**DETECT mode only**: kai inspects a codebase, reports findings, and the
-adapter scores a task as successful when at least one ground-truth CWE
-appears in the reported result. EXPLOIT / PATCH modes (which require
-spinning up the upstream Docker stack and running `verify.sh`) are out
-of scope for v1.
+DETECT, EXPLOIT and PATCH. This adapter wires up all three modes, with
+soft scoring (no upstream Docker stack / `verify.sh` invocation):
+
+- **DETECT** (default): kai inspects a codebase, reports findings, and
+  the adapter scores a task as successful when at least one ground-truth
+  CWE appears in the reported result. Strict CWE-exact match by default;
+  `judge_mode: "llm"` falls back to an LLMJudge that compares the
+  agent's hypothesis against the bounty's writeup.
+- **EXPLOIT**: kai produces an exploit artefact (free-form text /
+  pseudo-PoC). Scored exclusively via the LLM judge, which compares the
+  artefact against the upstream reference exploit description. The judge
+  is forced on for this mode (strict matching isn't meaningful for
+  free-form output).
+- **PATCH**: kai produces a patch artefact (diff / explanation). Scored
+  exclusively via the LLM judge against the upstream reference patch.
+  Judge is forced on for the same reason as EXPLOIT.
+
+EXPLOIT / PATCH soft-scoring is **a proxy**: the upstream BountyBench
+strict metric requires running the bounty's Docker stack with
+`verify.sh` to confirm the exploit succeeds on the vulnerable commit
+*and* fails on the patched commit. That harness invocation is out of
+scope for this adapter; soft-judge scores are useful for ranking but
+not comparable to the upstream leaderboard.
 
 ## 1. Fetch the bountytasks corpus
 
@@ -52,7 +69,9 @@ Config keys:
 - `bountybench_root` (**required**): path to the `bountytasks/` clone
   from step 1 (the directory containing `<system>/` folders, not the
   outer `bountybench/` repo).
-- `mode` (default `"detect"`): only `"detect"` is supported in v1.
+- `mode` (default `"detect"`): one of `"detect"` / `"exploit"` / `"patch"`.
+  EXPLOIT and PATCH force `judge_mode: "llm"` (strict matching isn't
+  meaningful for free-form artefacts).
 - `systems` (optional): whitelist of system names to enumerate. Leave
   unset to enumerate every bounty under `bountybench_root`.
 - `copy_codebase` (default `true`): when `true`, the prepare step
@@ -110,13 +129,18 @@ EXPLOIT-mode follow-up work.
 
 ## 5. Known limitations
 
-- DETECT v1 only: no Docker setup, no `verify.sh`, no patch
-  differential. Comparisons against upstream leaderboards are not
-  apples-to-apples until EXPLOIT / PATCH modes ship.
+- Soft scoring only: no Docker setup, no `verify.sh`, no patch
+  differential. Comparisons against upstream BountyBench leaderboards
+  are not apples-to-apples — DETECT uses lenient CWE substring matching
+  (vs upstream's exploit-must-succeed-and-patched-must-fail metric);
+  EXPLOIT / PATCH use an LLM-judge soft proxy against the reference
+  artefact rather than running the upstream verifier.
 - The adapter does not initialise the bounty's setup containers, so
   any task whose codebase analysis depends on a running service will
   produce reduced-quality findings. This is acceptable for DETECT mode
-  - the CWE comparison only needs the static codebase.
+  - the CWE comparison only needs the static codebase. For EXPLOIT /
+  PATCH modes the missing service may bias the agent toward static
+  hypotheses.
 - A small handful of bounties record multiple CWEs in one metadata
   string (e.g. composio); the adapter extracts every `CWE-NNN` match
   and treats them as alternatives (success if any one matches).
