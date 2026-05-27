@@ -10,7 +10,6 @@ master/
 .idea/*
 docs/*
 !docs/open-source-hygiene.md
-!docs/pr-95-reviewer-guide.md
 !docs/railway-deploy.md
 bounties/*
 # Virtual environments
