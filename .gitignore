@@ -10,6 +10,7 @@ master/
 .idea/*
 docs/*
 !docs/open-source-hygiene.md
+!docs/railway-deploy.md
 bounties/*
 # Virtual environments
 .venv
@@ -62,3 +63,18 @@ kai_workspaces/
 
 # evaluation_output
 evaluation_output/
+
+# attocode code-intel MCP cache
+.attocode/
+
+# Claude Code local config / cache
+.claude/
+
+# researcher-eval workbench (local-only inputs / results / prompt variants)
+data/researcher_eval/
+
+# rollout dumps for post-mortem analysis (local-only)
+data/rollouts-*/
+
+# cybergym prompt-eval workbench outputs (local-only)
+data/cybergym_prompt_eval/

@@ -573,7 +573,10 @@ def run_pipeline(
         max_setup_attempts = 2
         for attempt in range(1, max_setup_attempts + 1):
             setup_cfg = replace(
-                setup_config, verbose=verbose, log_structured=log_structured
+                setup_config,
+                verbose=verbose,
+                log_structured=log_structured,
+                log_file=log_file or "",
             )
             setup_agent = RecursiveAgent(setup_cfg)
             setup_result = setup_agent.completion(
