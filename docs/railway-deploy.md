@@ -34,7 +34,7 @@ the Docker image starts. It:
 ```bash
 # from the repo root
 railway login
-railway init             # interactive: pick batuhan's workspace, name = kai-bench
+railway init             # interactive: pick your workspace, name it (e.g. kai-bench)
 ```
 
 ### 2. Add a Postgres plugin
@@ -76,20 +76,24 @@ Then in the dashboard for `bench-worker` -> Settings -> Build:
 > `railway variables set ...` -- **never** baked into the image.
 
 Beyond the required minimum above, see [`.env.example`](../.env.example) at
-the repo root for the broader set of optional knobs the worker + RLM core
-read — cybergym-specific ones (`KAI_CYBERGYM_HARNESS_URL`), runtime caps
-(`KAI_ITER_WALL_CAP`, `KAI_MAX_BLOCKS_PER_ITER`, `KAI_LLM_REQUEST_TIMEOUT_S`),
-and worker tuning (`BENCHMARK_POLL_SECONDS`, `BENCHMARK_IDLE_EXIT_AFTER`,
-`BENCHMARK_ENV_OVERRIDES`, …). Authoritative consumers live in
-`evaluation/worker.py` and `src/ra/core/rlm.py`; `.env.example` documents the
-common ones with defaults and short comments.
+the repo root for the broader set of optional knobs the worker + agent read —
+the opt-in cybergym strict-verify tool (`KAI_CYBERGYM_HARNESS_URL`), the
+per-LLM-call timeout (`KAI_LLM_REQUEST_TIMEOUT_S`), per-agent model and
+iteration overrides (`KAI_<AGENT>_MODEL`, `KAI_<AGENT>_ITERS`), and worker
+tuning (`BENCHMARK_POLL_SECONDS`, `BENCHMARK_IDLE_EXIT_AFTER`,
+`BENCHMARK_ENV_OVERRIDES`, …). The authoritative consumer is
+`evaluation/worker.py`; `.env.example` documents the common ones with defaults
+and short comments.
 
-To rotate the cybergym ngrok URL (free-tier subdomains change on reconnect):
+For **cybergym strict scoring**, the verifier sub-agent submits candidate PoC
+bytes to a CyberGym server you run yourself (e.g. on your own machine, exposed
+via an ngrok tunnel). Point the cybergym worker at it, and rotate the URL
+whenever the tunnel reconnects (free-tier ngrok subdomains change):
 
 ```bash
-railway variables --service kai-bench-cybergym-v2 \
+railway variables --service <your-cybergym-worker> \
   --set KAI_CYBERGYM_HARNESS_URL=https://<new-subdomain>.ngrok-free.app
-railway up --service kai-bench-cybergym-v2 --detach
+railway up --service <your-cybergym-worker> --detach
 ```
 
 ### 5. Deploy
