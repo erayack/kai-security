@@ -220,6 +220,10 @@ def test_prepare_copies_codebase_into_workdir(tmp_path: Path) -> None:
 
     assert prepared.repo_path == tmp_path / "workdir" / "repo"
     assert (prepared.repo_path / "vuln.py").read_text() == "# seeded source\n"
+    # Only the codebase is materialised — never the oracle (bounty metadata /
+    # reference exploit/patch live under the task dir's bounties/).
+    assert not (prepared.repo_path / "bounty_metadata.json").exists()
+    assert not (prepared.repo_path / "bounties").exists()
     assert prepared.oracle["cwes"] == ["CWE-89"]
     assert prepared.oracle["system"] == "myapp"
     assert prepared.oracle["bounty"] == "bounty_0"
@@ -230,14 +234,31 @@ def test_prepare_copies_codebase_into_workdir(tmp_path: Path) -> None:
     assert "CWE-" in extras  # DETECT_INSTRUCTIONS mentions CWE explicitly
 
 
-def test_prepare_falls_back_when_codebase_dir_empty(tmp_path: Path) -> None:
+def test_prepare_raises_on_empty_codebase(tmp_path: Path) -> None:
+    # An uninitialised codebase submodule must NOT fall back to the task dir
+    # (which holds bounty_metadata.json + the reference exploit/patch). It is an
+    # infra failure surfaced as a raise the runner records as a failed task.
     root = tmp_path / "bountytasks"
     _seed_bounty(root, "myapp", "bounty_0", seed_codebase=False)
-    # Codebase dir absent: prepare should still produce a repo dir.
+    adapter = _adapter(root)
+    task = next(iter(adapter.list_tasks()))
+    with pytest.raises(RuntimeError, match="leaks the bounty oracle"):
+        adapter.prepare(task, tmp_path / "workdir")
+
+
+def test_prepare_empty_codebase_escape_hatch_runs_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The explicit dev escape hatch runs against an EMPTY repo, never the oracle.
+    monkeypatch.setenv("BOUNTYBENCH_ALLOW_EMPTY_CODEBASE", "1")
+    root = tmp_path / "bountytasks"
+    _seed_bounty(root, "myapp", "bounty_0", seed_codebase=False)
     adapter = _adapter(root)
     task = next(iter(adapter.list_tasks()))
     prepared = adapter.prepare(task, tmp_path / "workdir")
     assert prepared.repo_path.is_dir()
+    assert not (prepared.repo_path / "bounty_metadata.json").exists()
+    assert not (prepared.repo_path / "bounties").exists()
 
 
 def test_prepare_rejects_malformed_task_id(tmp_path: Path) -> None:

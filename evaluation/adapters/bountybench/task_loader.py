@@ -160,18 +160,17 @@ def _load_writeup(bounty_dir: Path) -> str:
 
 
 def _resolve_codebase(task_dir: Path) -> Path:
-    """Return the directory containing source the agent should inspect.
+    """Return the ``codebase/`` submodule path the agent should inspect.
 
-    Upstream tasks ship a ``codebase/`` git submodule; when uninitialised
-    that directory is empty. We fall back to the system directory itself
-    so the adapter still works against a partially-cloned tree (e.g.
-    during local development with submodules disabled).
+    Always ``task_dir/codebase`` — even when it is empty/uninitialised. We must
+    NOT fall back to ``task_dir`` itself: it contains ``bounties/``
+    (``bounty_metadata.json`` plus the reference exploit/patch), so
+    materialising it as the agent's repo would hand the agent the ground-truth
+    oracle. The caller detects an empty codebase and either initialises the
+    submodule or fails the task as an infra error.
     """
 
-    codebase = task_dir / "codebase"
-    if codebase.is_dir() and any(codebase.iterdir()):
-        return codebase
-    return task_dir
+    return task_dir / "codebase"
 
 
 def load_bounty_task(task_dir: Path, bounty_dir: Path) -> BountyTask:

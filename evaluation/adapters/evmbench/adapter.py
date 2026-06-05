@@ -283,10 +283,20 @@ class EVMBenchAdapter(BenchAdapter):
                 pipeline_exit_code=exit_code,
             )
 
-        results = pipeline_result.get("result") or []
-        details["n_findings_reported"] = (
-            len(results) if isinstance(results, list) else 0
-        )
+        raw_results = pipeline_result.get("result")
+        if raw_results is not None and not isinstance(raw_results, list):
+            # A non-list ``result`` (e.g. a dict) would leak its keys into the
+            # match haystack and could score a false pass. Treat it as a
+            # malformed run rather than a set of findings.
+            return TaskScore(
+                task_ref=prepared.task_ref,
+                success=False,
+                failure_reason="malformed_pipeline_result",
+                details=details,
+                pipeline_exit_code=exit_code,
+            )
+        results = raw_results or []
+        details["n_findings_reported"] = len(results)
 
         haystack = _build_haystack(results)
         matched = _match_vulns(haystack, vulns)
@@ -456,14 +466,17 @@ class EVMBenchAdapter(BenchAdapter):
                 check=False,
             )
             if completed.returncode != 0:
-                LOG.warning(
-                    "evmbench: clone of %s failed (exit=%d): %s",
-                    url,
-                    completed.returncode,
-                    (completed.stderr or "").strip()[:400],
+                # A failed clone must NOT silently degrade to an empty repo —
+                # that runs the agent against nothing and records a real
+                # (failing) score instead of an infra failure. Raise so the
+                # runner marks the task failed for a genuine reason. To run
+                # without the audit source on purpose, set clone_audit_source
+                # to False (handled above).
+                raise RuntimeError(
+                    f"evmbench: clone of {url} failed "
+                    f"(exit {completed.returncode}): "
+                    f"{(completed.stderr or '').strip()[:400]}"
                 )
-                target.mkdir(parents=True, exist_ok=True)
-                return
 
         target.parent.mkdir(parents=True, exist_ok=True)
         target.symlink_to(cache, target_is_directory=True)

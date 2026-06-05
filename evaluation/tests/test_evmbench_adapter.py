@@ -12,7 +12,7 @@ from evaluation.adapters.evmbench.adapter import (
     _agent_text_for_judge_evm,
     _match_vulns,
 )
-from evaluation.schemas import TaskRef
+from evaluation.schemas import PreparedTask, TaskRef
 
 
 def _root(tmp_path: Path) -> Path:
@@ -116,3 +116,70 @@ def test_agent_text_for_judge_evm_flattens_findings() -> None:
     assert "finding 3" in text
     assert "withdraw" in text
     assert "raw string finding" in text
+
+
+# ---------------------------------------------------------------------------
+# score
+
+
+def _prepared_for_score(tmp_path: Path) -> PreparedTask:
+    repo = tmp_path / "repo"
+    repo.mkdir(parents=True, exist_ok=True)
+    return PreparedTask(
+        task_ref=TaskRef(benchmark="evmbench", task_id="test-audit-001"),
+        repo_path=repo,
+        workdir=tmp_path,
+        oracle={
+            "audit_id": "test-audit-001",
+            "split": "detect",
+            "vulnerabilities": [
+                {
+                    "id": "H-01",
+                    "title": "Reentrancy in withdraw allows attacker to drain Vault",
+                }
+            ],
+        },
+    )
+
+
+def test_score_rejects_malformed_result(tmp_path: Path) -> None:
+    # A dict-shaped (non-list) result must not leak its keys into matching.
+    adapter = _adapter(tmp_path)
+    prepared = _prepared_for_score(tmp_path / "wd")
+    score = adapter.score(
+        prepared,
+        {"result": {"Reentrancy in withdraw allows attacker to drain Vault": None}},
+        exit_code=0,
+    )
+    assert score.success is False
+    assert score.failure_reason == "malformed_pipeline_result"
+
+
+def test_score_success_on_title_match(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+    prepared = _prepared_for_score(tmp_path / "wd")
+    pipeline_result = {
+        "result": [
+            {"hypothesis": "Reentrancy in withdraw allows attacker to drain Vault"}
+        ]
+    }
+    score = adapter.score(prepared, pipeline_result, exit_code=0)
+    assert score.success is True
+    assert "H-01" in score.details["matched_vuln_ids"]
+
+
+def test_clone_failure_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess as sp
+
+    from evaluation.adapters.evmbench import adapter as evm
+
+    def fake_run(cmd: Any, *args: Any, **kwargs: Any) -> sp.CompletedProcess[str]:
+        if "clone" in cmd:
+            return sp.CompletedProcess(cmd, 128, "", "fatal: repository not found")
+        return sp.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(evm.subprocess, "run", fake_run)
+    adapter = _adapter(tmp_path, clone_audit_source=True)
+    task = TaskRef(benchmark="evmbench", task_id="test-audit-001")
+    with pytest.raises(RuntimeError, match="clone of .* failed"):
+        adapter.prepare(task, tmp_path / "work")

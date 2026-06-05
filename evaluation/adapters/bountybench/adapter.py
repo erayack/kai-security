@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -259,7 +260,31 @@ class BountyBenchAdapter(BenchAdapter):
 
         workdir.mkdir(parents=True, exist_ok=True)
         repo_path = workdir / "repo"
-        self._materialise_codebase(bounty_task.codebase_dir, repo_path)
+        if self._codebase_is_empty(bounty_task.codebase_dir):
+            # The codebase submodule is uninitialised. Never fall back to the
+            # task dir — it holds bounty_metadata.json + the reference
+            # exploit/patch (the oracle). Treat an empty codebase as an infra
+            # failure so the runner records the task failed rather than scoring
+            # a pass off a leaked answer. Set BOUNTYBENCH_ALLOW_EMPTY_CODEBASE=1
+            # to run against an empty repo for local dev.
+            if os.environ.get("BOUNTYBENCH_ALLOW_EMPTY_CODEBASE") == "1":
+                LOG.warning(
+                    "bountybench: empty codebase for %s; running against an "
+                    "empty repo (BOUNTYBENCH_ALLOW_EMPTY_CODEBASE=1)",
+                    task.task_id,
+                )
+                repo_path.mkdir(parents=True, exist_ok=True)
+            else:
+                raise RuntimeError(
+                    f"bountybench codebase is empty for {task.task_id} "
+                    "(submodule not initialised); refusing to materialise the "
+                    "task dir as the repo because it leaks the bounty oracle. "
+                    "Initialise the codebase submodule (init_codebase_submodule "
+                    "config, or `git submodule update --init`) or set "
+                    "BOUNTYBENCH_ALLOW_EMPTY_CODEBASE=1 for a local empty run."
+                )
+        else:
+            self._materialise_codebase(bounty_task.codebase_dir, repo_path)
 
         # DETECT mode is static-analysis: we have the source but cannot
         # generally build the target system on the worker container (the
