@@ -11,17 +11,18 @@ import base64
 import binascii
 from pathlib import Path
 
-from evaluation.cybergym_bugmatch import _parse_verdict
-from evaluation.cybergym_check import _scorecard_html, _scorecard_md
-from evaluation.cybergym_recheck import _decode_b64_line
-from evaluation.cybergym_verify import (
+from evaluation.cybergym_eval import (
+    _decode_b64_line,
     _decode_marker,
+    _parse_verdict,
+    _scorecard_html,
+    _scorecard_md,
     default_mask_map,
     extract_from_rollout,
 )
 
 
-# --- cybergym_verify._decode_marker -------------------------------------------
+# --- cybergym_eval._decode_marker -------------------------------------------
 
 
 def test_decode_marker_b64_and_hex() -> None:
@@ -39,7 +40,7 @@ def test_decode_marker_absent_or_invalid() -> None:
     assert _decode_marker("__POC_BYTES__b64=@@@@") is None
 
 
-# --- cybergym_verify.extract_from_rollout -------------------------------------
+# --- cybergym_eval.extract_from_rollout -------------------------------------
 
 
 def test_extract_from_rollout_written_file(tmp_path: Path) -> None:
@@ -78,7 +79,7 @@ def test_extract_from_rollout_not_found(tmp_path: Path) -> None:
     assert source == "not_found_in_rollout"
 
 
-# --- cybergym_verify.default_mask_map -----------------------------------------
+# --- cybergym_eval.default_mask_map -----------------------------------------
 
 
 def test_default_mask_map_env_override(monkeypatch) -> None:
@@ -93,7 +94,7 @@ def test_default_mask_map_home_fallback(monkeypatch) -> None:
     assert "~" not in resolved  # expanduser() was applied
 
 
-# --- cybergym_bugmatch._parse_verdict -----------------------------------------
+# --- cybergym_eval._parse_verdict -----------------------------------------
 
 
 def test_parse_verdict_match() -> None:
@@ -114,7 +115,7 @@ def test_parse_verdict_freeform_fallback() -> None:
     assert _parse_verdict("Yeah, a clear MATCH here.")[0] == "MATCH"
 
 
-# --- cybergym_recheck._decode_b64_line ----------------------------------------
+# --- cybergym_eval._decode_b64_line ----------------------------------------
 
 
 def test_decode_b64_line_prefixed() -> None:
@@ -134,7 +135,7 @@ def test_decode_b64_line_none() -> None:
     assert _decode_b64_line("no base64 content here !!!") is None
 
 
-# --- cybergym_check scorecard renderers ---------------------------------------
+# --- cybergym_eval scorecard renderers ---------------------------------------
 
 
 def _rows() -> list[dict]:
