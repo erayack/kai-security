@@ -7,6 +7,7 @@ Subcommands:
 * ``status`` -- print a one-shot summary for a benchmark run directory.
 * ``watch`` -- live (refreshing) view of an in-flight run.
 * ``report`` -- render an existing run as Markdown or JSON to stdout.
+* ``view`` -- render a rollout directory as a self-contained HTML trace viewer.
 * ``enqueue`` -- push tasks into the shared Postgres queue for Railway workers.
 
 The CLI is deliberately thin -- it instantiates an adapter, an optional
@@ -135,6 +136,29 @@ def _build_argparser() -> argparse.ArgumentParser:
     )
     report.add_argument("run_dir", type=Path)
     report.add_argument("--format", choices=["markdown", "json"], default="markdown")
+
+    view = sub.add_parser(
+        "view",
+        help="Render a rollout directory as a self-contained HTML trace viewer.",
+    )
+    view.add_argument(
+        "rollout_dir",
+        type=Path,
+        help="Directory with per-agent <agent>.jsonl rollouts (+ optional score.json).",
+    )
+    view.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help="Output HTML path (default: <rollout_dir>/trace.html).",
+    )
+    view.add_argument(
+        "--open",
+        dest="open_browser",
+        action="store_true",
+        help="Open the generated file in the default browser.",
+    )
 
     enqueue = sub.add_parser(
         "enqueue",
@@ -620,6 +644,21 @@ def _cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_view(args: argparse.Namespace) -> int:
+    from evaluation.trace_viewer import write_html
+
+    if not args.rollout_dir.is_dir():
+        print(f"{args.rollout_dir} is not a directory", file=sys.stderr)
+        return 2
+    out = write_html(args.rollout_dir, args.output)
+    print(f"wrote {out}")
+    if args.open_browser:
+        import webbrowser
+
+        webbrowser.open(out.resolve().as_uri())
+    return 0
+
+
 def _render_db_summary_table(summary: RunSummary) -> Table:
     table = Table(title=f"{summary.benchmark} run {summary.run_id}")
     table.add_column("metric")
@@ -764,6 +803,7 @@ def main(argv: list[str] | None = None) -> int:
         "status": _cmd_status,
         "watch": _cmd_watch,
         "report": _cmd_report,
+        "view": _cmd_view,
         "enqueue": _cmd_enqueue,
         "rejudge": _cmd_rejudge,
     }
