@@ -70,11 +70,6 @@ evaluation_output/
 # Claude Code local config / cache
 .claude/
 
-# researcher-eval workbench (local-only inputs / results / prompt variants)
-data/researcher_eval/
-
-# rollout dumps for post-mortem analysis (local-only)
-data/rollouts-*/
-
-# cybergym prompt-eval workbench outputs (local-only)
-data/cybergym_prompt_eval/
+# data/ is entirely local-only: scratch docs + eval/rollout workbench output.
+# Never commit it (use `git add -f` if a specific file is ever meant to ship).
+data/
