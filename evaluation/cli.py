@@ -160,6 +160,43 @@ def _build_argparser() -> argparse.ArgumentParser:
         help="Open the generated file in the default browser.",
     )
 
+    index = sub.add_parser(
+        "index",
+        help="Build one overall index.html linking every rollout's trace + verdict.",
+    )
+    index.add_argument(
+        "dir",
+        type=Path,
+        help="Parent dir of pulled rollout task dirs (each with score.json).",
+    )
+    index.add_argument(
+        "-o",
+        "--out",
+        type=Path,
+        default=None,
+        help="Output HTML path (default: <dir>/index.html).",
+    )
+    index.add_argument(
+        "--no-traces",
+        action="store_true",
+        help="Skip (re)rendering per-rollout trace.html; build only the index.",
+    )
+    index.add_argument(
+        "--no-judge",
+        action="store_true",
+        help="Skip the LLM found-bug judge (cybergym bugmatch); adapter verdicts only.",
+    )
+    index.add_argument(
+        "--model-soft",
+        default=None,
+        help="OpenRouter model for the found-bug judge (default: cybergym_eval's).",
+    )
+    index.add_argument(
+        "--or-key",
+        default=os.environ.get("OPENROUTER_API_KEY", ""),
+        help="OpenRouter key for the found-bug judge (default: $OPENROUTER_API_KEY).",
+    )
+
     enqueue = sub.add_parser(
         "enqueue",
         help="Push tasks into the shared Postgres queue for Railway workers.",
@@ -659,6 +696,247 @@ def _cmd_view(args: argparse.Namespace) -> int:
     return 0
 
 
+def _read_score_json(task_dir: Path) -> dict[str, Any]:
+    """Best-effort load of a rollout dir's ``score.json`` (``{}`` on miss)."""
+
+    try:
+        data = json.loads((task_dir / "score.json").read_text(errors="replace"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _verdict_detail(
+    benchmark: str, score: dict[str, Any], details: dict[str, Any]
+) -> str:
+    """One-line, benchmark-specific verdict detail for the index table."""
+
+    if benchmark == "evmbench":
+        matched, oracle = details.get("n_matched"), details.get("n_oracle_vulns")
+        if matched is not None and oracle is not None:
+            return f"{matched}/{oracle} vulns matched"
+    if benchmark == "cybergym":
+        return str(details.get("poc_source") or score.get("failure_reason") or "")
+    return ""
+
+
+def _gallery_row(task_dir: Path) -> dict[str, Any]:
+    """Summarise one rollout dir for the overall index."""
+
+    score = _read_score_json(task_dir)
+    ref = score.get("task_ref") or {}
+    details = score.get("details") or {}
+    benchmark = str(ref.get("benchmark") or details.get("benchmark") or "rollout")
+    success = score.get("success")
+    return {
+        "dir": task_dir.name,
+        "benchmark": benchmark,
+        "task_id": str(ref.get("task_id") or details.get("task_id") or task_dir.name),
+        "success": bool(success) if success is not None else None,
+        "failure": str(score.get("failure_reason") or score.get("failure") or ""),
+        "detail": _verdict_detail(benchmark, score, details),
+        "has_trace": (task_dir / "trace.html").exists(),
+    }
+
+
+_GALLERY_STYLE = (
+    "body{font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#0e1116;"
+    "color:#d6deeb;margin:24px;max-width:1100px}h1{font-size:18px;margin:0 0 4px}"
+    ".sum{color:#9fb0c3;margin:0 0 18px}table{border-collapse:collapse;width:100%}"
+    "th,td{text-align:left;padding:8px 11px;border-bottom:1px solid #232b36;"
+    "vertical-align:top}th{color:#8a99ad;font-size:12px;text-transform:uppercase;"
+    "letter-spacing:.04em}.mono{font-family:ui-monospace,Menlo,monospace}"
+    ".b{padding:1px 9px;border-radius:999px;font-size:12px;background:#1c2430}"
+    ".ok{background:#10331f;color:#7ee2a8}.fail{background:#3a1717;color:#ff9b9b}"
+    ".mut{color:#6f7e92}a{color:#7fdbca;text-decoration:none}"
+    "a:hover{text-decoration:underline}"
+    "tr.exp>td{cursor:pointer}tr.exp:hover>td{background:#141b24}"
+    ".caret{color:#6f7e92;display:inline-block;width:13px}"
+    "tr.det{display:none}tr.det.open{display:table-row}"
+    "tr.det>td{background:#0b1119;padding:6px 14px 13px}"
+    ".lbl{font-size:11px;text-transform:uppercase;letter-spacing:.05em;"
+    "color:#6f7e92;margin:9px 0 4px}.jr{color:#cdd9e5}"
+    "pre{white-space:pre-wrap;word-break:break-word;background:#0b1620;"
+    "border:1px solid #1b2a36;border-radius:6px;padding:9px;font-size:12.5px;margin:0}"
+)
+
+# Click an expandable (cybergym) row to toggle the judge-reasoning row beneath
+# it; clicking the trace link inside the row must not also toggle it.
+_GALLERY_SCRIPT = (
+    "<script>"
+    "document.querySelectorAll('tr.exp').forEach(function(r){"
+    "r.addEventListener('click',function(e){"
+    "if(e.target.tagName==='A')return;"
+    "var d=r.nextElementSibling;"
+    "if(d&&d.classList.contains('det'))d.classList.toggle('open');"
+    "});});"
+    "</script>"
+)
+
+
+def _render_gallery_html(rows: list[dict[str, Any]], title: str) -> str:
+    """Overall index: per-benchmark summary + a row per rollout linking its trace."""
+
+    import html as _h
+    from urllib.parse import quote
+
+    def esc(value: object) -> str:
+        return _h.escape("" if value is None else str(value))
+
+    by_bench: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_bench.setdefault(str(row["benchmark"]), []).append(row)
+    summary_lines: list[str] = []
+    for bench, rs in sorted(by_bench.items()):
+        passed = sum(1 for r in rs if r["success"])
+        line = f"{esc(bench)}: <b>{passed}/{len(rs)}</b> pass"
+        judged = [r for r in rs if r.get("found_bug")]
+        if judged:
+            match = sum(1 for r in judged if r["found_bug"] == "MATCH")
+            line += f" &middot; <b>{match}/{len(rs)}</b> found-bug (LLM)"
+        summary_lines.append(line)
+    summary = "<br>".join(summary_lines)
+
+    trs: list[str] = []
+    for row in rows:
+        if row["success"] is True:
+            verdict = '<span class="b ok">&#10003; pass</span>'
+        elif row["success"] is False:
+            verdict = '<span class="b fail">&#10007; fail</span>'
+        else:
+            verdict = '<span class="b">&mdash;</span>'
+        found = str(row.get("found_bug") or "")
+        if found == "MATCH":
+            found_cell = '<span class="b ok">MATCH</span>'
+        elif found == "NO_MATCH":
+            found_cell = '<span class="b fail">NO_MATCH</span>'
+        elif found == "UNKNOWN":
+            found_cell = '<span class="b">UNKNOWN</span>'
+        else:
+            found_cell = '<span class="mut">&mdash;</span>'
+        trace = (
+            f'<a href="./{quote(str(row["dir"]))}/trace.html">trace &rarr;</a>'
+            if row["has_trace"]
+            else '<span class="mut">&mdash;</span>'
+        )
+        expandable = bool(row.get("found_bug"))
+        caret = '<span class="caret">&#9656;</span>' if expandable else ""
+        trs.append(
+            ('<tr class="exp">' if expandable else "<tr>")
+            + '<td class="mono">'
+            + caret
+            + esc(row["task_id"])
+            + "</td><td>"
+            + esc(row["benchmark"])
+            + "</td><td>"
+            + verdict
+            + "</td><td>"
+            + found_cell
+            + "</td><td>"
+            + esc(row["detail"])
+            + '</td><td class="mut">'
+            + esc(row["failure"])
+            + "</td><td>"
+            + trace
+            + "</td></tr>"
+        )
+        if expandable:
+            trs.append(
+                '<tr class="det"><td colspan="7">'
+                '<div class="lbl">documented bug (ground truth)</div><pre>'
+                + esc(row.get("ground_truth") or "(none recorded for this task)")
+                + "</pre>"
+                '<div class="lbl">agent hypothesis (what it found / where)</div><pre>'
+                + esc(row.get("hypothesis") or "(none)")
+                + "</pre>"
+                '<div class="lbl">judge decision &amp; reasoning</div><div class="jr">'
+                + esc(row["found_bug"])
+                + " &mdash; "
+                + esc(row.get("found_bug_reason") or "")
+                + "</div></td></tr>"
+            )
+
+    return (
+        '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        "<title>"
+        + esc(title)
+        + " &mdash; rollouts</title><style>"
+        + _GALLERY_STYLE
+        + "</style></head><body><h1>"
+        + esc(title)
+        + "</h1>"
+        '<div class="sum">'
+        + str(len(rows))
+        + " rollouts &middot; "
+        + summary
+        + "</div><table><tr><th>task</th><th>benchmark</th><th>adapter</th>"
+        "<th>found-bug (LLM)</th><th>detail</th><th>failure</th><th>trace</th></tr>"
+        + "".join(trs)
+        + "</table>"
+        + _GALLERY_SCRIPT
+        + "</body></html>"
+    )
+
+
+def _cmd_index(args: argparse.Namespace) -> int:
+    from evaluation.trace_viewer import write_html
+
+    base: Path = args.dir
+    if not base.is_dir():
+        print(f"{base} is not a directory", file=sys.stderr)
+        return 2
+    task_dirs = sorted(
+        p for p in base.iterdir() if p.is_dir() and (p / "score.json").exists()
+    )
+    if not task_dirs:
+        print(f"no rollout dirs with score.json under {base}", file=sys.stderr)
+        return 2
+
+    # Optional LLM "found-bug" judge: reuse cybergym_eval.bugmatch (does the
+    # agent's hypothesis match the documented bug?) for cybergym rollouts.
+    judge: tuple[Any, Any, str, str] | None = None
+    if not args.no_judge and args.or_key:
+        from evaluation.cybergym_eval import DEFAULT_SOFT_MODEL
+        from evaluation.cybergym_eval import bugmatch as _bugmatch
+        from evaluation.cybergym_eval import load_truth_and_hypothesis as _truth
+
+        judge = (_bugmatch, _truth, args.model_soft or DEFAULT_SOFT_MODEL, args.or_key)
+    elif not args.no_judge:
+        print(
+            "no OPENROUTER_API_KEY (or --or-key): skipping the found-bug judge "
+            "(adapter verdicts only). Pass --no-judge to silence this.",
+            file=sys.stderr,
+        )
+
+    rows: list[dict[str, Any]] = []
+    for task_dir in task_dirs:
+        if not args.no_traces:
+            try:
+                write_html(task_dir, None)
+            except Exception as exc:  # noqa: BLE001 - one bad dir must not abort
+                LOG.warning("trace render failed for %s: %s", task_dir.name, exc)
+        row = _gallery_row(task_dir)
+        if judge is not None and row["benchmark"] == "cybergym":
+            judge_fn, truth_fn, soft_model, api_key = judge
+            try:
+                bm = judge_fn(task_dir, soft_model, api_key)
+                row["found_bug"] = str(bm.get("verdict") or "")
+                row["found_bug_reason"] = str(bm.get("reason") or "")
+                ground_truth, hypothesis = truth_fn(task_dir)
+                row["ground_truth"] = ground_truth[:1800]
+                row["hypothesis"] = hypothesis[:1800]
+            except Exception as exc:  # noqa: BLE001 - a judge miss must not abort
+                LOG.warning("found-bug judge failed for %s: %s", task_dir.name, exc)
+        rows.append(row)
+
+    out: Path = args.out or (base / "index.html")
+    out.write_text(_render_gallery_html(rows, base.name), encoding="utf-8")
+    judged = sum(1 for r in rows if r.get("found_bug"))
+    print(f"wrote {out}  ({len(rows)} rollouts, {judged} LLM-judged)")
+    return 0
+
+
 def _render_db_summary_table(summary: RunSummary) -> Table:
     table = Table(title=f"{summary.benchmark} run {summary.run_id}")
     table.add_column("metric")
@@ -804,6 +1082,7 @@ def main(argv: list[str] | None = None) -> int:
         "watch": _cmd_watch,
         "report": _cmd_report,
         "view": _cmd_view,
+        "index": _cmd_index,
         "enqueue": _cmd_enqueue,
         "rejudge": _cmd_rejudge,
     }
