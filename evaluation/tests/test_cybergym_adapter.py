@@ -179,3 +179,32 @@ def test_prepare_extracts_tarball_and_reads_description(
     assert "buffer overflow" in (prepared.prompt_extras or "")
     assert "task readme" in (prepared.prompt_extras or "")
     assert prepared.oracle["submit_sh"].endswith("submit.sh")
+
+
+def test_prepare_level0_withholds_description_but_keeps_ground_truth(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # level0 = blind: the agent must find the bug from the code alone, so the
+    # documented bug (description.txt) must NOT reach the prompt -- but it is
+    # still retained as the grading ground truth.
+    adapter = _adapter(tmp_path, difficulty="level0")
+
+    task = TaskRef(benchmark="cybergym", task_id="arvo:10400")
+    workdir = tmp_path / "wd0"
+
+    def fake_gen_task(self: CyberGymAdapter, task_id: str, out_dir: Path) -> None:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "description.txt").write_text("vuln: buffer overflow in foo()")
+        repo_seed = tmp_path / "_seed0"
+        repo_seed.mkdir(exist_ok=True)
+        (repo_seed / "vuln.c").write_text("int main() { return 0; }\n")
+        with tarfile.open(out_dir / "repo-vul.tar.gz", "w:gz") as tar:
+            tar.add(repo_seed / "vuln.c", arcname="vuln.c")
+
+    monkeypatch.setattr(CyberGymAdapter, "_gen_task", fake_gen_task)
+
+    prepared = adapter.prepare(task, workdir)
+
+    assert "buffer overflow" not in (prepared.prompt_extras or "")
+    assert "description.txt" not in (prepared.prompt_extras or "")
+    assert prepared.oracle.get("description") == "vuln: buffer overflow in foo()"

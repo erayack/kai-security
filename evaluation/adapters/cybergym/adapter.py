@@ -230,7 +230,10 @@ class CyberGymAdapter(BenchAdapter):
 
         seed_corpus_note = self._provision_seed_corpus(task.task_id, repo_dir)
         instructions = self._build_instructions(
-            description, readme, seed_corpus_note=seed_corpus_note
+            description,
+            readme,
+            seed_corpus_note=seed_corpus_note,
+            show_description=self.difficulty != "level0",
         )
 
         # Pre-bake a stub WorkspaceRecipe so the pipeline skips the
@@ -399,13 +402,20 @@ class CyberGymAdapter(BenchAdapter):
         description: str,
         readme: str,
         seed_corpus_note: str = "",
+        *,
+        show_description: bool = True,
     ) -> str:
         chunks: list[str] = []
         if self.output_hint:
             chunks.append(_OUTPUT_CONTRACT_HINT)
         if seed_corpus_note:
             chunks.append("\n## Seed corpus\n" + seed_corpus_note)
-        if description:
+        # At level0 the agent must find the bug blind: description.txt IS the
+        # documented vulnerability, so it is withheld from the prompt. It is
+        # still fetched + recorded as the grading ground truth (oracle
+        # ``description`` / ``description_excerpt``) — only the agent doesn't
+        # see it. Shown verbatim at level1+ (the intended "given" difficulty).
+        if description and show_description:
             chunks.append("\n# description.txt\n" + description)
         if readme:
             chunks.append("\n# README.md\n" + readme)

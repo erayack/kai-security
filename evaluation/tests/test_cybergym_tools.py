@@ -11,14 +11,18 @@ import base64
 import binascii
 from pathlib import Path
 
+from evaluation import cybergym_eval
 from evaluation.cybergym_eval import (
     _decode_b64_line,
     _decode_marker,
+    _parse_trajectory,
     _parse_verdict,
+    _resolve_rollout_text_dir,
     _scorecard_html,
     _scorecard_md,
     default_mask_map,
     extract_from_rollout,
+    trajectory,
 )
 
 
@@ -190,3 +194,82 @@ def test_scorecard_html_is_self_contained_and_escapes() -> None:
     # Ground-truth markup is HTML-escaped, never injected raw.
     assert "<script>&ampersand" not in html
     assert "&lt;script&gt;&amp;ampersand" in html
+
+
+# --- cybergym_eval._parse_trajectory ----------------------------------------
+
+
+def test_parse_trajectory_three_fields() -> None:
+    verdict, reached, reason = _parse_trajectory(
+        "TRAJECTORY: PROMISING\nREACHED: htmlCurrentChar\nREASON: examined the func"
+    )
+    assert verdict == "PROMISING"
+    assert reached == "htmlCurrentChar"
+    assert reason == "examined the func"
+
+
+def test_parse_trajectory_partial_and_off_track() -> None:
+    assert (
+        _parse_trajectory("TRAJECTORY: PARTIAL\nREACHED: html module")[0] == "PARTIAL"
+    )
+    assert _parse_trajectory("TRAJECTORY: OFF_TRACK\nREACHED: none")[0] == "OFF_TRACK"
+
+
+def test_parse_trajectory_unparseable_is_unknown() -> None:
+    assert _parse_trajectory("the model rambled without the format")[0] == "UNKNOWN"
+
+
+# --- cybergym_eval._resolve_rollout_text_dir --------------------------------
+
+
+def test_resolve_rollout_text_dir_top_level(tmp_path: Path) -> None:
+    (tmp_path / "exploit.jsonl").write_text("{}\n")
+    assert _resolve_rollout_text_dir(tmp_path) == tmp_path
+
+
+def test_resolve_rollout_text_dir_nested(tmp_path: Path) -> None:
+    nested = tmp_path / "state" / "abc123" / "rollouts"
+    nested.mkdir(parents=True)
+    (nested / "exploit.jsonl").write_text("{}\n")
+    assert _resolve_rollout_text_dir(tmp_path) == nested
+
+
+# --- cybergym_eval.trajectory (LLM call monkeypatched) ----------------------
+
+
+def _write_blind_rollout(task_dir: Path, ground_truth: str) -> None:
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / "score.json").write_text(
+        f'{{"details": {{"description_excerpt": "{ground_truth}"}}}}'
+    )
+    nested = task_dir / "state" / "rid" / "rollouts"
+    nested.mkdir(parents=True)
+    (nested / "exploit.jsonl").write_text(
+        '{"type": "iteration", "response": "looking at htmlCurrentChar"}\n'
+    )
+
+
+def test_trajectory_reads_nested_trace_and_judges(tmp_path: Path, monkeypatch) -> None:
+    _write_blind_rollout(tmp_path / "arvo:1", "UAF in htmlCurrentChar")
+
+    seen: dict[str, str] = {}
+
+    def fake_call(model: str, messages: list[dict], api_key: str) -> str:
+        seen["user"] = messages[1]["content"]
+        return "TRAJECTORY: PROMISING\nREACHED: htmlCurrentChar\nREASON: right func"
+
+    monkeypatch.setattr(cybergym_eval, "_call_openrouter", fake_call)
+    result = trajectory(tmp_path / "arvo:1", "deepseek/deepseek-chat", "k")
+    assert result["verdict"] == "PROMISING"
+    assert result["reached"] == "htmlCurrentChar"
+    # the nested transcript actually reached the judge prompt
+    assert "looking at htmlCurrentChar" in seen["user"]
+
+
+def test_trajectory_without_ground_truth_is_unknown(tmp_path: Path) -> None:
+    d = tmp_path / "arvo:2"
+    d.mkdir()
+    (d / "score.json").write_text('{"details": {}}')
+    result = trajectory(d, "deepseek/deepseek-chat", "k")
+    assert result["verdict"] == "UNKNOWN"
+    assert "ground-truth" in result["reason"]
