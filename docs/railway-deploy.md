@@ -27,6 +27,34 @@ the Docker image starts. It:
 3. Loops over `claim_next() -> _run_task() -> complete()`.
 4. Exits cleanly on `SIGTERM` so Railway can recycle the container.
 
+## Operational golden rules (read these first)
+
+These are the lessons that cost the most time. Internalise them before you
+run a fleet — most "lost run" and "it didn't take" surprises trace back to
+one of these.
+
+1. **A redeploy wipes replica disk.** `railway up` — and any replica
+   recycle — rebuilds the containers, so every rollout under `output/` on
+   the old container is *gone*. Rollouts live only on the replica's
+   ephemeral disk, never in Postgres. **Always pull rollouts before you
+   redeploy, scale down, or change a variable that needs a redeploy.** See
+   [Pulling rollouts](#pulling-rollouts).
+2. **Env changes do not reach a running worker.** The worker reads its
+   environment once, at process start. `railway variables --set …` updates
+   stored config but **not** the live process — you must `railway up` to
+   apply it (and, per rule 1, pull first).
+3. **Replica count lives in `railway.json`, not in a scale command.** Edit
+   `deploy.numReplicas` and `railway up`. Ad-hoc scale commands / the
+   dashboard slider did not reliably take in our runs. `railway down` stops
+   the fleet.
+4. **Enqueue into the same Postgres the workers poll.** If the project has
+   more than one Postgres, enqueueing into the wrong one leaves tasks
+   `pending` forever while the workers sit idle. The `DATABASE_URL` you
+   enqueue with must equal the workers' `DATABASE_URL`.
+5. **Pull per replica, keyed by `worker_id`.** Each task ran on exactly one
+   replica. A plain `railway ssh` only reaches the *first* instance and
+   silently misses the rest — target the exact replica that ran the task.
+
 ## One-time setup
 
 ### 1. Create the project
@@ -131,17 +159,76 @@ uv run python -m evaluation.cli status <run_id>
 Both subcommands fall back to the local `output/bench/...` summary when
 `DATABASE_URL` is unset, so single-machine usage is unchanged.
 
-## Scaling
+`BENCHMARK_RUN_ID` scopes a worker to one run; **leave it unset and the
+worker claims tasks from _any_ run.** The worker rebuilds its adapter
+per-task from the run's stored `config`, so a single fleet can serve
+several runs (even at different difficulties) concurrently — pin a fleet to
+one run only when you need the isolation.
 
-To run with N parallel workers:
+## Pulling rollouts
 
-```bash
-railway service scale bench-worker --replicas 4
+Rollouts live on each replica's **ephemeral** disk under
+`output/bench/<benchmark>/run_<run_id>/<task_id>/`. They are never written
+to Postgres and they do **not** survive a redeploy — so pull them to your
+machine the moment a run goes all-terminal, and **before** any `railway up`
+(golden rules 1 & 5).
+
+**1. Find which replica ran each task.** The worker stamps its replica id
+(`RAILWAY_REPLICA_ID`) onto every row as `worker_id`:
+
+```sql
+select task_id, status, worker_id from bench_tasks where run_id = '<run_id>';
 ```
 
-Each replica claims one task at a time. Multiple replicas never race on
-the same row because `claim_next` uses Postgres' `FOR UPDATE SKIP
-LOCKED`.
+**2. Pull from that exact replica.** A target-less `railway ssh` only lands
+on the first instance and silently misses the rest; pin the replica with
+`--deployment-instance <worker_id>`:
+
+```bash
+railway ssh --service <worker> --deployment-instance <worker_id> -- \
+  "tar czf - --exclude='*repo-vul.tar.gz' \
+     -C /app/output/bench/<benchmark>/run_<run_id> <task_id> | base64 -w0" \
+  > <task_id>.b64
+
+python3 - "$task_id" <<'PY'   # decode + extract locally
+import base64, io, sys, tarfile
+raw = base64.b64decode(open(f"{sys.argv[1]}.b64").read())
+tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz").extractall("rollouts/")
+PY
+```
+
+Why the dance:
+
+* **`tar | base64`, not raw `tar`** — a raw binary stream gets corrupted
+  over the SSH websocket; base64 rides through intact.
+* **`--exclude` the large task inputs** (e.g. cybergym's `repo-vul.tar.gz`)
+  — they are tens of MB of *input*, not rollout, and big enough to overrun
+  the channel and make the pull look "flaky".
+
+Then build a browsable gallery over the pulled dir with `uv run python -m
+evaluation.cli index <dir>/` (see [`evaluation/README.md`](../evaluation/README.md)).
+
+## Replicas, redeploys & teardown
+
+Set the replica count in `railway.json`, then apply it with `railway up`:
+
+```json
+{ "deploy": { "numReplicas": 3, "startCommand": "python -m evaluation.worker" } }
+```
+
+Each replica claims one task at a time; replicas never race on a row
+because `claim_next` uses Postgres' `FOR UPDATE SKIP LOCKED`.
+
+> **Every `railway up` is a fresh rollout.** It rebuilds the image and
+> replaces the running containers, wiping their `output/` disk — and it is
+> the *only* way to push an env-var change into running workers. Pull
+> rollouts first (golden rule 1).
+
+Stop the fleet once a run is done **and pulled**:
+
+```bash
+railway down --service <worker>   # removes the running deployment (→ 0 workers)
+```
 
 ## Cost guardrails
 
@@ -154,8 +241,11 @@ LOCKED`.
   Resources, cap memory (2 GB is enough for one CyberGym task) and
   CPU (1 vCPU).
 * **Auto-exit when idle.** Set `BENCHMARK_IDLE_EXIT_AFTER=300` to have
-  workers exit after 5 minutes of empty queue; combined with
-  `restartPolicyType: ON_FAILURE` you avoid paying for idle containers.
+  workers exit after 5 minutes of empty queue and stop paying for idle
+  containers. **Caveat:** an exited worker frees its container, so its
+  ephemeral disk — and any rollouts you have not pulled — can be reclaimed.
+  For long unattended runs, leave idle-exit **unset** so workers stay up
+  holding their disk until you have pulled (golden rule 1).
 * **Use `BENCHMARK_RUN_ID`** to scope a replica to a single run so a
   runaway batch can't pull tasks from an unrelated run.
 
@@ -172,6 +262,21 @@ LOCKED`.
 * **`HEALTHCHECK` keeps failing.** Usually means the build copied the
   wrong source tree (missing `evaluation/`). Verify `.dockerignore`
   isn't excluding it.
+* **Tasks stay `pending` while workers sit idle.** The enqueue and the
+  workers point at *different* Postgres instances (golden rule 4), or a
+  worker's `BENCHMARK_RUN_ID` pins it to a run with no pending tasks.
+  Confirm both `DATABASE_URL`s match and the run id lines up.
+* **A variable change had no effect.** The running worker read its env at
+  startup; `railway variables --set` alone never reaches it. `railway up`
+  to redeploy — after pulling rollouts (golden rules 1 & 2).
+* **Rollouts are missing after a run.** Either a `railway up` / recycle
+  wiped them before they were pulled (gone — pull *before* redeploying), or
+  the pull only hit the first replica. Re-pull per replica by `worker_id`
+  (golden rule 5).
+* **A pulled archive is tiny or won't extract.** It was streamed as raw
+  binary `tar` and the SSH websocket corrupted it. Use `tar | base64` and
+  decode locally, and `--exclude` large task-input blobs (see
+  [Pulling rollouts](#pulling-rollouts)).
 
 ## Where you provide secrets
 

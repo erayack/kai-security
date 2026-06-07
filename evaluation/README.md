@@ -56,12 +56,51 @@ output/bench/<benchmark>/run_<run_id>/
     └── score.json          # adapter's TaskScore
 ```
 
+## Post-hoc grading & inspection
+
+Each adapter writes a `score.json` inline, but cybergym's authoritative
+scoring is decoupled into `evaluation.cybergym_eval` so it can run after a
+batch finishes, against a CyberGym server you run yourself. The LLM judges
+default to an OSS model on OpenRouter (`$OPENROUTER_API_KEY`).
+
+| subcommand   | what it answers                                                              | reads               |
+|--------------|-----------------------------------------------------------------------------|---------------------|
+| `verify`     | Do these PoC bytes actually crash the target? (the oracle)                  | a PoC file / base64 |
+| `recheck`    | Can we reproduce the crash from a pulled rollout?                           | rollout + server    |
+| `bugmatch`   | Does the agent's *final hypothesis* match the documented bug?               | `score.json`        |
+| `trajectory` | How close did the agent's *exploration* get — PROMISING / PARTIAL / OFF_TRACK? Credits a blind run that reached the right code but timed out before concluding. | full rollout transcript |
+| `check`      | Batch soft + hard scorecard over many pulled rollouts.                      | a dir of rollouts   |
+
+```bash
+# how close did a blind run get to the bug?
+uv run python -m evaluation.cybergym_eval trajectory --from-rollout <task_dir>
+
+# agent's final hypothesis vs the documented bug
+uv run python -m evaluation.cybergym_eval bugmatch --from-rollout <task_dir>
+
+# batch scorecard (the hard column needs the CyberGym server)
+uv run python -m evaluation.cybergym_eval check --dir <rollouts_parent> \
+    --server http://127.0.0.1:8666 --mask-map mask_map.json
+```
+
+Build a browsable gallery — an overall index plus a per-rollout trace
+viewer, with the found-bug judge inline — over any dir of pulled rollouts:
+
+```bash
+uv run python -m evaluation.cli index <rollouts_dir>/   # writes <rollouts_dir>/index.html
+```
+
+For distributed runs across a worker fleet (enqueue → workers → pull), see
+[`docs/railway-deploy.md`](../docs/railway-deploy.md).
+
 ## Built-in adapters
 
-| name       | status        | notes                                          |
-|------------|---------------|------------------------------------------------|
-| `noop`     | ✅ available  | Plumbing test — always succeeds.               |
-| `cybergym` | 🚧 in progress | UC Berkeley CyberGym (1,507 repro tasks).      |
+| name          | status       | notes                                                                                            |
+|---------------|--------------|--------------------------------------------------------------------------------------------------|
+| `noop`        | ✅ available | Plumbing test — always succeeds.                                                                 |
+| `cybergym`    | ✅ available | UC Berkeley CyberGym crash-repro tasks; run blind (`level0`) or with the bug description given (`level1`). |
+| `bountybench` | ✅ available | Real-world bug-bounty tasks; scores on the found CWE + PoC.                                       |
+| `evmbench`    | ✅ available | EVM/Solidity audit tasks (frontier-evals + Foundry baked into the image).                         |
 
 ## Adding a new adapter
 
