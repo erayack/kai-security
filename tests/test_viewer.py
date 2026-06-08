@@ -60,6 +60,21 @@ def _write_run(dir_path: Path) -> None:
     )
 
 
+def test_load_findings_drops_deduplicated(tmp_path: Path) -> None:
+    records = [
+        {"exploit_id": "keep", "status": "verified_and_fixed", "confirmed": True,
+         "hypothesis": "real bug", "file": "A.sol", "function": "f",
+         "category": "active_exploit", "severity": "high", "cvss_score": 8.0},
+        {"exploit_id": "dup", "status": "deduplicated", "confirmed": None,
+         "hypothesis": "merged duplicate", "file": "A.sol", "function": "f",
+         "category": "active_exploit"},
+    ]
+    (tmp_path / "exploits.json").write_text(json.dumps(records), encoding="utf-8")
+    findings = load_findings(tmp_path)
+    # The deduplicated bookkeeping shell is hidden; the real finding remains.
+    assert [f.exploit_id for f in findings] == ["keep"]
+
+
 def test_load_findings_sorts_and_derives(tmp_path: Path) -> None:
     _write_run(tmp_path)
     findings = load_findings(tmp_path)

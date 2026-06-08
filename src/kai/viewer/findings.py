@@ -33,6 +33,11 @@ _CVSS_ORDER = ("AV", "AC", "PR", "UI", "S", "C", "I", "A")
 # Status / category ordering: confirmed, runtime-exploitable findings first.
 _SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1, "none": 0}
 
+# Internal bookkeeping records that aren't user-facing findings: when the
+# pipeline merges duplicate hypotheses it keeps the merged-away ones as
+# ``deduplicated`` shells (no severity/PoC). The report and viewer hide them.
+_HIDDEN_STATUSES = {"deduplicated"}
+
 
 @dataclass
 class Finding:
@@ -190,6 +195,10 @@ def load_findings(run_dir: Path) -> list[Finding]:
         return []
     if not isinstance(data, list):
         return []
-    findings = [_finding_from_record(r) for r in data if isinstance(r, dict)]
+    findings = [
+        _finding_from_record(r)
+        for r in data
+        if isinstance(r, dict) and r.get("status") not in _HIDDEN_STATUSES
+    ]
     findings.sort(key=_sort_key, reverse=True)
     return findings
