@@ -66,12 +66,12 @@ test:
 	$(PYTEST)
 
 lint:
-	uv run ruff check src tests
+	uv run ruff check src tests evaluation
 
 typecheck:
-	uv run ty check src
+	uv run ty check src evaluation
 
 format:
-	uv run ruff format src tests scripts
+	uv run ruff format src tests scripts evaluation
 
 check: lint typecheck test

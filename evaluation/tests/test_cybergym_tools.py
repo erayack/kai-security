@@ -272,4 +272,4 @@ def test_trajectory_without_ground_truth_is_unknown(tmp_path: Path) -> None:
     (d / "score.json").write_text('{"details": {}}')
     result = trajectory(d, "deepseek/deepseek-chat", "k")
     assert result["verdict"] == "UNKNOWN"
-    assert "ground-truth" in result["reason"]
+    assert "ground-truth" in str(result["reason"])
