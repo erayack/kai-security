@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -67,3 +68,69 @@ def test_report_delegates(tmp_path: Path, capsys: pytest.CaptureFixture[str]) ->
     out = tmp_path / "r.html"
     assert cli.main(["report", str(tmp_path), "--format", "html", "-o", str(out)]) == 0
     assert out.exists()
+
+
+class _FakeEntryPoint:
+    def __init__(self, handler: object, name: str = "evolve") -> None:
+        self._handler = handler
+        self.name = name
+
+    def load(self) -> object:
+        return self._handler
+
+
+def test_plugin_invoked_console_script_style(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Plugins are zero-arg callables that read sys.argv (the console-script
+    # convention) — NOT functions taking an argv list.
+    seen: dict[str, list[str]] = {}
+
+    def handler() -> int:
+        seen["argv"] = list(sys.argv)
+        return 7
+
+    monkeypatch.setattr(cli, "_plugins", lambda: {"evolve": _FakeEntryPoint(handler)})
+    before = list(sys.argv)
+
+    assert cli.main(["evolve", "run", "--x", "1"]) == 7
+    # The dispatcher pointed sys.argv at the plugin's invocation, then restored.
+    assert seen["argv"] == ["kai evolve", "run", "--x", "1"]
+    assert sys.argv == before
+
+
+def test_plugin_none_return_is_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli, "_plugins", lambda: {"evolve": _FakeEntryPoint(lambda: None)})
+    assert cli.main(["evolve"]) == 0
+
+
+def test_plugin_argv_restored_on_exception(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom() -> int:
+        raise RuntimeError("plugin crashed")
+
+    monkeypatch.setattr(cli, "_plugins", lambda: {"evolve": _FakeEntryPoint(boom)})
+    before = list(sys.argv)
+    with pytest.raises(RuntimeError):
+        cli.main(["evolve", "x"])
+    assert sys.argv == before  # restored even when the plugin raises
+
+
+def test_builtin_wins_over_plugin(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A plugin can't shadow a built-in verb: _plugins() filters them out.
+    fakes = [_FakeEntryPoint(None, name="audit"), _FakeEntryPoint(None, name="evolve")]
+    monkeypatch.setattr("kai.cli.entry_points", lambda group: fakes)
+    plugins = cli._plugins()
+    assert "audit" not in plugins
+    assert "evolve" in plugins
+
+
+def test_usage_lists_plugins(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "_plugins", lambda: {"evolve": _FakeEntryPoint(None)})
+    assert cli.main([]) == 0
+    out = capsys.readouterr().out
+    assert "plugins:" in out and "evolve" in out
+
+
+def test_security_plugin_is_registered() -> None:
+    # kai-security registers itself under kai.plugins, so `kai security …` works.
+    assert "security" in cli._plugins()

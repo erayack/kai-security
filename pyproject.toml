@@ -63,6 +63,13 @@ Issues = "https://github.com/firstbatchxyz/kai-security/issues"
 [project.scripts]
 kai = "kai.cli:main"
 
+# Umbrella contract: register kai-security under the shared `kai.plugins`
+# group so a dispatcher (this CLI today, a dedicated `kai` package later) can
+# offer it as `kai security …`. Sibling tools register their own namespace the
+# same way (e.g. kai-evolve → `evolve`). See docs/umbrella.md.
+[project.entry-points."kai.plugins"]
+security = "kai.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=9.0.2",
