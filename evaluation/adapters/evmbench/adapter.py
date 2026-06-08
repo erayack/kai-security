@@ -423,7 +423,7 @@ class EVMBenchAdapter(BenchAdapter):
         if not cfg_path.exists():
             raise FileNotFoundError(f"evmbench audit config missing: {cfg_path}")
         try:
-            import yaml  # type: ignore[import-untyped]
+            import yaml
         except ImportError as exc:  # pragma: no cover - dep installed in kai
             raise RuntimeError(
                 "evmbench adapter requires PyYAML (already a kai dep)."

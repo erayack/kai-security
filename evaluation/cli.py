@@ -519,13 +519,12 @@ def _cmd_rejudge(args: argparse.Namespace) -> int:
     skipped = 0
     with psycopg.connect(db_url) as conn:
         cur = conn.cursor()
-        placeholder = ",".join(["%s"] * len(reasons))
         cur.execute(
             "SELECT task_db_id, task_id, score_json FROM bench_scores "
             "WHERE benchmark = %s AND run_id = ANY(%s) "
-            f"AND failure IN ({placeholder}) "
+            "AND failure = ANY(%s) "
             "ORDER BY task_id",
-            (args.benchmark, args.run_ids, *reasons),
+            (args.benchmark, args.run_ids, reasons),
         )
         rows = cur.fetchall()
         cur.close()

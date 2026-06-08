@@ -29,13 +29,13 @@ jobs:
             uv.lock
 
       - name: Install dependencies
-        run: uv sync --group dev
+        run: uv sync --group dev --extra railway --extra cybergym
 
       - name: Lint
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests evaluation
 
       - name: Typecheck
-        run: uv run ty check src
+        run: uv run ty check src evaluation
 
       - name: Test
         run: uv run pytest -q -p pytest_asyncio.plugin

@@ -589,7 +589,6 @@ class CyberGymAdapter(BenchAdapter):
                     repo_type="dataset",
                     revision=self.hf_revision,
                     local_dir=str(out_dir),
-                    local_dir_use_symlinks=False,
                 )
             except Exception as exc:  # noqa: BLE001
                 raise RuntimeError(
