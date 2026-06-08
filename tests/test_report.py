@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from kai.report import main, render_markdown, render_run
+from kai.report import main, render_html, render_markdown, render_run
 from kai.viewer.findings import load_findings
 
 _EXPLOITS = [
@@ -84,3 +84,27 @@ def test_main_writes_file(tmp_path: Path) -> None:
 
 def test_main_rejects_non_dir(tmp_path: Path) -> None:
     assert main([str(tmp_path / "nope")]) == 2
+
+
+def test_html_report_is_self_contained_and_styled(tmp_path: Path) -> None:
+    _write_run(tmp_path)
+    html = render_html(load_findings(tmp_path), title="myrepo")
+
+    assert html.startswith("<!DOCTYPE html>")
+    # Fully offline, and shares the viewer's design tokens (one design system).
+    assert "http://" not in html and "https://" not in html
+    assert "--accent:" in html  # tokens from kai.viewer.style
+    assert 'class="finding sev-critical' in html
+    assert "Reentrancy in withdraw" in html
+    assert '<pre class="diff">' in html
+    # The patch diff classes drive the +/- colouring.
+    assert '<span class="del">' in html and '<span class="add">' in html
+
+
+def test_main_format_html_writes_file(tmp_path: Path) -> None:
+    _write_run(tmp_path)
+    rc = main([str(tmp_path), "--format", "html"])
+    assert rc == 0
+    out = tmp_path / "report.html"
+    assert out.exists()
+    assert "Reentrancy in withdraw" in out.read_text(encoding="utf-8")
