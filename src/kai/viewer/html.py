@@ -7,6 +7,10 @@ paper background, one accent colour, severity as a quiet dot + exact score +
 a thin 0-10 bar, the patch as a +/- diff. Every dynamic value is written via
 ``textContent``/DOM nodes, never ``innerHTML``, so unsanitised rollout text
 cannot inject markup.
+
+The palette and shared primitives come from :mod:`kai.viewer.style`, so this
+interactive viewer and the static ``kai report --format html`` document share
+one design system.
 """
 
 from __future__ import annotations
@@ -14,69 +18,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from kai.viewer import style
 from kai.viewer.findings import Finding, load_findings
 from kai.viewer.trace import RunTrace, load_rollout_dir
 
-
-def render_html(run: RunTrace, findings: list[Finding] | None = None) -> str:
-    """Render the full page from a loaded trace + findings list.
-
-    ``findings`` defaults to empty (e.g. a benchmark rollout dir has a trace
-    but no ``exploits.json``); the Findings tab then shows an empty state.
-    """
-
-    findings = findings or []
-    data = {
-        "title": run.title,
-        "benchmark": run.benchmark,
-        "task_id": run.task_id,
-        "models": run.models,
-        "run": run.as_dict(),
-        "findings": [f.as_dict() for f in findings],
-    }
-    # ``</`` would prematurely close the <script>; escape it in the blob.
-    blob = json.dumps(data).replace("</", "<\\/")
-    return _TEMPLATE.replace("__DATA__", blob)
-
-
-def write_html(run_dir: Path, out: Path | None = None) -> Path:
-    """Load ``run_dir`` (trace + findings) and write a single HTML file.
-
-    Defaults to ``<run_dir>/trace.html`` so existing callers that link to
-    that name keep working.
-    """
-
-    run = load_rollout_dir(run_dir)
-    findings = load_findings(run_dir)
-    target = out or (Path(run_dir) / "trace.html")
-    target.write_text(render_html(run, findings), encoding="utf-8")
-    return target
-
-
-_TEMPLATE = r"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>kai — run view</title>
-<style>
-  :root {
-    --paper:#fafaf7; --panel:#fff; --ink:#1a1a1a; --rule:#e3dfd6; --rule-2:#d8d4cc;
-    --muted:#8a857c; --muted-2:#6b665d; --accent:#b3261e; --add:#2f6f43; --del:#9a2a22;
-    --gray-bar:#c8c2b5; --code-bg:#f4f1ea;
-  }
-  [data-theme="dark"] {
-    --paper:#14171b; --panel:#1b1f25; --ink:#e7e3da; --rule:#2a3038; --rule-2:#343b44;
-    --muted:#9aa3ad; --muted-2:#7f8893; --accent:#e5675d; --add:#7ec99a; --del:#e79a92;
-    --gray-bar:#3a424c; --code-bg:#11151b;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; }
-  body { background: var(--paper); color: var(--ink);
-    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  .serif { font-family: Charter, "Iowan Old Style", Georgia, serif; }
-  code, pre, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-
+# Viewer-only layout: the chrome (header/tabs/toggle), the master-detail
+# split, interactive table rows, and the trace spine. Shared primitives
+# (tokens, table, severity, code blocks) live in kai.viewer.style.
+_VIEWER_LAYOUT = """\
   header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap;
     padding: 12px 22px; border-bottom: 1px solid var(--rule-2);
     position: sticky; top: 0; background: var(--paper); z-index: 5; }
@@ -98,51 +47,13 @@ _TEMPLATE = r"""<!DOCTYPE html>
   .split { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(420px, 1.3fr); }
   @media (max-width: 880px) { .split { grid-template-columns: 1fr; } }
 
-  table { border-collapse: collapse; width: 100%; }
-  thead th { text-align: left; font-size: 10px; letter-spacing: .07em; text-transform: uppercase;
-    color: var(--muted-2); font-weight: 600; padding: 10px 14px 8px; border-bottom: 1px solid var(--rule-2); }
-  thead th.num { text-align: right; }
-  tbody tr { border-bottom: 1px solid var(--rule); cursor: pointer; }
+  tbody tr { cursor: pointer; }
   tbody tr:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
   tbody tr.sel { background: color-mix(in srgb, var(--accent) 9%, transparent); }
-  td { padding: 11px 14px; vertical-align: top; }
-  td.cvss { white-space: nowrap; }
-
-  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; vertical-align: middle; margin-right: 7px; background: var(--gray-bar); }
-  .sev-critical .dot, .sev-high .dot { background: var(--accent); }
-  .sev-medium .dot { background: var(--muted-2); }
-  .score { font-family: ui-monospace, monospace; font-weight: 600; font-size: 13px; }
-  .bar { display:block; height: 3px; width: 64px; background: var(--gray-bar); margin-top: 6px; border-radius: 2px; }
-  .bar > i { display:block; height: 100%; background: var(--muted-2); border-radius: 2px; }
-  .sev-critical .bar > i, .sev-high .bar > i { background: var(--accent); }
-  .ftitle { font-weight: 600; }
-  .cat { font-size: 11px; color: var(--muted-2); }
-  .loc { font-size: 12px; color: var(--muted); }
-  .unconf { opacity: .62; }
 
   .detail { border-left: 1px solid var(--rule-2); padding: 18px 22px; min-width: 0; }
   .detail h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; line-height: 1.3; }
   .detail .where { font-size: 12.5px; color: var(--muted); margin-bottom: 16px; }
-  .kv { display: grid; grid-template-columns: 130px 1fr; gap: 5px 14px; font-size: 13px; margin: 0; }
-  .kv dt { color: var(--muted-2); }
-  .kv dd { margin: 0; }
-  .sec-label { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted-2);
-    margin: 18px 0 8px; border-top: 1px solid var(--rule); padding-top: 12px; }
-  .prose { white-space: pre-wrap; margin: 0; }
-  .cvss-grid { display: grid; grid-template-columns: max-content max-content 1fr; gap: 5px 14px;
-    font-size: 12.5px; align-items: baseline; }
-  .cvss-grid .m { color: var(--muted-2); font-family: ui-monospace, monospace; }
-  .cvss-grid .v { font-weight: 500; }
-  .cvss-grid .why { color: var(--muted); font-size: 12px; }
-  .vector { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
-
-  pre.code, pre.diff, pre.output { margin: 0 0 4px; padding: 11px 13px; border: 1px solid var(--rule-2);
-    border-radius: 6px; background: var(--code-bg); overflow: auto; font-size: 12.5px; line-height: 1.5; }
-  pre.code, pre.diff { white-space: pre; }
-  pre.output { white-space: pre-wrap; color: var(--muted-2); max-height: 320px; }
-  pre.diff .add { color: var(--add); }
-  pre.diff .del { color: var(--del); }
-  .empty { color: var(--muted); padding: 40px 22px; }
 
   .trace { padding: 14px 22px; max-width: 920px; }
   .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted-2);
@@ -166,6 +77,54 @@ _TEMPLATE = r"""<!DOCTYPE html>
   .missing { color: var(--del); font-size: 12px; padding: 4px 0; }
   .sec { font-size: 12px; color: var(--muted-2); margin: 26px 0 10px; border-top: 1px solid var(--rule); padding-top: 12px; }
   .result { border: 1px solid var(--rule-2); border-radius: 8px; padding: 11px; background: var(--panel); white-space: pre-wrap; margin: 2px 0 0; }
+"""
+
+_VIEWER_CSS = style.base_css() + _VIEWER_LAYOUT
+
+
+def render_html(run: RunTrace, findings: list[Finding] | None = None) -> str:
+    """Render the full page from a loaded trace + findings list.
+
+    ``findings`` defaults to empty (e.g. a benchmark rollout dir has a trace
+    but no ``exploits.json``); the Findings tab then shows an empty state.
+    """
+
+    findings = findings or []
+    data = {
+        "title": run.title,
+        "benchmark": run.benchmark,
+        "task_id": run.task_id,
+        "models": run.models,
+        "run": run.as_dict(),
+        "findings": [f.as_dict() for f in findings],
+    }
+    # ``</`` would prematurely close the <script>; escape it in the blob.
+    blob = json.dumps(data).replace("</", "<\\/")
+    return _TEMPLATE.replace("__STYLE__", _VIEWER_CSS).replace("__DATA__", blob)
+
+
+def write_html(run_dir: Path, out: Path | None = None) -> Path:
+    """Load ``run_dir`` (trace + findings) and write a single HTML file.
+
+    Defaults to ``<run_dir>/trace.html`` so existing callers that link to
+    that name keep working.
+    """
+
+    run = load_rollout_dir(run_dir)
+    findings = load_findings(run_dir)
+    target = out or (Path(run_dir) / "trace.html")
+    target.write_text(render_html(run, findings), encoding="utf-8")
+    return target
+
+
+_TEMPLATE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kai — run view</title>
+<style>
+__STYLE__
 </style>
 </head>
 <body>

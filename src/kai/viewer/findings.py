@@ -91,7 +91,11 @@ def _title_of(record: dict[str, Any]) -> str:
     hypothesis = str(record.get("hypothesis") or "").strip()
     if hypothesis:
         first = hypothesis.replace("\n", " ").split(". ")[0].strip().rstrip(".")
-        return first[:120] + ("…" if len(first) > 120 else "")
+        # Cut at a word boundary so a long first sentence stays a scannable
+        # headline rather than wrapping across table cells / section titles.
+        if len(first) > 64:
+            first = first[:64].rsplit(" ", 1)[0] + "…"
+        return first
     category = str(record.get("category") or "finding").replace("_", " ")
     fn = str(record.get("function") or "").strip()
     return f"{category} in {fn}" if fn else category
