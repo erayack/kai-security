@@ -8,6 +8,28 @@ Kai runs a multi-stage pipeline: a **setup agent** prepares and builds the targe
 
 Built on [ra](src/ra/), a recursive language model framework where LLMs write code that launches other LLMs.
 
+## Quickstart
+
+```bash
+git clone https://github.com/firstbatchxyz/kai-security.git
+cd kai-security
+uv sync
+cp .env.example .env          # add OPENROUTER_API_KEY (or OPENAI_API_KEY)
+
+# Audit the bundled, intentionally-vulnerable example target
+uv run kai audit --repo-path examples/vulnerable-vault --verbose
+
+# Explore the findings + the agent's reasoning in your browser...
+uv run kai view output/state/<run_id> --open
+# ...or print a Markdown report (or a styled HTML one)
+uv run kai report output/state/<run_id>
+```
+
+`<run_id>` is printed during the run (the directory created under
+`output/state/`). Point `--repo-path` at any local checkout you're authorized
+to test. See [`examples/`](examples/) for more, and the [full CLI](#command-line-interface)
+and [Usage](#usage) below for every option.
+
 ## Installation
 
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
@@ -54,6 +76,14 @@ uv run kai report output/state/<run_id> --format html -o report.html
 `kai agent` expose the complete interface documented under [Usage](#usage)
 (equivalently `uv run python -m kai.main ...`). Run `kai <command> -h` for
 per-command options.
+
+## Examples
+
+The [`examples/`](examples/) directory has small, self-contained,
+intentionally-vulnerable targets you can audit end to end without a private
+repo or large spend — start with
+[`vulnerable-vault`](examples/vulnerable-vault/) (a Solidity vault with a
+reentrancy and an unchecked-transfer bug, plus a ready-made threat context).
 
 ### API keys
 
@@ -400,6 +430,14 @@ make lint
 # Type check
 make typecheck
 ```
+
+## Benchmarking
+
+Kai ships an optional harness for scoring it against external security
+benchmarks (CyberGym, BountyBench, EVMBench) and for running fleets of audits
+in parallel. It drives `kai` as a subprocess and lives entirely in
+[`evaluation/`](evaluation/) — see [`evaluation/README.md`](evaluation/README.md).
+Most users don't need it; it's for measuring and improving Kai itself.
 
 ## Related Work
 
