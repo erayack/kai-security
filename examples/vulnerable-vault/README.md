@@ -8,10 +8,10 @@ without a private repo or a large API spend.
 
 ## Planted bugs
 
-| # | Bug | Location | Expected category |
-|---|-----|----------|-------------------|
-| 1 | **Reentrancy** — external call before the balance is zeroed, no guard | `src/Vault.sol` · `withdraw()` | `active_exploit` |
-| 2 | **Unchecked ERC-20 return** — `transfer()` boolean ignored | `src/Vault.sol` · `sweepToken()` | `active_exploit` |
+| # | Bug | Location |
+|---|-----|----------|
+| 1 | **Reentrancy** — the caller's balance is zeroed *after* the external call, no guard (a re-entrant caller drains the contract) | `src/Vault.sol` · `withdraw()` |
+| 2 | **Unchecked ERC-20 return** — `transfer()`'s boolean result is ignored | `src/Vault.sol` · `sweepToken()` |
 
 ## Run it
 
@@ -35,10 +35,36 @@ uv run kai report output/state/<run_id> --format html -o report.html
 `<run_id>` is printed during the run and is the directory name under
 `output/state/`.
 
-## What to expect
+## What a real run produced
 
-Kai should surface the reentrancy in `withdraw()` as a confirmed
-`active_exploit` (typically the highest-CVSS finding, with a working PoC and a
-suggested patch that moves the balance update before the external call), and
-flag the unchecked `transfer()` return in `sweepToken()`. Exact wording, CVSS
-scores, and ordering depend on the models configured for the run.
+This isn't hypothetical — here's an actual result. With the reentrancy bug,
+Kai built a Foundry proof-of-concept, confirmed the drain, and proposed a fix:
+
+```
+| CVSS | Severity | Finding                                   | Location            | Status              |
+| 9.8  | critical | Reentrancy in withdraw() (CEI violation)  | Vault.sol:withdraw  | verified_and_fixed ✓ |
+```
+
+with the correct Check-Effects-Interaction patch (move the balance update
+*before* the external call):
+
+```diff
+ function withdraw() external {
+     uint256 amount = balances[msg.sender];
+     require(amount > 0, "nothing to withdraw");
++    balances[msg.sender] = 0;
+     (bool ok, ) = msg.sender.call{value: amount}("");
+     require(ok, "transfer failed");
+-    balances[msg.sender] = 0;
+ }
+```
+
+> **Kai is an agentic system, so runs are not deterministic.** Which bugs get
+> confirmed, their CVSS scores, and the exact wording vary by run and by the
+> models you configure. In one run Kai confirmed the reentrancy as Critical
+> (above); in another it confirmed the unchecked-return in `sweepToken()` as
+> Medium instead. It also reasons about *exploitability*, not just patterns —
+> given a `withdraw()` that used a checked `-= amount`, it correctly **disproved**
+> a textbook-looking reentrancy because the subtraction underflows and reverts
+> under Solidity 0.8.x. Treat the output as a strong signal to investigate, not
+> a fixed checklist.

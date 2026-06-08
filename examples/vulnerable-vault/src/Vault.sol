@@ -16,14 +16,18 @@ contract Vault {
         balances[msg.sender] += msg.value;
     }
 
-    /// BUG 1 — reentrancy: the ETH is sent *before* the balance is zeroed,
-    /// and there is no reentrancy guard, so a malicious receiver can re-enter
-    /// withdraw() and drain the contract.
-    function withdraw(uint256 amount) external {
-        require(balances[msg.sender] >= amount, "insufficient");
+    /// BUG 1 — reentrancy: the caller's balance is zeroed *after* the external
+    /// call, with no reentrancy guard. A malicious receiver can re-enter
+    /// withdraw() from its fallback and drain the contract, because the balance
+    /// is still non-zero on each re-entry. (Zeroing with `= 0` rather than a
+    /// checked `-=` is what makes this genuinely exploitable under Solidity
+    /// 0.8.x — a checked subtraction would underflow and revert the drain.)
+    function withdraw() external {
+        uint256 amount = balances[msg.sender];
+        require(amount > 0, "nothing to withdraw");
         (bool ok, ) = msg.sender.call{value: amount}("");
         require(ok, "transfer failed");
-        balances[msg.sender] -= amount;
+        balances[msg.sender] = 0;
     }
 
     /// BUG 2 — unchecked return value: ERC-20 transfer() can return false
