@@ -171,12 +171,18 @@ def _finding_from_record(record: dict[str, Any]) -> Finding:
     )
 
 
-def _sort_key(f: Finding) -> tuple[int, float]:
-    """Confirmed findings first, then by descending CVSS score."""
+def _sort_key(f: Finding) -> tuple[int, int, float]:
+    """Confirmed first, then by severity, then CVSS score as the tie-breaker.
+
+    Severity is the secondary key so a high/critical finding that carries a
+    label but no usable CVSS score (the fixer can emit one without a vector)
+    still outranks a low finding that happens to have a numeric score.
+    """
 
     confirmed = 1 if f.confirmed else 0
+    severity = _SEVERITY_RANK.get(f.severity, 0)
     score = f.cvss_score if isinstance(f.cvss_score, (int, float)) else -1.0
-    return (confirmed, score)
+    return (confirmed, severity, score)
 
 
 def load_findings(run_dir: Path) -> list[Finding]:

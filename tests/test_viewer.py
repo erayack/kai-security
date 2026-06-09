@@ -76,6 +76,19 @@ def test_load_findings_drops_deduplicated(tmp_path: Path) -> None:
     assert [f.exploit_id for f in findings] == ["keep"]
 
 
+def test_load_findings_sorts_severity_over_missing_score(tmp_path: Path) -> None:
+    # A critical finding with a severity label but no CVSS score must still
+    # outrank a low finding that happens to carry a numeric score.
+    records = [
+        {"exploit_id": "low_scored", "status": "verified", "confirmed": True,
+         "hypothesis": "low but scored", "severity": "low", "cvss_score": 3.1},
+        {"exploit_id": "crit_unscored", "status": "verified", "confirmed": True,
+         "hypothesis": "critical, no vector", "severity": "critical"},
+    ]
+    (tmp_path / "exploits.json").write_text(json.dumps(records), encoding="utf-8")
+    assert [f.exploit_id for f in load_findings(tmp_path)] == ["crit_unscored", "low_scored"]
+
+
 def test_load_findings_sorts_and_derives(tmp_path: Path) -> None:
     _write_run(tmp_path)
     findings = load_findings(tmp_path)

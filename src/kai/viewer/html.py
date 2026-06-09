@@ -157,5 +157,6 @@ def write_html(run_dir: Path, out: Path | None = None) -> Path:
     run = load_rollout_dir(run_dir)
     findings = load_findings(run_dir)
     target = out or (Path(run_dir) / "trace.html")
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(render_html(run, findings), encoding="utf-8")
     return target
