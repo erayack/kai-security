@@ -318,13 +318,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.format == "md":
         markdown = render_run(run_dir)
         if args.output:
-            Path(args.output).write_text(markdown, encoding="utf-8")
-            print(args.output)
+            out = Path(args.output)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(markdown, encoding="utf-8")
+            print(out)
         else:
             sys.stdout.write(markdown)
         return 0
 
     target = Path(args.output) if args.output else run_dir / "report.html"
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(render_run_html(run_dir), encoding="utf-8")
     print(target)
     if args.open:
