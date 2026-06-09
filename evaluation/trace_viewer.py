@@ -9,7 +9,8 @@ should import from :mod:`kai.viewer` directly.
 
 from __future__ import annotations
 
+from ra.viewer.trace import load_rollout_dir
+
 from kai.viewer.html import render_html, write_html
-from kai.viewer.trace import load_rollout_dir
 
 __all__ = ["load_rollout_dir", "render_html", "write_html"]

@@ -8,9 +8,10 @@ external requests, no live state backend required.
 
 from __future__ import annotations
 
+from ra.viewer.trace import RunTrace, load_rollout_dir
+
 from kai.viewer.findings import Finding, load_findings
 from kai.viewer.html import render_html, write_html
-from kai.viewer.trace import RunTrace, load_rollout_dir
 
 __all__ = [
     "Finding",

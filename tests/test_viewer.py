@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from ra.viewer.trace import RunTrace, load_rollout_dir
+
 from kai.viewer import load_findings, render_html, write_html
-from kai.viewer.trace import RunTrace, load_rollout_dir
 
 _EXPLOITS = [
     {
