@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from html import escape
 from pathlib import Path
+import re
 
 from ra.viewer import style
 from ra.viewer.trace import RunTrace, load_rollout_dir
@@ -168,8 +170,12 @@ function renderTrace() {
 def trace_panel() -> Panel:
     """The built-in causal-trace panel, reusable by any ``ra`` agent."""
 
-    return Panel("trace", "Trace", _TRACE_SECTION, _TRACE_CSS, _TRACE_JS, "renderTrace();")
+    return Panel(
+        "trace", "Trace", _TRACE_SECTION, _TRACE_CSS, _TRACE_JS, "renderTrace();"
+    )
 
+
+_SHELL_PLACEHOLDER_RE = re.compile(r"__[A-Z_]+__")
 
 _SHELL = r"""<!DOCTYPE html>
 <html lang="en">
@@ -254,17 +260,20 @@ def render_page(
     render_calls = "\n  ".join(p.render_call for p in panels)
     panels_meta = json.dumps([{"id": p.id, "label": p.label} for p in panels])
     default = json.dumps(default_view or (panels[0].id if panels else ""))
-    return (
-        _SHELL.replace("__TITLE__", f"{brand} — run view")
-        .replace("__BRAND__", brand)
-        .replace("__STYLE__", css)
-        .replace("__SECTIONS__", sections)
-        .replace("__PANELS_META__", panels_meta)
-        .replace("__PANEL_JS__", panel_js)
-        .replace("__RENDER_CALLS__", render_calls)
-        .replace("__DEFAULT_VIEW__", default)
-        .replace("__DATA__", blob)
-    )
+    escaped_brand = escape(brand, quote=True)
+    escaped_title = escape(f"{brand} — run view", quote=True)
+    replacements = {
+        "__TITLE__": escaped_title,
+        "__BRAND__": escaped_brand,
+        "__STYLE__": css,
+        "__SECTIONS__": sections,
+        "__PANELS_META__": panels_meta,
+        "__PANEL_JS__": panel_js,
+        "__RENDER_CALLS__": render_calls,
+        "__DEFAULT_VIEW__": default,
+        "__DATA__": blob,
+    }
+    return _SHELL_PLACEHOLDER_RE.sub(lambda match: replacements[match.group(0)], _SHELL)
 
 
 def render_trace_html(run: RunTrace, *, brand: str = "ra") -> str:
