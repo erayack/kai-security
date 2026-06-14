@@ -3,11 +3,6 @@ requires = ["uv_build>=0.8.17,<0.9.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-# Ship BOTH top-level modules under src/. The project is named "kai", so the
-# default uv_build discovery packages only src/kai and drops src/ra — the
-# recursive-LM framework that kai imports (`from ra... import ...`). Without
-# this, `pip install kai @ git+...` produces an install that crashes on
-# `import ra`. List both root modules so the wheel/sdist include ra too.
 module-root = "src"
 module-name = ["kai", "ra"]
 
